@@ -270,6 +270,49 @@ def test_seconds_count_when_the_reply_says_them() -> None:
     assert verify.verify_reply("at 14:05:30", {"farm_time": "14:05:30"}).ok
     assert verify.verify_reply("at 14:05", {"farm_time": "14:05:30"}).ok
     assert not verify.verify_reply("at 14:05:31", {"farm_time": "14:05:30"}).ok
+    assert verify.verify_reply("at 14:05:00", {"farm_time": "14:05"}).ok                 # ":00" adds no precision
+
+
+# --- spelled-out readings, time words, ISO times and offsets (review 3, finding 4) ---------------------------------
+
+SPOKEN = [{"name": "get_status", "data": {"farm_time": "14:05", "temperature_c": 39.0, "humidity_pct": 55.0,
+                                          "voltage_v": 120, "updated": "2026-10-23T13:58:00+01:00"}}]
+
+
+@pytest.mark.parametrize(("reply", "ok"), [
+    ("taken 2026-10-23T15:05:00Z", False), ("taken 2026-10-23T14:05:00Z", True),   # the time inside a timestamp
+    ("the gate opened at 01:00", False),                     # "+01:00" in the evidence is an offset, not a time
+    ("updated at 13:58", True),
+    ("It is thirty-nine degrees, sir.", True), ("It is thirty-eight degrees, sir.", False),
+    ("Humidity is fifty-five percent.", True), ("Humidity is fifty percent.", False),
+    ("thirty-nine point zero degrees", True), ("thirty-nine point five degrees", False),
+    ("one hundred and twenty volts", True), ("a hundred volts", False),
+    ("at two o'clock", True), ("at three o'clock", False), ("at five past two", True), ("at ten past two", False),
+    ("at half past two", False), ("at noon", False), ("at midnight", False),
+    ("all four machines are normal", True),                   # a spelled count without a unit is not read
+    ("I keep watch 24/7, sir.", True),
+])
+def test_spelled_readings_and_time_words_are_checked_too(reply: str, ok: bool) -> None:
+    report = verify.verify_reply(reply, SPOKEN)
+    assert report.ok is ok, (reply, report.problems())
+
+
+def test_time_words_and_spelled_numbers_read_right() -> None:
+    times = {t.text: t.minutes for t in verify.scan_times("quarter to three, half past 2, twenty-five past eleven, "
+                                                          "noon, midnight, three o'clock")}
+    assert times == {"quarter to three": (165, 885), "half past 2": (150, 870), "twenty-five past eleven": (685, 1405),
+                     "noon": (720,), "midnight": (0,), "three o'clock": (180, 900)}
+    [number] = verify.extract_numbers("a reading of thirty-seven point five degrees Celsius")
+    assert (number.value, number.unit, number.decimals) == (37.5, "°C", 1)
+    assert [(n.value, n.unit) for n in verify.extract_numbers("ninety-nine parts per million, sixty seconds")] == \
+        [(99.0, "ppm"), (60.0, "s")]
+
+
+def test_a_count_matches_a_count_never_a_reading() -> None:
+    evidence = {"temperature_c": {"min": 36.2, "count": 37}, "alarm_count": 2}
+    assert verify.unit_for_key("count") == "count" and verify.unit_for_key("alarm_count") == "count"
+    assert not verify.verify_reply("37 °C", evidence).ok
+    assert verify.verify_reply("37 readings and 2 alarms", evidence).ok
 
 
 def test_an_unmatched_time_is_reported_and_allowed_texts_skip_it() -> None:

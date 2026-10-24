@@ -11,21 +11,26 @@ What counts as a number (`extract_numbers`):
     integers, decimals (37.5, .5), signed values (-3.5, +0.4, U+2212 minus), thousands separators (3,000 and
     1,207,615,488), percentages (55 %, 55%, 55 percent, 55 per cent) and values with a unit: °C, %, ppm, kPa, rpm,
     V, W, kW, GB, MB, B (bytes), ms, s, min, h, day, m/s, cm, L, written as symbols or words (37.5 °C, 37.5C,
-    4 minutes, 12 volts). Units are normalised (`UNIT_ALIASES`). Spelled-out numbers ("three") are not read, and
-    digits glued after letters (CO2, Qwen3.5, v1) are part of a word, not a number.
+    4 minutes, 12 volts). Units are normalised (`UNIT_ALIASES`). A number spelled out **with a unit** is read like
+    digits ("thirty-nine degrees", "thirty-seven point five degrees", "one hundred and twenty volts"), so spelling a
+    reading cannot slip past the check; a spelled-out count without a unit ("two fans") is not read. Digits glued
+    after letters (CO2, Qwen3.5, v1) are part of a word, not a number.
 
-Times of day (14:05, 14:05:30, 2:05 pm, 2 pm, 7 a.m., 3 o'clock) are not quantities, but they are checked: each must
-equal a time inside the evidence's strings (a `farm_time` of "14:05", an event "03:12 gate opened", an ISO timestamp).
-A time with minutes must match to the minute, and to the second when the reply says seconds; an hour on its own
-("2 pm", "3 o'clock") matches an evidence time within HOUR_ONLY_WINDOW_MIN minutes of it, and "3 o'clock" may be 03:00
-or 15:00. Only valid times are times: "37:50" is read as the numbers 37 and 50.
+Times of day (14:05, 14:05:30, 2:05 pm, 2 pm, 7 a.m., 3 o'clock, three o'clock, half past two, quarter to three, five
+past two, noon, midnight, and the time inside an ISO timestamp) are not quantities, but they are checked: each must
+equal a time inside the evidence's strings (a `farm_time` of "14:05", an event "03:12 gate opened", an ISO
+timestamp; a time zone offset such as "+01:00" is part of its timestamp, not a time). A time with minutes must match
+to the minute, and to the second when the reply says seconds other than ":00"; an hour on its own ("2 pm", "three
+o'clock") matches an evidence time within HOUR_ONLY_WINDOW_MIN minutes of it; a time without am or pm ("3 o'clock",
+"half past two") may be in the morning or the afternoon. Only valid times are times: "37:50" is read as the numbers
+37 and 50.
 
 What is not a quantity and is never checked as a number (listed in `VerifyReport.ignored` with the reason):
     valid times (checked as times instead, above), valid dates (2026-10-23, 23/10/2026, 23 October, Oct 23rd,
-    October 2026; a slash date needs its year, so "55/60" and "3/4" are numbers), list markers at the start of a line
-    (1. / 2) / (3)), names whose number is part of the name (incubator-1, incubator 2, fan 3, tray 4, when no unit
-    follows; see `NAME_WORDS`), and whatever the caller allows: a number value in `allowed` (e.g. a farm tick) or a
-    text in `allowed` (every number and time inside it, e.g. "Day 12").
+    October 2026; a slash date needs its year, so "55/60" and "3/4" are numbers), "24/7", list markers at the start
+    of a line (1. / 2) / (3)), names whose number is part of the name (incubator-1, incubator 2, fan 3, tray 4, when no
+    unit follows; see `NAME_WORDS`), and whatever the caller allows: a number value in `allowed` (e.g. a farm tick) or
+    a text in `allowed` (every number and time inside it, e.g. "Day 12").
 
 When a reply number matches an evidence number (`Match.rule`):
     rounded              the evidence rounded to the decimals the reply wrote: 37.46 → 37.5 or 37 (ties either way)
@@ -47,7 +52,9 @@ what they summarise: a key ending in `_min`, `_max`, `_mean` or `_avg` takes the
 (`temperature_c_max` → °C), and the bare keys `min`, `max`, `mean`, `avg` and `value` take the object's `unit`, the
 unit of its `signal` ({"signal": "temperature_c", "min": 36.8}) or that of the key above them
 ({"temperature_c": {"min": 36.8}}). With no clue they have no unit, and a number without a unit matches by value.
-So `_min` never means minutes (write `_minutes`), and a bare `s`, `h` or `c` is not a unit.
+So `_min` never means minutes (write `_minutes`), and a bare `s`, `h` or `c` is not a unit. A count (`count`,
+`*_count`) has the unit "count": it matches a number said without a unit ("37 readings"), never a reading such as
+"37 °C".
 
 Known limits (by design): matching is by value and unit, not by meaning, so 37 °C said about the wrong incubator
 passes when another 37 °C is in the evidence; numbers the model worked out itself (a difference, a sum) fail on
@@ -83,7 +90,7 @@ NAME_WORDS: tuple[str, ...] = (
 UNIT_ALIASES: tuple[tuple[str, str], ...] = (
     (r"°\s?C|º\s?C|deg\s?C|degrees?\s+(?:celsius|centigrade|C)|degrees?|celsius|°", "°C"),
     (r"%|percent|per\s?cent", "%"),
-    (r"ppm", "ppm"),
+    (r"ppm|parts\s+per\s+million", "ppm"),
     (r"kPa|kilopascals?", "kPa"),
     (r"rpm", "rpm"),
     (r"GiB|GB|gigabytes?", "GB"),
@@ -109,13 +116,22 @@ KEY_UNITS: tuple[tuple[str, str], ...] = (
     ("_litres", "L"), ("_liters", "L"), ("_days", "day"), ("_m_s", "m/s"), ("_mps", "m/s"), ("_pct", "%"),
     ("_ppm", "ppm"), ("_kpa", "kPa"), ("_rpm", "rpm"), ("_kw", "kW"), ("_sec", "s"), ("_cm", "cm"),
     ("_gb", "GB"), ("_mb", "MB"), ("_ms", "ms"), ("_c", "°C"), ("_w", "W"), ("_v", "V"), ("_s", "s"), ("_h", "h"),
-    ("_l", "L"),
+    ("_l", "L"), ("_count", "count"),
 )
 # Bare keys that can only mean a unit; a bare "s", "h", "c", "v", "w", "l" or "min" could mean several things.
 BARE_KEY_UNITS: dict[str, str] = {
     "celsius": "°C", "percent": "%", "pct": "%", "seconds": "s", "minutes": "min", "hours": "h", "days": "day",
-    "bytes": "B", "litres": "L", "liters": "L", "ppm": "ppm", "kpa": "kPa", "rpm": "rpm",
+    "bytes": "B", "litres": "L", "liters": "L", "ppm": "ppm", "kpa": "kPa", "rpm": "rpm", "count": "count",
 }
+# Spelled-out numbers and hours.
+SMALL_WORDS: dict[str, int] = {
+    "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9,
+    "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15, "sixteen": 16,
+    "seventeen": 17, "eighteen": 18, "nineteen": 19,
+}
+TENS_WORDS: dict[str, int] = {"twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60, "seventy": 70,
+                              "eighty": 80, "ninety": 90}
+HOUR_WORDS: dict[str, int] = {word: value for word, value in SMALL_WORDS.items() if 1 <= value <= 12}
 # Statistics take the unit of what they summarise: as a key ending ("temperature_c_max") or as a bare key ("max").
 STAT_SUFFIXES: tuple[str, ...] = ("_min", "_max", "_mean", "_avg")
 STAT_KEYS: frozenset[str] = frozenset({"min", "max", "mean", "avg", "value"})
@@ -148,11 +164,32 @@ _DAY_MONTH_RE = re.compile(rf"(?<![\w.])(?P<d>[0-9]{{1,2}})(?:st|nd|rd|th)?\s+(?
                            r"(?!\w)")
 _MONTH_DAY_RE = re.compile(rf"\b{_MONTHS}\s+(?P<d>[0-9]{{1,2}})(?:st|nd|rd|th)?(?:,?\s+[0-9]{{4}})?(?!\w)")
 _MONTH_YEAR_RE = re.compile(rf"\b{_MONTHS}\s+[0-9]{{4}}(?!\w)")
-_CLOCK_RE = re.compile(r"(?<![\w.:])(?P<h>[0-9]{1,2}):(?P<m>[0-5][0-9])(?::(?P<s>[0-5][0-9]))?"
+_HOUR_ALTERNATION = "|".join(sorted(HOUR_WORDS, key=len, reverse=True))
+# A time zone offset after the seconds ("13:58:00+01:00") is part of the time; a "+" before a time is never a time.
+_CLOCK_RE = re.compile(r"(?<![\w.:+])(?P<h>[0-9]{1,2}):(?P<m>[0-5][0-9])"
+                       r"(?::(?P<s>[0-5][0-9])(?:\.[0-9]+)?(?:Z|[+-][0-9]{2}:?[0-9]{2})?)?"
                        r"(?:\s?(?P<ap>[ap])\.?m\.?)?(?![\w:])", re.IGNORECASE)
 _HOUR_RE = re.compile(r"(?<![\w.])(?P<h>[0-9]{1,2})\s?(?P<ap>[ap])(?:\.m\.|m)(?![A-Za-z])", re.IGNORECASE)
-_OCLOCK_RE = re.compile(r"(?<![\w.])(?P<h>[0-9]{1,2})\s?o['’]clock", re.IGNORECASE)
+_OCLOCK_RE = re.compile(rf"(?<![\w.])(?P<h>[0-9]{{1,2}}|{_HOUR_ALTERNATION})\s?o['’]clock", re.IGNORECASE)
+PAST_MINUTES: dict[str, int] = {"half": 30, "quarter": 15, "a quarter": 15, "five": 5, "ten": 10, "twenty": 20,
+                                 "twenty-five": 25, "twenty five": 25}
+_PART_ALTERNATION = "|".join(sorted((re.escape(p).replace(r"\ ", r"\s+") for p in PAST_MINUTES), key=len,
+                                    reverse=True))
+_TIME_WORDS_RE = re.compile(rf"\b(?:(?P<noon>noon|midday)|(?P<midnight>midnight)|(?P<part>{_PART_ALTERNATION})\s+"
+                            rf"(?:minutes\s+)?(?P<dir>past|to)\s+(?P<wh>[0-9]{{1,2}}|{_HOUR_ALTERNATION}))\b"
+                            r"(?![:.][0-9])", re.IGNORECASE)
 _TIME_RES = (_CLOCK_RE, _HOUR_RE, _OCLOCK_RE)
+_WORD_UNIT = (r"degrees?(?:\s+(?:celsius|centigrade))?|per\s?cent|percent|parts\s+per\s+million|ppm|minutes?|seconds?"
+              r"|hours?|days?|volts?|watts?|kilowatts?|kilopascals?|litres?|liters?|rpm")
+_SMALL = "|".join(sorted(SMALL_WORDS, key=len, reverse=True))
+_TENS = "|".join(TENS_WORDS)
+_DIGIT_WORDS = "zero|one|two|three|four|five|six|seven|eight|nine"
+_WORD_NUMBER_RE = re.compile(
+    rf"(?<![\w-])(?P<words>(?:(?P<hundred>a|one)\s+hundred(?:\s+and)?\s+)?(?:(?P<tens>{_TENS})(?:[-\s](?P<ones>"
+    rf"{_DIGIT_WORDS}))?|(?P<small>{_SMALL}))|(?P<only_hundred>a|one)\s+hundred)"
+    rf"(?:\s+point\s+(?P<frac>(?:{_DIGIT_WORDS})(?:\s+(?:{_DIGIT_WORDS}))*))?"
+    rf"\s+(?P<unit>{_WORD_UNIT})(?![A-Za-z])", re.IGNORECASE)
+_ALWAYS_NAMES_RE = re.compile(r"(?<![\w/])24\s?/\s?7(?![\w/])")       # "24/7" is a phrase, not a quantity
 _LIST_MARKER_RE = re.compile(r"^[ \t]*(?:[-*•][ \t]+)?\(?(?P<n>[0-9]{1,2})[.)](?=[ \t])", re.MULTILINE)
 _DIRECTION_RE = re.compile(
     r"\b(?:fell|fall(?:s|ing|en)?|drop(?:s|ped|ping)?|down|below|under|lower|less|decreas\w*|declin\w*|cool(?:er|ed|ing)"
@@ -323,21 +360,31 @@ def unit_for_key(key: str) -> str | None:
     return None
 
 
+def _hour_value(text: str) -> int:
+    lowered = text.lower()
+    return HOUR_WORDS[lowered] if lowered in HOUR_WORDS else int(lowered)
+
+
+def _both_halves(hour: int, minute: int) -> tuple[int, ...]:
+    """A clock time said without am or pm: its morning and its afternoon reading."""
+    hour %= 12
+    return (hour * 60 + minute, (hour + 12) * 60 + minute)
+
+
 def _time_at(match: re.Match[str]) -> StatedTime | None:
     """The time a time-pattern match says, or None when it is not a valid time (37:50, 13 pm)."""
     groups = match.groupdict()
-    hour = int(groups["h"])
+    hour = _hour_value(groups["h"])
     minute = int(groups["m"]) if groups.get("m") else 0
     seconds = int(groups["s"]) if groups.get("s") else None
     meridiem = (groups.get("ap") or "").lower()
     if meridiem or match.re is _OCLOCK_RE:
         if not 1 <= hour <= 12:
             return None
-        hour %= 12
         if meridiem:
-            readings = ((hour + (12 if meridiem == "p" else 0)) * 60 + minute,)
+            readings: tuple[int, ...] = (((hour % 12) + (12 if meridiem == "p" else 0)) * 60 + minute,)
         else:                                        # "3 o'clock": 03:00 or 15:00
-            readings = (hour * 60, (hour + 12) * 60)
+            readings = _both_halves(hour, 0)
     elif hour <= 23:
         readings = (hour * 60 + minute,)
     else:
@@ -346,14 +393,47 @@ def _time_at(match: re.Match[str]) -> StatedTime | None:
                       hour_only=groups.get("m") is None)
 
 
+def _time_words_at(match: re.Match[str]) -> StatedTime | None:
+    """"noon", "midnight", "half past two", "quarter to three" (with digits or words for the hour)."""
+    if match.group("noon"):
+        readings: tuple[int, ...] = (12 * 60,)
+    elif match.group("midnight"):
+        readings = (0,)
+    else:
+        hour = _hour_value(match.group("wh"))
+        if not 1 <= hour <= 12:
+            return None
+        part = re.sub(r"\s+", " ", match.group("part").lower())
+        offset = PAST_MINUTES[part]
+        if match.group("dir").lower() == "past":
+            readings = _both_halves(hour, offset)
+        elif part == "half":
+            return None                                  # "half to" is not English
+        else:
+            readings = tuple((minutes - offset) % DAY_MINUTES for minutes in _both_halves(hour, 0))
+    return StatedTime(text=match.group(0), start=match.start(), end=match.end(), minutes=readings)
+
+
+def _iso_time_at(match: re.Match[str]) -> StatedTime | None:
+    """The time inside an ISO timestamp ("2026-10-23T15:05:00Z" says 15:05:00), or None."""
+    if match.group("h") is None or not _iso_date(match):
+        return None
+    seconds = int(match.group("s")) if match.group("s") is not None and int(match.group("s")) <= 59 else None
+    return StatedTime(text=match.group(0), start=match.start(), end=match.end(),
+                      minutes=(int(match.group("h")) * 60 + int(match.group("mi")),), seconds=seconds)
+
+
 def scan_times(text: str) -> list[StatedTime]:
-    """Every valid time of day in `text`, in order (14:05, 2:05 pm, 2 pm, 3 o'clock); invalid ones are left out."""
+    """Every valid time of day in `text`, in order: ISO timestamps, 14:05, 2:05 pm, 2 pm, 3 o'clock, three o'clock,
+    half past two, noon. Invalid ones (37:50, 13 pm) are left out."""
     found: list[StatedTime] = []
+    candidates = [_iso_time_at(m) for m in _ISO_DATE_RE.finditer(text)]
     for pattern in _TIME_RES:
-        for match in pattern.finditer(text):
-            stated = _time_at(match)
-            if stated is not None and not any(stated.start < t.end and t.start < stated.end for t in found):
-                found.append(stated)
+        candidates += [_time_at(m) for m in pattern.finditer(text)]
+    candidates += [_time_words_at(m) for m in _TIME_WORDS_RE.finditer(text)]
+    for stated in candidates:
+        if stated is not None and not any(stated.start < t.end and t.start < stated.end for t in found):
+            found.append(stated)
     return sorted(found, key=lambda t: t.start)
 
 
@@ -377,12 +457,32 @@ def _allowed_spans(text: str, allowed_texts: Sequence[str]) -> list[Span]:
 
 
 def _masks(text: str, allowed_texts: Sequence[str]) -> list[Span]:
-    """Spans that never hold a quantity: valid times and dates, list markers and the caller's allowed texts."""
+    """Spans that never hold a quantity: valid times and dates, "24/7", list markers and the caller's allowed
+    texts."""
     spans: list[Span] = [(t.start, t.end, "time") for t in scan_times(text)]
     for pattern, valid in _DATE_RES:
         spans += _spans((m for m in pattern.finditer(text) if valid(m)), "date")
+    spans += _spans(_ALWAYS_NAMES_RE.finditer(text), "name")
     spans += _spans(_LIST_MARKER_RE.finditer(text), "list_marker", "n")
     return spans + _allowed_spans(text, allowed_texts)
+
+
+def _word_number(match: re.Match[str]) -> Number:
+    """A spelled-out number with its unit ("thirty-seven point five degrees" → 37.5 °C)."""
+    value = 100.0 if match.group("hundred") or match.group("only_hundred") else 0.0
+    if match.group("tens"):
+        value += TENS_WORDS[match.group("tens").lower()] + (SMALL_WORDS[match.group("ones").lower()]
+                                                            if match.group("ones") else 0)
+    elif match.group("small"):
+        value += SMALL_WORDS[match.group("small").lower()]
+    decimals = 0
+    if match.group("frac"):
+        digits = "".join(str(SMALL_WORDS[word.lower()]) for word in match.group("frac").split())
+        value += float(f"0.{digits}")
+        decimals = len(digits)
+    unit = re.sub(r"\s+", " ", match.group("unit"))
+    return Number(text=match.group(0), value=value, unit=normalise_unit(unit) or normalise_unit(unit.split()[0]),
+                  start=match.start(), end=match.end(), decimals=decimals)
 
 
 def _name_spans(text: str, name_words: Sequence[str]) -> list[Span]:
@@ -430,6 +530,16 @@ def scan_numbers(text: str, *, allowed: Iterable[float | int | str] = (),
             quantities.append(number)
         else:
             ignored.append(IgnoredNumber(number=number, reason=reason))
+    for match in _WORD_NUMBER_RE.finditer(text):                  # spelled-out readings: "thirty-nine degrees"
+        number = _word_number(match)
+        reason = _overlaps(number.start, number.end, always)
+        if reason is None and any(math.isclose(number.value, v, rel_tol=1e-9, abs_tol=1e-12) for v in allowed_values):
+            reason = "allowed"
+        if reason is None:
+            quantities.append(number)
+        else:
+            ignored.append(IgnoredNumber(number=number, reason=reason))
+    quantities.sort(key=lambda n: n.start)
     return quantities, ignored
 
 
@@ -440,12 +550,7 @@ def extract_numbers(text: str) -> list[Number]:
 
 def _string_times(text: str) -> list[tuple[int, int | None]]:
     """(minutes after midnight, seconds) of every time inside an evidence string, ISO timestamps included."""
-    times = [(minutes, t.seconds) for t in scan_times(text) for minutes in t.minutes]
-    for match in _ISO_DATE_RE.finditer(text):
-        if match.group("h") is not None and _iso_date(match):
-            seconds = int(match.group("s")) if match.group("s") is not None and int(match.group("s")) <= 59 else None
-            times.append((int(match.group("h")) * 60 + int(match.group("mi")), seconds))
-    return times
+    return [(minutes, t.seconds) for t in scan_times(text) for minutes in t.minutes]
 
 
 class _Collector:
@@ -599,7 +704,9 @@ def match_time(stated: StatedTime, times: Sequence[EvidenceTime]) -> EvidenceTim
             gap = min(gap, DAY_MINUTES - gap)
             if stated.hour_only and gap <= HOUR_ONLY_WINDOW_MIN:
                 return candidate
-            if not stated.hour_only and gap == 0 and (stated.seconds is None or stated.seconds == candidate.seconds):
+            seconds_ok = (stated.seconds is None or stated.seconds == candidate.seconds
+                          or (stated.seconds == 0 and candidate.seconds is None))      # ":00" adds no precision
+            if not stated.hour_only and gap == 0 and seconds_ok:
                 return candidate
     return None
 

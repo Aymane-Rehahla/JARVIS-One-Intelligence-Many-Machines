@@ -8,8 +8,10 @@
 #   1. every fact's value equals what the code says;
 #   2. every number in the machine manuals and shared documents, in digits or spelled out ("two" to "twelve", "twice"),
 #      is backed by a fact (same value, unit and context), and every fact is used;
-#   3. in a domain guide, a number with a fact's unit on a line its context matches (`guide_context` when given; unitless
-#      facts only with a `guide_context`) must equal the fact or sit under "## Conflicts with the simulation".
+#   3. in a domain guide, a number with a fact's unit on a line that the fact's `guide_context` matches (a
+#      case-insensitive regex written for guide prose; only facts that have one are compared) must equal the fact, or
+#      be part of a range that contains it ("55–65 %RH"), or sit under "## Conflicts with the simulation". On a
+#      humidity line a plain "%" counts as %RH.
 # In step 6D `file` paths move to the copied reasoning and matrix code.
 
 schema_version = 1
@@ -30,6 +32,7 @@ docs = ["incubator_manual.md"]
 value = 21
 unit = "day"
 context = 'chicken eggs'
+guide_context = '(?i)\bincubation (?:period|time|takes|lasts)\b|\bdays? to hatch\b|\bhatch(?:es)? (?:in|after|on day)\b'
 file = "devices/incubator.py"
 pattern = '"incubation_duration_days": (21)'
 
@@ -39,6 +42,7 @@ docs = ["incubator_manual.md"]
 value = 3
 unit = "day"
 context = 'Incubation|Lockdown'
+guide_context = '(?i)\b(?:lockdown|stop turning|no turning)\b'
 file = "controllers/incubator_controller.py"
 pattern = 'days_remaining", 99\)\) <= (3)'
 
@@ -48,6 +52,7 @@ docs = ["incubator_manual.md"]
 value = 37.5
 unit = "°C"
 context = 'Cabinet temperature|Incubation|Lockdown|Hatching'
+guide_context = '(?i)^(?!.*\b(?:stor(?:e|ed|age)|room|kills?|lethal|die|dies|death|zero|wet[- ]bulb|alarm|high[- ]limit)\b).*\b(?:incubat(?:ion|e|ing)|set the incubator|setter|dry[- ]bulb|forced[- ](?:air|draft))\b'
 file = "devices/incubator.py"
 pattern = 'get\("temperature_setpoint_c", (37\.5)\)'
 
@@ -66,6 +71,7 @@ docs = ["incubator_manual.md"]
 value = 55
 unit = "%RH"
 context = 'Cabinet humidity|Incubation'
+guide_context = '(?i)^(?!.*(?:(?<!until )(?<!before )(?<!up to )\b(?:lockdown|last (?:three|3) days|hatch(?:ing|es)?|pipping)\b|\bstor(?:e|ed|age)\b)).*\b(?:humidity|RH)\b'
 file = "devices/incubator.py"
 pattern = 'setdefault\("humidity_setpoint_pct", (55\.0)\)'
 
@@ -75,6 +81,7 @@ docs = ["incubator_manual.md"]
 value = 70
 unit = "%RH"
 context = 'Cabinet humidity|Lockdown|Hatching'
+guide_context = '(?i)(?<!until )(?<!before )(?<!up to )\b(?:lockdown|last (?:three|3) days|hatch(?:ing|es)?|pipping)\b.*\b(?:humidity|RH)\b|\b(?:humidity|RH)\b.*(?<!until )(?<!before )(?<!up to )\b(?:lockdown|last (?:three|3) days|hatch(?:ing|es)?|pipping)\b'
 file = "controllers/incubator_controller.py"
 pattern = 'lockdown_humidity_setpoint_pct", (70\.0)'
 
@@ -192,6 +199,7 @@ docs = ["incubator_manual.md"]
 value = 3
 unit = "h"
 context = 'Egg turning|every 3 hours'
+guide_context = '(?i)\bturn(?:s|ed|ing)?\b.*\bevery\b'
 file = "devices/incubator.py"
 pattern = '"turn_interval_s": (10800\.0)'
 expr = "x / 3600"
@@ -221,6 +229,7 @@ docs = ["incubator_manual.md"]
 value = 45
 unit = "°"
 context = 'tray tilts'
+guide_context = '(?i)\bturn\w*\b.*\b(?:angle|tilt|plane|arc)\b|\btilt\b'
 file = "devices/incubator.py"
 pattern = 'i\["turning_position_deg"\] = (45\.0) if'
 
@@ -303,6 +312,7 @@ docs = ["incubator_manual.md"]
 value = 39.5
 unit = "°C"
 context = 'High-limit thermostat'
+guide_context = '(?i)\b(?:high[- ]limit|high(?:[- ]temperature)? alarm|over-?temperature)\b'
 file = "controllers/incubator_controller.py"
 pattern = 'high_limit_c", (39\.5)\)'
 
@@ -561,6 +571,7 @@ docs = ["hvac_manual.md"]
 value = 24
 unit = "°C"
 context = 'Barn'
+guide_context = '(?i)\b(?:house|barn)\b.*\b(?:set ?point|target)\b'
 file = "devices/hvac.py"
 pattern = '"temperature_setpoints_c":\{"barn":(24\.0)'
 
@@ -588,6 +599,7 @@ docs = ["hvac_manual.md"]
 value = 60
 unit = "%RH"
 context = 'Barn'
+guide_context = '(?i)\b(?:house|barn|litter|dust)\b.*\b(?:humidity|RH)\b|\b(?:humidity|RH)\b.*\b(?:house|barn|litter|dust)\b'
 file = "devices/hvac.py"
 pattern = '"humidity_setpoints_pct":\{"barn":(60\.0)'
 
@@ -772,6 +784,7 @@ docs = ["animal_protection_manual.md"]
 value = 3000
 unit = "ppm"
 context = 'CO2_HIGH'
+guide_context = '(?i)\b(?:CO2|CO₂|carbon dioxide)\b.*\b(?:alarm|limit|threshold|above|exceed\w*)\b'
 file = "devices/animal_protection.py"
 pattern = '"co2_alarm_ppm",(3000\.0)\)'
 
@@ -800,6 +813,7 @@ docs = ["animal_protection_manual.md"]
 value = 19.5
 unit = "%"
 context = 'O2_LOW'
+guide_context = '(?i)\b(?:oxygen|O2|O₂)\b.*\b(?:deficien\w*|alarm|minimum|less than|below)\b'
 file = "devices/animal_protection.py"
 pattern = '"o2_alarm_pct",(19\.5)\)'
 
@@ -828,6 +842,7 @@ docs = ["animal_protection_manual.md"]
 value = 25
 unit = "ppm"
 context = 'AMMONIA_HIGH'
+guide_context = '(?i)\b(?:ammonia|NH3|NH₃)\b.*\b(?:alarm|limit|threshold|above|exceed\w*|or less|keep|ideally)\b'
 file = "devices/animal_protection.py"
 pattern = '"ammonia_alarm_ppm",(25\.0)\)'
 
@@ -856,6 +871,7 @@ docs = ["animal_protection_manual.md"]
 value = 35
 unit = "ppm"
 context = 'CO_HIGH'
+guide_context = '(?i)(?:\bcarbon monoxide\b|\bCO\b(?![2₂])).*\b(?:alarm|limit|REL|threshold|exceed\w*)\b'
 file = "devices/animal_protection.py"
 pattern = '"co_alarm_ppm",(35\.0)\)'
 
@@ -903,6 +919,7 @@ docs = ["animal_protection_manual.md"]
 value = 30
 unit = "°C"
 context = 'HEAT_STRESS'
+guide_context = '(?i)\b(?:heat stress|panting|pant)\b'
 file = "devices/animal_protection.py"
 pattern = '"heat_stress_c",(30\.0)\)'
 
