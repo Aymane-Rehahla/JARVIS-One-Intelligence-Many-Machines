@@ -1,0 +1,184 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-scope: var(--scope);
+  --color-scope-raised: var(--scope-raised);
+  --color-scope-line: var(--scope-line);
+}
+
+:root {
+  --radius: 0.375rem;
+  --background: oklch(0.968 0.012 245);
+  --foreground: oklch(0.22 0.035 250);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.22 0.035 250);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.22 0.035 250);
+  --primary: oklch(0.54 0.19 253);
+  --primary-foreground: oklch(0.99 0.01 250);
+  --secondary: oklch(0.94 0.018 245);
+  --secondary-foreground: oklch(0.34 0.05 250);
+  --muted: oklch(0.94 0.018 245);
+  --muted-foreground: oklch(0.49 0.06 250);
+  --accent: oklch(0.93 0.035 245);
+  --accent-foreground: oklch(0.25 0.07 250);
+  --border: oklch(0.88 0.035 240);
+  --input: oklch(0.62 0.03 245);
+  --ring: oklch(0.57 0.19 253);
+  --sidebar: oklch(1 0 0);
+  --sidebar-foreground: oklch(0.3 0.04 250);
+  --sidebar-accent: oklch(0.94 0.035 245);
+  --sidebar-accent-foreground: oklch(0.46 0.16 253);
+  --sidebar-border: oklch(0.88 0.035 240);
+  /* Brain view: the one dark instrument panel, on the Jarvis page. */
+  --scope: #081322;
+  --scope-raised: #0b1a2f;
+  --scope-line: #1c2c45;
+}
+
+/* Base styles live in the base layer so Tailwind utilities can override them. Unlayered,
+   `* { border-color }` beat every border-* colour class and `font: inherit` beat every
+   text-* size class on buttons and inputs. */
+@layer base {
+  * { @apply border-border; }
+  html, body, #root { min-height: 100%; }
+  body { @apply bg-background text-foreground antialiased; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+  button, input, select, textarea { font: inherit; }
+}
+.font-mono { font-variant-numeric: tabular-nums; }
+
+/* Jarvis voice indicator (top right): wake-word burst, listening ripples, speaking equalizer. */
+.jarvis-voice-core {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border-radius: 9999px;
+  background: #94a3b8;
+  transition: background-color 200ms, box-shadow 200ms, transform 200ms, opacity 200ms;
+}
+.jarvis-voice-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  border: 2px solid #10b981;
+  opacity: 0;
+}
+.jarvis-voice-bars {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 14px;
+  opacity: 0;
+}
+.jarvis-voice-bar {
+  width: 2.5px;
+  height: 40%;
+  border-radius: 9999px;
+  background: #059669;
+}
+
+.jarvis-voice[data-state="idle"] .jarvis-voice-core {
+  background: #10b981;
+  opacity: 0.75;
+}
+
+.jarvis-voice[data-state="wake"] .jarvis-voice-core {
+  background: #10b981;
+  box-shadow: 0 0 0 4px rgb(16 185 129 / 0.25), 0 0 14px 2px rgb(16 185 129 / 0.7);
+  animation: jarvis-voice-flash 900ms ease-out;
+}
+.jarvis-voice[data-state="wake"] .jarvis-voice-ring {
+  animation: jarvis-voice-burst 900ms ease-out;
+}
+.jarvis-voice[data-state="wake"] .jarvis-voice-ring-late {
+  animation-delay: 180ms;
+  animation-fill-mode: backwards;
+}
+
+.jarvis-voice[data-state="listening"] .jarvis-voice-core {
+  background: #10b981;
+  box-shadow: 0 0 10px 1px rgb(16 185 129 / 0.6);
+  animation: jarvis-voice-breathe 1.6s ease-in-out infinite;
+}
+.jarvis-voice[data-state="listening"] .jarvis-voice-ring {
+  animation: jarvis-voice-ripple 2s ease-out infinite;
+}
+.jarvis-voice[data-state="listening"] .jarvis-voice-ring-late {
+  animation-delay: 1s;
+}
+
+.jarvis-voice[data-state="speaking"] .jarvis-voice-core {
+  opacity: 0;
+  transform: scale(0.4);
+}
+.jarvis-voice[data-state="speaking"] .jarvis-voice-bars {
+  opacity: 1;
+}
+.jarvis-voice[data-state="speaking"] .jarvis-voice-bar {
+  animation: jarvis-voice-eq 0.9s ease-in-out infinite;
+}
+.jarvis-voice[data-state="speaking"] .jarvis-voice-bar:nth-child(2) { animation-delay: -0.3s; }
+.jarvis-voice[data-state="speaking"] .jarvis-voice-bar:nth-child(3) { animation-delay: -0.6s; }
+.jarvis-voice[data-state="speaking"] .jarvis-voice-bar:nth-child(4) { animation-delay: -0.15s; }
+
+@keyframes jarvis-voice-flash {
+  0% { transform: scale(0.6); }
+  35% { transform: scale(1.45); }
+  100% { transform: scale(1); }
+}
+@keyframes jarvis-voice-burst {
+  0% { transform: scale(0.5); opacity: 0.9; }
+  100% { transform: scale(2.1); opacity: 0; }
+}
+@keyframes jarvis-voice-ripple {
+  0% { transform: scale(0.55); opacity: 0.7; }
+  100% { transform: scale(1.7); opacity: 0; }
+}
+@keyframes jarvis-voice-breathe {
+  0%, 100% { transform: scale(0.9); }
+  50% { transform: scale(1.15); }
+}
+@keyframes jarvis-voice-eq {
+  0%, 100% { height: 25%; }
+  50% { height: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jarvis-voice *,
+  .jarvis-voice *::before,
+  .jarvis-voice *::after {
+    animation: none !important;
+  }
+  .jarvis-voice[data-state="listening"] .jarvis-voice-ring { opacity: 0.5; transform: scale(1.3); }
+  .jarvis-voice[data-state="speaking"] .jarvis-voice-bar:nth-child(odd) { height: 90%; }
+  .jarvis-voice[data-state="speaking"] .jarvis-voice-bar:nth-child(even) { height: 50%; }
+}

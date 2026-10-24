@@ -1,0 +1,1592 @@
+# Every simulation number the nodes' knowledge documents use (owner's point 3: the simulation is the authority).
+#
+# Each fact says where the number lives in the farm simulation's code (`file` under _dev/farm_poc_snapshot/, a regex
+# `pattern` whose capture groups x and y are read from the code, and an optional `expr` turning them into the value as
+# written in the documents). `docs` lists the documents that may state it and `context` is a regex that must match the
+# document line where the number appears. tests/test_rom_numbers.py checks both directions:
+#   1. every fact's value equals what the code says;
+#   2. every number in the machine manuals and shared documents is backed by a fact (same value, unit and context).
+# In step 6D `file` paths move to the copied reasoning and matrix code.
+
+schema_version = 1
+
+# ------------------------------------------------------------------------------------------------- incubator
+[[fact]]
+id = "incubator.eggs"
+docs = ["incubator_manual.md", "farm_layout.md"]
+value = 24
+unit = ""
+context = 'eggs'
+file = "devices/incubator.py"
+pattern = '"initial_egg_count": (24)'
+
+[[fact]]
+id = "incubator.duration_days"
+docs = ["incubator_manual.md"]
+value = 21
+unit = "day"
+context = 'chicken eggs'
+file = "devices/incubator.py"
+pattern = '"incubation_duration_days": (21)'
+
+[[fact]]
+id = "incubator.lockdown_days"
+docs = ["incubator_manual.md"]
+value = 3
+unit = "day"
+context = 'Incubation|Lockdown'
+file = "controllers/incubator_controller.py"
+pattern = 'days_remaining", 99\)\) <= (3)'
+
+[[fact]]
+id = "incubator.temperature_setpoint"
+docs = ["incubator_manual.md"]
+value = 37.5
+unit = "°C"
+context = 'Cabinet temperature|Incubation|Lockdown|Hatching'
+file = "devices/incubator.py"
+pattern = 'get\("temperature_setpoint_c", (37\.5)\)'
+
+[[fact]]
+id = "incubator.heater_outlet_normal"
+docs = ["incubator_manual.md"]
+value = 39
+unit = "°C"
+context = 'Heater outlet temperature'
+file = "devices/incubator.py"
+pattern = '"heater_outlet_c": (39\.0)'
+
+[[fact]]
+id = "incubator.humidity_setpoint"
+docs = ["incubator_manual.md"]
+value = 55
+unit = "%RH"
+context = 'Cabinet humidity|Incubation'
+file = "devices/incubator.py"
+pattern = 'setdefault\("humidity_setpoint_pct", (55\.0)\)'
+
+[[fact]]
+id = "incubator.lockdown_humidity"
+docs = ["incubator_manual.md"]
+value = 70
+unit = "%RH"
+context = 'Cabinet humidity|Lockdown|Hatching'
+file = "controllers/incubator_controller.py"
+pattern = 'lockdown_humidity_setpoint_pct", (70\.0)'
+
+[[fact]]
+id = "incubator.humidifier_on_below"
+docs = ["incubator_manual.md"]
+value = 2
+unit = "%RH"
+context = 'humidifier switches on'
+file = "controllers/incubator_controller.py"
+pattern = 'rh < setpoint - (2\.0)'
+
+[[fact]]
+id = "incubator.humidifier_off_above"
+docs = ["incubator_manual.md"]
+value = 1
+unit = "%RH"
+context = 'off 1 % RH above'
+file = "controllers/incubator_controller.py"
+pattern = 'rh > setpoint \+ (1\.0)'
+
+[[fact]]
+id = "incubator.limit_temperature_min"
+docs = ["incubator_manual.md"]
+value = 35
+unit = "°C"
+context = 'time outside limits'
+file = "devices/incubator.py"
+pattern = 'temperature_min_c", (35\.0)'
+
+[[fact]]
+id = "incubator.limit_temperature_max"
+docs = ["incubator_manual.md"]
+value = 39
+unit = "°C"
+context = 'time outside limits'
+file = "devices/incubator.py"
+pattern = 'temperature_max_c", (39\.0)'
+
+[[fact]]
+id = "incubator.limit_humidity_min"
+docs = ["incubator_manual.md"]
+value = 40
+unit = "%RH"
+context = 'time outside limits'
+file = "devices/incubator.py"
+pattern = 'humidity_min_pct", (40\.0)'
+
+[[fact]]
+id = "incubator.limit_humidity_max"
+docs = ["incubator_manual.md"]
+value = 70
+unit = "%RH"
+context = 'time outside limits'
+file = "devices/incubator.py"
+pattern = 'humidity_max_pct", (70\.0)'
+
+[[fact]]
+id = "incubator.heater_power"
+docs = ["incubator_manual.md"]
+value = 230
+unit = "W"
+context = 'Heater'
+file = "devices/incubator.py"
+pattern = 'setdefault\("heater_rated_power_w", (230\.0)\)'
+
+[[fact]]
+id = "incubator.heater_voltage"
+docs = ["incubator_manual.md"]
+value = 230
+unit = "V"
+context = 'Heater'
+file = "devices/incubator.py"
+pattern = 'setdefault\("heater_rated_voltage_v", (230\.0)\)'
+
+[[fact]]
+id = "incubator.heater_output_min"
+docs = ["incubator_manual.md"]
+value = 0
+unit = "%"
+context = 'time-proportioned output'
+file = "controllers/incubator_controller.py"
+pattern = 'against the (0)-100 % limits'
+
+[[fact]]
+id = "incubator.heater_output_max"
+docs = ["incubator_manual.md"]
+value = 100
+unit = "%"
+context = 'time-proportioned output'
+file = "controllers/incubator_controller.py"
+pattern = 'against the 0-(100) % limits'
+
+[[fact]]
+id = "incubator.fan_full_speed_rpm"
+docs = ["incubator_manual.md"]
+value = 2000
+unit = "rpm"
+context = 'Fans'
+file = "devices/incubator.py"
+pattern = '"fan_nominal_rpm": \[(2000),'
+
+[[fact]]
+id = "incubator.fan_command"
+docs = ["incubator_manual.md"]
+value = 60
+unit = "%"
+context = 'Fans'
+file = "devices/incubator.py"
+pattern = '"fan_command_pct": (60\.0)'
+
+[[fact]]
+id = "incubator.turn_interval_h"
+docs = ["incubator_manual.md"]
+value = 3
+unit = "h"
+context = 'Egg turning|every 3 hours'
+file = "devices/incubator.py"
+pattern = '"turn_interval_s": (10800\.0)'
+expr = "x / 3600"
+
+[[fact]]
+id = "incubator.turns_per_day"
+docs = ["incubator_manual.md"]
+value = 8
+unit = ""
+context = 'turns a day'
+file = "devices/incubator.py"
+pattern = '"turn_interval_s": (10800\.0)'
+expr = "86400 / x"
+
+[[fact]]
+id = "incubator.tilt_min"
+docs = ["incubator_manual.md"]
+value = 0
+unit = "°"
+context = 'tray tilts'
+file = "devices/incubator.py"
+pattern = '"turning_position_deg": (0\.0)'
+
+[[fact]]
+id = "incubator.tilt_max"
+docs = ["incubator_manual.md"]
+value = 45
+unit = "°"
+context = 'tray tilts'
+file = "devices/incubator.py"
+pattern = 'i\["turning_position_deg"\] = (45\.0) if'
+
+[[fact]]
+id = "incubator.reservoir_l"
+docs = ["incubator_manual.md"]
+value = 5
+unit = "L"
+context = 'Water reservoir'
+file = "devices/incubator.py"
+pattern = '"reservoir_capacity_l": (5\.0)'
+
+[[fact]]
+id = "incubator.reservoir_fill_level"
+docs = ["incubator_manual.md"]
+value = 95
+unit = "%"
+context = 'Water reservoir'
+file = "devices/incubator.py"
+pattern = '"fill_level_pct": (95\.0)'
+
+[[fact]]
+id = "incubator.fill_rate"
+docs = ["incubator_manual.md"]
+value = 1
+unit = "L/min"
+context = 'float valve'
+file = "devices/incubator.py"
+pattern = '"fill_rate_l_min": (1\.0)'
+
+[[fact]]
+id = "farm.mains_voltage"
+docs = ["incubator_manual.md", "farm_layout.md"]
+value = 230
+unit = "V"
+context = 'Supply|Power'
+file = "devices/incubator.py"
+pattern = '"ac_voltage_v": (230\.0)'
+
+[[fact]]
+id = "farm.mains_frequency"
+docs = ["incubator_manual.md", "farm_layout.md"]
+value = 50
+unit = "Hz"
+context = 'Supply|Power'
+file = "devices/incubator.py"
+pattern = '"frequency_hz": (50\.0)'
+
+[[fact]]
+id = "incubator.overvoltage_trip"
+docs = ["incubator_manual.md"]
+value = 260
+unit = "V"
+context = 'Overvoltage relay'
+file = "controllers/incubator_controller.py"
+pattern = 'overvoltage_threshold_v", (260\.0)\)'
+
+[[fact]]
+id = "incubator.overvoltage_reset_level"
+docs = ["incubator_manual.md"]
+value = 255
+unit = "V"
+context = 'resets by itself'
+file = "controllers/incubator_controller.py"
+pattern = 'overvoltage_threshold_v", (260\.0)\)[\s\S]*?voltage <= threshold - (5\.0)'
+expr = "x - y"
+
+[[fact]]
+id = "incubator.overvoltage_reset_time"
+docs = ["incubator_manual.md"]
+value = 120
+unit = "s"
+context = 'resets by itself'
+file = "controllers/incubator_controller.py"
+pattern = 'overvoltage_auto_reset_s", (120\.0)\)'
+
+[[fact]]
+id = "incubator.high_limit_room"
+docs = ["incubator_manual.md"]
+value = 39.5
+unit = "°C"
+context = 'High-limit thermostat'
+file = "controllers/incubator_controller.py"
+pattern = 'high_limit_c", (39\.5)\)'
+
+[[fact]]
+id = "incubator.high_limit_outlet"
+docs = ["incubator_manual.md"]
+value = 65
+unit = "°C"
+context = 'High-limit thermostat'
+file = "controllers/incubator_controller.py"
+pattern = 'heater_outlet_limit_c", (65\.0)\)'
+
+[[fact]]
+id = "incubator.high_limit_reset_room"
+docs = ["incubator_manual.md"]
+value = 38.5
+unit = "°C"
+context = 'resets by itself once the room'
+file = "controllers/incubator_controller.py"
+pattern = 'high_limit_c", (39\.5)\)[\s\S]*?max\(readings\) < limit - (1\.0)'
+expr = "x - y"
+
+[[fact]]
+id = "incubator.high_limit_reset_outlet"
+docs = ["incubator_manual.md"]
+value = 50
+unit = "°C"
+context = 'below 50 °C'
+file = "controllers/incubator_controller.py"
+pattern = 'heater_outlet_limit_c", (65\.0)\)[\s\S]*?outlet_limit - (15\.0)'
+expr = "x - y"
+
+[[fact]]
+id = "incubator.battery_takes_over"
+docs = ["incubator_manual.md"]
+value = 180
+unit = "V"
+context = 'backup battery|POWER_OUTAGE|undervoltage'
+file = "devices/incubator.py"
+pattern = 'mains_ok = float\(i\["ac_voltage_v"\]\) >= (180\.0)'
+
+[[fact]]
+id = "incubator.undervoltage_label"
+docs = ["incubator_manual.md"]
+value = 180
+unit = "V"
+context = 'undervoltage|resets by itself'
+file = "controllers/incubator_controller.py"
+pattern = 'elif voltage < (180):'
+
+[[fact]]
+id = "incubator.outage_label"
+docs = ["incubator_manual.md"]
+value = 50
+unit = "V"
+context = 'outage'
+file = "controllers/incubator_controller.py"
+pattern = 'elif voltage < (50):'
+
+[[fact]]
+id = "incubator.fan_stall_fraction"
+docs = ["incubator_manual.md"]
+value = 10
+unit = "%"
+context = 'FAN1_FAILURE'
+file = "devices/incubator.py"
+pattern = 'float\(rpm\) < (0\.1) \* expected'
+expr = "x * 100"
+
+[[fact]]
+id = "incubator.fan_stall_time"
+docs = ["incubator_manual.md"]
+value = 10
+unit = "s"
+context = 'FAN1_FAILURE'
+file = "devices/incubator.py"
+pattern = '_persist\(f"fan\{idx\}", stalled, dt, (10\.0)\)'
+
+[[fact]]
+id = "incubator.fan_stall_min_command"
+docs = ["incubator_manual.md"]
+value = 20
+unit = "%"
+context = 'FAN1_FAILURE'
+file = "devices/incubator.py"
+pattern = 'expected > (0\.2) \* nominal'
+expr = "x * 100"
+
+[[fact]]
+id = "incubator.heater_open_command"
+docs = ["incubator_manual.md"]
+value = 5
+unit = "%"
+context = 'HEATER_OPEN_CIRCUIT'
+file = "devices/incubator.py"
+pattern = 'commanded > (5\.0) and i\["power_source"\] == "mains"'
+
+[[fact]]
+id = "incubator.heater_open_current"
+docs = ["incubator_manual.md"]
+value = 0.05
+unit = "A"
+context = 'HEATER_OPEN_CIRCUIT'
+file = "devices/incubator.py"
+pattern = 'current < (0\.05), dt, 5\.0'
+
+[[fact]]
+id = "incubator.heater_open_time"
+docs = ["incubator_manual.md"]
+value = 5
+unit = "s"
+context = 'HEATER_OPEN_CIRCUIT'
+file = "devices/incubator.py"
+pattern = 'current < 0\.05, dt, (5\.0)\)'
+
+[[fact]]
+id = "incubator.relay_stuck_command"
+docs = ["incubator_manual.md"]
+value = 0
+unit = "%"
+context = 'HEATER_RELAY_STUCK'
+file = "devices/incubator.py"
+pattern = 'commanded == (0\.0) and current > 0\.2'
+
+[[fact]]
+id = "incubator.relay_stuck_current"
+docs = ["incubator_manual.md"]
+value = 0.2
+unit = "A"
+context = 'HEATER_RELAY_STUCK'
+file = "devices/incubator.py"
+pattern = 'current > (0\.2), dt, 5\.0'
+
+[[fact]]
+id = "incubator.relay_stuck_time"
+docs = ["incubator_manual.md"]
+value = 5
+unit = "s"
+context = 'HEATER_RELAY_STUCK'
+file = "devices/incubator.py"
+pattern = 'current > 0\.2, dt, (5\.0)\)'
+
+[[fact]]
+id = "incubator.relay_stuck_clear"
+docs = ["incubator_manual.md"]
+value = 30
+unit = "s"
+context = 'HEATER_RELAY_STUCK'
+file = "devices/incubator.py"
+pattern = 'emergency_stop_active"\), dt, (30\.0)\)'
+
+[[fact]]
+id = "incubator.pump_fault_time"
+docs = ["incubator_manual.md"]
+value = 30
+unit = "s"
+context = 'PUMP_FAULT'
+file = "devices/incubator.py"
+pattern = '_persist\("pump", pump_dry, dt, (30\.0)\)'
+
+[[fact]]
+id = "incubator.humidifier_fault_current"
+docs = ["incubator_manual.md"]
+value = 0.15
+unit = "A"
+context = 'HUMIDIFIER_FAULT'
+file = "devices/incubator.py"
+pattern = 'water_system_current_a"\]\) < (0\.15)'
+
+[[fact]]
+id = "incubator.humidifier_fault_time"
+docs = ["incubator_manual.md"]
+value = 30
+unit = "s"
+context = 'HUMIDIFIER_FAULT'
+file = "devices/incubator.py"
+pattern = '_persist\("humidifier", element_dead, dt, (30\.0)\)'
+
+[[fact]]
+id = "incubator.rail1"
+docs = ["incubator_manual.md"]
+value = 5
+unit = "V"
+context = 'INTERNAL_POWER_FAULT'
+file = "devices/incubator.py"
+pattern = '"rail1_v": (5\.0)'
+
+[[fact]]
+id = "incubator.rail2"
+docs = ["incubator_manual.md"]
+value = 12
+unit = "V"
+context = 'INTERNAL_POWER_FAULT'
+file = "devices/incubator.py"
+pattern = '"rail2_v": (12\.0)'
+
+[[fact]]
+id = "incubator.rail3"
+docs = ["incubator_manual.md"]
+value = 24
+unit = "V"
+context = 'INTERNAL_POWER_FAULT'
+file = "devices/incubator.py"
+pattern = '"rail3": \{"v": (24\.0)'
+
+[[fact]]
+id = "incubator.rail_tolerance"
+docs = ["incubator_manual.md"]
+value = 10
+unit = "%"
+context = 'INTERNAL_POWER_FAULT'
+file = "devices/incubator.py"
+pattern = '> (0\.1) \* i\["dc_rail_nominal_v"\]'
+expr = "x * 100"
+
+[[fact]]
+id = "incubator.rail_time"
+docs = ["incubator_manual.md"]
+value = 2
+unit = "s"
+context = 'INTERNAL_POWER_FAULT'
+file = "devices/incubator.py"
+pattern = '_persist\("rails", rails_bad, dt, (2\.0)\)'
+
+[[fact]]
+id = "incubator.low_water"
+docs = ["incubator_manual.md"]
+value = 15
+unit = "%"
+context = 'LOW_WATER'
+file = "devices/incubator.py"
+pattern = '"low_water_threshold_pct": (15\.0)'
+
+[[fact]]
+id = "incubator.battery_low"
+docs = ["incubator_manual.md"]
+value = 20
+unit = "%"
+context = 'BACKUP_BATTERY_LOW'
+file = "devices/incubator.py"
+pattern = 'backup_battery_charge_pct"\]\) < (20\.0)'
+
+[[fact]]
+id = "incubator.cabinet_volume"
+docs = ["farm_layout.md"]
+value = 0.5
+unit = "m³"
+context = 'cabinet'
+file = "matrix/physical_world.py"
+pattern = 'incubator_volume_m3", (0\.5)\)'
+
+# ------------------------------------------------------------------------------------------------- HVAC
+[[fact]]
+id = "hvac.setpoint_barn"
+docs = ["hvac_manual.md"]
+value = 24
+unit = "°C"
+context = 'Barn'
+file = "devices/hvac.py"
+pattern = '"temperature_setpoints_c":\{"barn":(24\.0)'
+
+[[fact]]
+id = "hvac.setpoint_storage"
+docs = ["hvac_manual.md"]
+value = 22
+unit = "°C"
+context = 'Storage'
+file = "devices/hvac.py"
+pattern = '"temperature_setpoints_c":\{"barn":24\.0,"storage":(22\.0)'
+
+[[fact]]
+id = "hvac.setpoint_workspace"
+docs = ["hvac_manual.md"]
+value = 23
+unit = "°C"
+context = 'Workspace'
+file = "devices/hvac.py"
+pattern = '"storage":22\.0,"workspace":(23\.0)\}'
+
+[[fact]]
+id = "hvac.humidity_barn"
+docs = ["hvac_manual.md"]
+value = 60
+unit = "%RH"
+context = 'Barn'
+file = "devices/hvac.py"
+pattern = '"humidity_setpoints_pct":\{"barn":(60\.0)'
+
+[[fact]]
+id = "hvac.humidity_storage"
+docs = ["hvac_manual.md"]
+value = 50
+unit = "%RH"
+context = 'Storage'
+file = "devices/hvac.py"
+pattern = '"humidity_setpoints_pct":\{"barn":60\.0,"storage":(50\.0)'
+
+[[fact]]
+id = "hvac.humidity_workspace"
+docs = ["hvac_manual.md"]
+value = 45
+unit = "%RH"
+context = 'Workspace'
+file = "devices/hvac.py"
+pattern = '"storage":50\.0,"workspace":(45\.0)\}'
+
+[[fact]]
+id = "hvac.limit_temperature_band"
+docs = ["hvac_manual.md"]
+value = 2
+unit = "°C"
+context = 'from the setpoint'
+file = "devices/hvac.py"
+pattern = 'not \(setpoint-(2) <= temperature'
+
+[[fact]]
+id = "hvac.limit_humidity_band"
+docs = ["hvac_manual.md"]
+value = 15
+unit = "%RH"
+context = 'from the setpoint'
+file = "devices/hvac.py"
+pattern = 'humidity_setpoint-(15) <= humidity'
+
+[[fact]]
+id = "hvac.cooling_kw"
+docs = ["hvac_manual.md"]
+value = 10
+unit = "kW"
+context = 'Cooling'
+file = "devices/hvac.py"
+pattern = 'cooling_capacity_rated_w", (10000\.0)\)'
+expr = "x / 1000"
+
+[[fact]]
+id = "hvac.compressor_min_off"
+docs = ["hvac_manual.md"]
+value = 300
+unit = "s"
+context = 'Cooling'
+file = "devices/hvac.py"
+pattern = 'compressor_min_off_s",(300\.0)\)'
+
+[[fact]]
+id = "hvac.compressor_min_on"
+docs = ["hvac_manual.md"]
+value = 120
+unit = "s"
+context = 'Cooling'
+file = "devices/hvac.py"
+pattern = 'compressor_min_on_s",(120\.0)\)'
+
+[[fact]]
+id = "hvac.refrigerant_normal"
+docs = ["hvac_manual.md"]
+value = 850
+unit = "kPa"
+context = 'Refrigerant pressure'
+file = "devices/hvac.py"
+pattern = '"refrigerant_pressure_kpa":(850\.0)'
+
+[[fact]]
+id = "hvac.refrigerant_low"
+docs = ["hvac_manual.md"]
+value = 550
+unit = "kPa"
+context = 'Refrigerant pressure|LOW_REFRIGERANT_PRESSURE'
+file = "devices/hvac.py"
+pattern = 'or 1000\.0\)<(550\.0)'
+
+[[fact]]
+id = "hvac.refrigerant_low_time"
+docs = ["hvac_manual.md"]
+value = 30
+unit = "s"
+context = 'LOW_REFRIGERANT_PRESSURE'
+file = "devices/hvac.py"
+pattern = '_persist\("low_pressure",True,dt,(30\.0)\)'
+
+[[fact]]
+id = "hvac.filter_clean"
+docs = ["hvac_manual.md"]
+value = 35
+unit = "Pa"
+context = 'Filter pressure drop'
+file = "devices/hvac.py"
+pattern = '"filter_differential_pressure_pa":(35\.0)'
+
+[[fact]]
+id = "hvac.duct_static"
+docs = ["hvac_manual.md"]
+value = 120
+unit = "Pa"
+context = 'Duct static pressure'
+file = "devices/hvac.py"
+pattern = '"duct_static_pressure_pa":(120\.0)'
+
+[[fact]]
+id = "hvac.return_fan_default"
+docs = ["hvac_manual.md"]
+value = 50
+unit = "%"
+context = 'Return fan'
+file = "controllers/hvac_controller.py"
+pattern = 'return_fan_command_pct"\]\) or (50\.0)'
+
+[[fact]]
+id = "hvac.fan_stall_fraction"
+docs = ["hvac_manual.md"]
+value = 10
+unit = "%"
+context = 'FAN_FAILURE'
+file = "devices/hvac.py"
+pattern = '<(0\.1)\*commanded'
+expr = "x * 100"
+
+[[fact]]
+id = "hvac.fan_stall_time"
+docs = ["hvac_manual.md"]
+value = 10
+unit = "s"
+context = 'FAN_FAILURE'
+file = "devices/hvac.py"
+pattern = '_persist\("supply_fan",supply_stalled,dt,(10\.0)\)'
+
+[[fact]]
+id = "hvac.fan_stall_min_command"
+docs = ["hvac_manual.md"]
+value = 20
+unit = "%"
+context = 'FAN_FAILURE'
+file = "devices/hvac.py"
+pattern = 'commanded>(20\.0) and'
+
+[[fact]]
+id = "hvac.compressor_failure_time"
+docs = ["hvac_manual.md"]
+value = 330
+unit = "s"
+context = 'COMPRESSOR_FAILURE'
+file = "devices/hvac.py"
+pattern = 'compressor_min_off_s",(300\.0)\)\)\+(30\.0)'
+expr = "x + y"
+
+[[fact]]
+id = "hvac.condensate_overflow"
+docs = ["hvac_manual.md"]
+value = 0.4
+unit = "L"
+context = 'CONDENSATE_OVERFLOW'
+file = "devices/hvac.py"
+pattern = '"CONDENSATE_OVERFLOW",float\(i\["condensate_pan_l"\]\)>=(0\.4)'
+
+# ------------------------------------------------------------------------------------------------- animal protection
+[[fact]]
+id = "apu.co2_normal"
+docs = ["animal_protection_manual.md"]
+value = 600
+unit = "ppm"
+context = 'CO₂ in the barn'
+file = "devices/animal_protection.py"
+pattern = '"co2_ppm":(600\.0)'
+
+[[fact]]
+id = "apu.co2_alarm"
+docs = ["animal_protection_manual.md"]
+value = 3000
+unit = "ppm"
+context = 'CO2_HIGH'
+file = "devices/animal_protection.py"
+pattern = '"co2_alarm_ppm",(3000\.0)\)'
+
+[[fact]]
+id = "apu.co2_clear"
+docs = ["animal_protection_manual.md"]
+value = 2500
+unit = "ppm"
+context = 'CO2_HIGH'
+file = "devices/animal_protection.py"
+pattern = '"co2_alarm_ppm",(3000\.0)\)-(500\.0)'
+expr = "x - y"
+
+[[fact]]
+id = "apu.o2_normal"
+docs = ["animal_protection_manual.md"]
+value = 20.9
+unit = "%"
+context = 'O₂ in the barn'
+file = "devices/animal_protection.py"
+pattern = '"o2_pct":(20\.9)'
+
+[[fact]]
+id = "apu.o2_alarm"
+docs = ["animal_protection_manual.md"]
+value = 19.5
+unit = "%"
+context = 'O2_LOW'
+file = "devices/animal_protection.py"
+pattern = '"o2_alarm_pct",(19\.5)\)'
+
+[[fact]]
+id = "apu.o2_clear"
+docs = ["animal_protection_manual.md"]
+value = 19.8
+unit = "%"
+context = 'O2_LOW'
+file = "devices/animal_protection.py"
+pattern = '"o2_alarm_pct",(19\.5)\)\+(0\.3)'
+expr = "x + y"
+
+[[fact]]
+id = "apu.nh3_normal"
+docs = ["animal_protection_manual.md"]
+value = 5
+unit = "ppm"
+context = 'Ammonia in the barn'
+file = "devices/animal_protection.py"
+pattern = '"ammonia_ppm":(5\.0)'
+
+[[fact]]
+id = "apu.nh3_alarm"
+docs = ["animal_protection_manual.md"]
+value = 25
+unit = "ppm"
+context = 'AMMONIA_HIGH'
+file = "devices/animal_protection.py"
+pattern = '"ammonia_alarm_ppm",(25\.0)\)'
+
+[[fact]]
+id = "apu.nh3_clear"
+docs = ["animal_protection_manual.md"]
+value = 20
+unit = "ppm"
+context = 'AMMONIA_HIGH'
+file = "devices/animal_protection.py"
+pattern = '"ammonia_alarm_ppm",(25\.0)\)-(5\.0)'
+expr = "x - y"
+
+[[fact]]
+id = "apu.co_normal"
+docs = ["animal_protection_manual.md"]
+value = 0
+unit = "ppm"
+context = 'CO in the barn'
+file = "devices/animal_protection.py"
+pattern = '"co_ppm":(0\.0)'
+
+[[fact]]
+id = "apu.co_alarm"
+docs = ["animal_protection_manual.md"]
+value = 35
+unit = "ppm"
+context = 'CO_HIGH'
+file = "devices/animal_protection.py"
+pattern = '"co_alarm_ppm",(35\.0)\)'
+
+[[fact]]
+id = "apu.co_clear"
+docs = ["animal_protection_manual.md"]
+value = 25
+unit = "ppm"
+context = 'CO_HIGH'
+file = "devices/animal_protection.py"
+pattern = '"co_alarm_ppm",(35\.0)\)-(10\.0)'
+expr = "x - y"
+
+[[fact]]
+id = "apu.smoke_alarm"
+docs = ["animal_protection_manual.md"]
+value = 8
+unit = "%/m"
+context = 'SMOKE_DETECTED'
+file = "devices/animal_protection.py"
+pattern = 'smoke_alarm_obscuration_pct_m",(8\.0)\)'
+
+[[fact]]
+id = "apu.smoke_clear"
+docs = ["animal_protection_manual.md"]
+value = 4
+unit = "%/m"
+context = 'SMOKE_DETECTED'
+file = "devices/animal_protection.py"
+pattern = 'smoke_alarm_obscuration_pct_m",(8\.0)\)\)[\s\S]*?threshold\*(0\.5)'
+expr = "x * y"
+
+[[fact]]
+id = "apu.barn_temperature_normal"
+docs = ["animal_protection_manual.md"]
+value = 24
+unit = "°C"
+context = 'Barn temperature'
+file = "devices/animal_protection.py"
+pattern = '"environment":\{"temperature_c":(24\.0)'
+
+[[fact]]
+id = "apu.heat_stress_alarm"
+docs = ["animal_protection_manual.md"]
+value = 30
+unit = "°C"
+context = 'HEAT_STRESS'
+file = "devices/animal_protection.py"
+pattern = '"heat_stress_c",(30\.0)\)'
+
+[[fact]]
+id = "apu.heat_stress_clear"
+docs = ["animal_protection_manual.md"]
+value = 28
+unit = "°C"
+context = 'HEAT_STRESS'
+file = "devices/animal_protection.py"
+pattern = '"heat_stress_c",(30\.0)\)-(2\.0)'
+expr = "x - y"
+
+[[fact]]
+id = "apu.tank_l"
+docs = ["animal_protection_manual.md", "farm_layout.md"]
+value = 1000
+unit = "L"
+context = 'tank'
+file = "devices/animal_protection.py"
+pattern = '"water_capacity_l":(1000\.0)'
+
+[[fact]]
+id = "apu.drinking_pressure"
+docs = ["animal_protection_manual.md"]
+value = 250
+unit = "kPa"
+context = 'Drinking-water pressure'
+file = "devices/animal_protection.py"
+pattern = '"water_pressure_kpa":(250\.0)'
+
+[[fact]]
+id = "farm.water_main_pressure"
+docs = ["animal_protection_manual.md", "farm_layout.md"]
+value = 300
+unit = "kPa"
+context = 'water main'
+file = "devices/animal_protection.py"
+pattern = 'water_supply_pressure_kpa",(300\.0)\)'
+
+[[fact]]
+id = "apu.feed_capacity"
+docs = ["animal_protection_manual.md"]
+value = 50
+unit = "kg"
+context = 'Feed storage'
+file = "devices/animal_protection.py"
+pattern = '"feed_storage_capacity_kg":(50\.0)'
+
+[[fact]]
+id = "apu.flood_release_level"
+docs = ["animal_protection_manual.md"]
+value = 2
+unit = "cm"
+context = 'stayed below'
+file = "controllers/animal_protection_controller.py"
+pattern = 'if level >= (2\.0):'
+
+[[fact]]
+id = "apu.flood_release_time"
+docs = ["animal_protection_manual.md"]
+value = 30
+unit = "min"
+context = 'stayed below'
+file = "controllers/animal_protection_controller.py"
+pattern = 'FLOOD_RELEASE_S = (1800\.0)'
+expr = "x / 60"
+
+[[fact]]
+id = "apu.hvac_request_cooldown"
+docs = ["animal_protection_manual.md"]
+value = 10
+unit = "min"
+context = 'Requests to the HVAC'
+file = "controllers/animal_protection_controller.py"
+pattern = 'REQUEST_COOLDOWN_S = (600\.0)'
+expr = "x / 60"
+
+[[fact]]
+id = "apu.disaster_emergency_flood"
+docs = ["animal_protection_manual.md"]
+value = 30
+unit = "cm"
+context = 'emergency'
+file = "devices/animal_protection.py"
+pattern = 'or flood>=(30\.0)'
+
+[[fact]]
+id = "apu.disaster_warning_flood"
+docs = ["animal_protection_manual.md"]
+value = 10
+unit = "cm"
+context = 'warning'
+file = "devices/animal_protection.py"
+pattern = 'or flood>=(10\.0)'
+
+[[fact]]
+id = "apu.watch_pressure_fall"
+docs = ["animal_protection_manual.md"]
+value = 3
+unit = "hPa"
+context = 'watch'
+file = "devices/animal_protection.py"
+pattern = 'pressure_tendency_hpa_3h"\) or 0\.0\)<=-(3\.0)'
+
+[[fact]]
+id = "apu.watch_pressure_window"
+docs = ["animal_protection_manual.md"]
+value = 3
+unit = "h"
+context = 'watch'
+file = "devices/animal_protection.py"
+pattern = 'pressure_tendency_hpa_(3)h'
+
+[[fact]]
+id = "apu.watch_wind"
+docs = ["animal_protection_manual.md"]
+value = 17
+unit = "m/s"
+context = 'watch'
+file = "devices/animal_protection.py"
+pattern = 'wind_speed_m_s"\) or 0\.0\)>=(17\.0)'
+
+[[fact]]
+id = "apu.watch_rain"
+docs = ["animal_protection_manual.md"]
+value = 30
+unit = "mm/h"
+context = 'watch'
+file = "devices/animal_protection.py"
+pattern = 'rainfall_rate_mm_h"\) or 0\.0\)>=(30\.0)'
+
+[[fact]]
+id = "apu.feeder_blocked_time"
+docs = ["animal_protection_manual.md"]
+value = 5
+unit = "min"
+context = 'FEEDER_BLOCKED'
+file = "devices/animal_protection.py"
+pattern = 'feed_dispensing_rate_kg_h"\]<=0\.0,dt,(300\.0)\)'
+expr = "x / 60"
+
+[[fact]]
+id = "apu.pump_fault_pressure"
+docs = ["animal_protection_manual.md"]
+value = 50
+unit = "kPa"
+context = 'WATER_PUMP_FAULT'
+file = "devices/animal_protection.py"
+pattern = 'i\["water_pressure_kpa"\]<(50\.0)'
+
+[[fact]]
+id = "apu.pump_fault_time"
+docs = ["animal_protection_manual.md"]
+value = 30
+unit = "s"
+context = 'WATER_PUMP_FAULT'
+file = "devices/animal_protection.py"
+pattern = 'i\["water_pressure_kpa"\]<50\.0,dt,(30\.0)\)'
+
+[[fact]]
+id = "apu.supply_lost_pressure"
+docs = ["animal_protection_manual.md"]
+value = 50
+unit = "kPa"
+context = 'WATER_SUPPLY_LOST'
+file = "devices/animal_protection.py"
+pattern = 'water_supply_pressure_kpa"\]\)<(50\.0),dt,30\.0'
+
+[[fact]]
+id = "apu.supply_lost_time"
+docs = ["animal_protection_manual.md"]
+value = 30
+unit = "s"
+context = 'WATER_SUPPLY_LOST'
+file = "devices/animal_protection.py"
+pattern = 'water_supply_pressure_kpa"\]\)<50\.0,dt,(30\.0)\)'
+
+[[fact]]
+id = "apu.tank_fill_time"
+docs = ["animal_protection_manual.md"]
+value = 60
+unit = "s"
+context = 'TANK_FILL_FAULT'
+file = "devices/animal_protection.py"
+pattern = 'water_supply_flow_l_min"\]\)<=0\.0,dt,(60\.0)\)'
+
+[[fact]]
+id = "apu.battery_low"
+docs = ["animal_protection_manual.md"]
+value = 20
+unit = "%"
+context = 'BACKUP_BATTERY_LOW'
+file = "devices/animal_protection.py"
+pattern = 'backup_battery_charge_pct"\]\)<(20\.0)'
+
+# ------------------------------------------------------------------------------------------------- safety gate and evidence
+[[fact]]
+id = "gate.incubator_cabinet_hot"
+docs = ["safety_actions.md"]
+value = 40
+unit = "°C"
+context = 'emergency_stop_heater'
+file = "nodes/evidence.py"
+pattern = 'if temps else 0\.0\) >= (40\.0)'
+
+[[fact]]
+id = "gate.incubator_outlet_hot"
+docs = ["safety_actions.md"]
+value = 70
+unit = "°C"
+context = 'emergency_stop_heater'
+file = "nodes/evidence.py"
+pattern = '"heater_outlet_temperature_c"\] or 0\.0\) >= (70\.0)'
+
+[[fact]]
+id = "gate.fire_signs_needed"
+docs = ["safety_actions.md", "owner_rules.md"]
+value = 2
+unit = ""
+context = 'independent fire signs'
+file = "nodes/gate.py"
+pattern = 'len\(signs\) >= (2)'
+
+[[fact]]
+id = "evidence.fire_co"
+docs = ["safety_actions.md"]
+value = 35
+unit = "ppm"
+context = 'CO at 35 ppm'
+file = "nodes/evidence.py"
+pattern = 'r\.get\("co_ppm"\) or 0\) >= (35) for r in apu'
+
+[[fact]]
+id = "evidence.fire_room_heat"
+docs = ["safety_actions.md"]
+value = 45
+unit = "°C"
+context = 'room heat'
+file = "nodes/evidence.py"
+pattern = '\(t or 0\) >= (45\.0)'
+
+[[fact]]
+id = "evidence.fire_return_air"
+docs = ["safety_actions.md"]
+value = 40
+unit = "°C"
+context = 'duct heat'
+file = "nodes/evidence.py"
+pattern = 'return_temperature_c"\) or 0\) >= (40\.0)'
+
+[[fact]]
+id = "evidence.fire_supply_air"
+docs = ["safety_actions.md"]
+value = 35
+unit = "°C"
+context = 'duct heat'
+file = "nodes/evidence.py"
+pattern = 'supply_temperature_c"\) or 0\) >= (35\.0)'
+
+[[fact]]
+id = "evidence.fire_supply_airflow"
+docs = ["safety_actions.md"]
+value = 100
+unit = "m³/h"
+context = 'duct heat'
+file = "nodes/evidence.py"
+pattern = 'supply_airflow_m3_h"\) or 0\) > (100)'
+
+[[fact]]
+id = "evidence.gas_co2"
+docs = ["safety_actions.md"]
+value = 3000
+unit = "ppm"
+context = 'Dangerous gas'
+file = "nodes/evidence.py"
+pattern = 'co2_ppm"\) or 0\) >= (3000)'
+
+[[fact]]
+id = "evidence.gas_nh3"
+docs = ["safety_actions.md"]
+value = 25
+unit = "ppm"
+context = 'Dangerous gas'
+file = "nodes/evidence.py"
+pattern = 'ammonia_ppm"\) or 0\) >= (25)'
+
+[[fact]]
+id = "evidence.gas_o2"
+docs = ["safety_actions.md"]
+value = 19.5
+unit = "%"
+context = 'Dangerous gas|100 ppm or more'
+file = "nodes/evidence.py"
+pattern = 'r\["o2_pct"\] < (19\.5)'
+
+[[fact]]
+id = "evidence.gas_co"
+docs = ["safety_actions.md"]
+value = 100
+unit = "ppm"
+context = 'Dangerous gas|100 ppm or more'
+file = "nodes/evidence.py"
+pattern = 'co_ppm"\) or 0\) >= (100)'
+
+[[fact]]
+id = "evidence.extreme_wind"
+docs = ["safety_actions.md", "owner_rules.md"]
+value = 33
+unit = "m/s"
+context = 'deploy_shutters|measured on site'
+file = "nodes/evidence.py"
+pattern = '"extreme_wind": wind >= (33\.0)'
+
+[[fact]]
+id = "gate.flood_barrier_level"
+docs = ["safety_actions.md"]
+value = 5
+unit = "cm"
+context = 'deploy_flood_barrier'
+file = "nodes/gate.py"
+pattern = 'flood\["level_cm"\] >= (5\.0)'
+
+[[fact]]
+id = "gate.action_cooldown"
+docs = ["safety_actions.md"]
+value = 10
+unit = "min"
+context = 'cooldown'
+file = "nodes/gate.py"
+pattern = 'ACTION_COOLDOWN_S = (600\.0)'
+expr = "x / 60"
+
+[[fact]]
+id = "gate.owner_repeat"
+docs = ["owner_rules.md"]
+value = 2
+unit = "h"
+context = 'Owner notifications'
+file = "nodes/gate.py"
+pattern = 'OWNER_REPEAT_S = (7200\.0)'
+expr = "x / 3600"
+
+[[fact]]
+id = "gate.lead_grace"
+docs = ["owner_rules.md"]
+value = 60
+unit = "s"
+context = 'after the incident opened'
+file = "nodes/gate.py"
+pattern = 'LEAD_GRACE_S = (60\.0)'
+
+[[fact]]
+id = "gate.civil_flood_level"
+docs = ["owner_rules.md"]
+value = 30
+unit = "cm"
+context = 'Civil protection'
+file = "nodes/gate.py"
+pattern = 'flood\["level_cm"\] >= (30\.0) or tornado'
+
+[[fact]]
+id = "gate.owner_grace"
+docs = ["owner_rules.md"]
+value = 5
+unit = "min"
+context = 'unacknowledged'
+file = "nodes/gate.py"
+pattern = 'OWNER_GRACE_S = (300\.0)'
+expr = "x / 60"
+
+# ------------------------------------------------------------------------------------------------- the building
+[[fact]]
+id = "layout.barn_length"
+docs = ["farm_layout.md"]
+value = 12.5
+unit = "m"
+context = 'Barn'
+file = "matrix/physical_world.py"
+pattern = '"barn": \{"floor_m": \((12\.5), 10\.0\)'
+
+[[fact]]
+id = "layout.barn_width"
+docs = ["farm_layout.md"]
+value = 10
+unit = "m"
+context = 'Barn'
+file = "matrix/physical_world.py"
+pattern = '"barn": \{"floor_m": \(12\.5, (10\.0)\)'
+
+[[fact]]
+id = "layout.barn_height"
+docs = ["farm_layout.md"]
+value = 4
+unit = "m"
+context = 'Barn'
+file = "matrix/physical_world.py"
+pattern = '"barn": \{"floor_m": \(12\.5, 10\.0\), "height_m": (4\.0)'
+
+[[fact]]
+id = "layout.barn_windows"
+docs = ["farm_layout.md"]
+value = 1
+unit = "m²"
+context = 'Barn'
+file = "matrix/physical_world.py"
+pattern = '"height_m": 4\.0, "window_area_m2": (1\.0)'
+
+[[fact]]
+id = "layout.barn_vents"
+docs = ["farm_layout.md"]
+value = 0.5
+unit = "m²"
+context = 'Barn'
+file = "matrix/physical_world.py"
+pattern = 'barn_vent_area_m2", (0\.5)\)'
+
+[[fact]]
+id = "layout.storage_length"
+docs = ["farm_layout.md"]
+value = 7.5
+unit = "m"
+context = 'Storage'
+file = "matrix/physical_world.py"
+pattern = '"storage": \{"floor_m": \((7\.5), 8\.0\)'
+
+[[fact]]
+id = "layout.storage_width"
+docs = ["farm_layout.md"]
+value = 8
+unit = "m"
+context = 'Storage'
+file = "matrix/physical_world.py"
+pattern = '"storage": \{"floor_m": \(7\.5, (8\.0)\)'
+
+[[fact]]
+id = "layout.storage_height"
+docs = ["farm_layout.md"]
+value = 3
+unit = "m"
+context = 'Storage'
+file = "matrix/physical_world.py"
+pattern = '"storage": \{"floor_m": \(7\.5, 8\.0\), "height_m": (3\.0)'
+
+[[fact]]
+id = "layout.workspace_length"
+docs = ["farm_layout.md"]
+value = 6
+unit = "m"
+context = 'Workspace'
+file = "matrix/physical_world.py"
+pattern = '"workspace": \{"floor_m": \((6\.0), 5\.5\)'
+
+[[fact]]
+id = "layout.workspace_width"
+docs = ["farm_layout.md"]
+value = 5.5
+unit = "m"
+context = 'Workspace'
+file = "matrix/physical_world.py"
+pattern = '"workspace": \{"floor_m": \(6\.0, (5\.5)\)'
+
+[[fact]]
+id = "layout.workspace_height"
+docs = ["farm_layout.md"]
+value = 3
+unit = "m"
+context = 'Workspace'
+file = "matrix/physical_world.py"
+pattern = '"workspace": \{"floor_m": \(6\.0, 5\.5\), "height_m": (3\.0)'
+
+[[fact]]
+id = "layout.workspace_window"
+docs = ["farm_layout.md"]
+value = 0.5
+unit = "m²"
+context = 'Workspace'
+file = "matrix/physical_world.py"
+pattern = '"height_m": 3\.0, "window_area_m2": (0\.5)'
+
+# ------------------------------------------------------------------------------------------------- the phone service
+[[fact]]
+id = "phone.owner_day_min"
+docs = ["contacts.md"]
+value = 1
+unit = "min"
+context = 'The owner'
+file = "matrix/communications.py"
+pattern = 'owner_day_delay_s", \((60\.0), 300\.0\)'
+expr = "x / 60"
+
+[[fact]]
+id = "phone.owner_day_max"
+docs = ["contacts.md"]
+value = 5
+unit = "min"
+context = 'The owner'
+file = "matrix/communications.py"
+pattern = 'owner_day_delay_s", \(60\.0, (300\.0)\)'
+expr = "x / 60"
+
+[[fact]]
+id = "phone.owner_night_min"
+docs = ["contacts.md"]
+value = 5
+unit = "min"
+context = 'The owner'
+file = "matrix/communications.py"
+pattern = 'owner_night_delay_s", \((300\.0), 1800\.0\)'
+expr = "x / 60"
+
+[[fact]]
+id = "phone.owner_night_max"
+docs = ["contacts.md"]
+value = 30
+unit = "min"
+context = 'The owner'
+file = "matrix/communications.py"
+pattern = 'owner_night_delay_s", \(300\.0, (1800\.0)\)'
+expr = "x / 60"
+
+[[fact]]
+id = "phone.owner_unreachable"
+docs = ["contacts.md"]
+value = 10
+unit = "%"
+context = 'The owner'
+file = "matrix/communications.py"
+pattern = 'owner_unreachable_probability", (0\.10)\)'
+expr = "x * 100"
+
+[[fact]]
+id = "phone.notification_merge"
+docs = ["contacts.md"]
+value = 30
+unit = "min"
+context = 'notifications about the same incident'
+file = "matrix/communications.py"
+pattern = 'notification_merge_s", (1800\.0)\)'
+expr = "x / 60"
+
+[[fact]]
+id = "phone.dispatch_handling"
+docs = ["contacts.md"]
+value = 1
+unit = "min"
+context = 'Fire brigade'
+file = "matrix/communications.py"
+pattern = 'dispatch_handling_s", (60\.0)\)'
+expr = "x / 60"
+
+[[fact]]
+id = "phone.fire_travel_min"
+docs = ["contacts.md"]
+value = 12
+unit = "min"
+context = 'Fire brigade'
+file = "matrix/communications.py"
+pattern = 'fire_brigade_travel_s", \((720\.0), 1200\.0\)'
+expr = "x / 60"
+
+[[fact]]
+id = "phone.fire_travel_max"
+docs = ["contacts.md"]
+value = 20
+unit = "min"
+context = 'Fire brigade'
+file = "matrix/communications.py"
+pattern = 'fire_brigade_travel_s", \(720\.0, (1200\.0)\)'
+expr = "x / 60"
+
+[[fact]]
+id = "phone.civil_travel_min"
+docs = ["contacts.md"]
+value = 30
+unit = "min"
+context = 'Civil protection'
+file = "matrix/communications.py"
+pattern = 'civil_protection_travel_s", \((1800\.0), 3600\.0\)'
+expr = "x / 60"
+
+[[fact]]
+id = "phone.civil_travel_max"
+docs = ["contacts.md"]
+value = 60
+unit = "min"
+context = 'Civil protection'
+file = "matrix/communications.py"
+pattern = 'civil_protection_travel_s", \(1800\.0, (3600\.0)\)'
+expr = "x / 60"
+
+[[fact]]
+id = "phone.call_merge"
+docs = ["contacts.md"]
+value = 2
+unit = "h"
+context = 'Duplicate calls'
+file = "matrix/communications.py"
+pattern = 'call_merge_s", (7200\.0)\)'
+expr = "x / 3600"
+
+# ------------------------------------------------------------------------------------------------- spelled-out counts
+# A count fact counts the matches of `count_pattern` inside the text that `pattern`'s first group captures.
+[[fact]]
+id = "farm.machines"
+docs = ["farm_layout.md"]
+value = 4
+unit = ""
+context = 'four machines'
+file = "nodes/contracts.py"
+pattern = 'MACHINE_TYPES = (\{[^}]*\})'
+count_pattern = '"[a-z0-9-]+": "'
+
+[[fact]]
+id = "farm.incubators"
+docs = ["farm_layout.md", "hvac_manual.md"]
+value = 2
+unit = ""
+context = 'two incubators'
+file = "nodes/contracts.py"
+pattern = 'MACHINE_TYPES = (\{[^}]*\})'
+count_pattern = ': "incubator"'
+
+[[fact]]
+id = "hvac.zones"
+docs = ["farm_layout.md", "hvac_manual.md"]
+value = 3
+unit = ""
+context = 'three zones'
+file = "matrix/physical_world.py"
+pattern = 'HVAC_ZONES = (\([^)]*\))'
+count_pattern = '"[a-z]+"'
+
+[[fact]]
+id = "incubator.room_sensors"
+docs = ["incubator_manual.md"]
+value = 3
+unit = ""
+context = 'three room sensors'
+file = "devices/incubator.py"
+pattern = '"room_temperatures_c": (\[[^\]]*\])'
+count_pattern = '\d+\.\d+'
+
+[[fact]]
+id = "incubator.humidity_sensors"
+docs = ["incubator_manual.md"]
+value = 3
+unit = ""
+context = 'Cabinet humidity'
+file = "devices/incubator.py"
+pattern = '"room_humidity_pct": (\[[^\]]*\])'
+count_pattern = '\d+\.\d+'
+
+[[fact]]
+id = "incubator.fans"
+docs = ["incubator_manual.md"]
+value = 2
+unit = ""
+context = 'two fans'
+file = "devices/incubator.py"
+pattern = '"fan_nominal_rpm": (\[[^\]]*\])'
+count_pattern = '\d+'
+
+[[fact]]
+id = "incubator.ambient_sensors"
+docs = ["incubator_manual.md", "hvac_manual.md"]
+value = 2
+unit = ""
+context = 'ambient sensors'
+file = "matrix/physical_world.py"
+pattern = '(internal\["ambient_temperature_c"\] = s\.read[\s\S]*?internal\["ambient_humidity_pct"\] = s\.read)'
+count_pattern = 'internal\["ambient_\w+"\] = s\.read'
+
+[[fact]]
+id = "evidence.fire_sign_families"
+docs = ["safety_actions.md"]
+value = 4
+unit = ""
+context = 'four families'
+file = "nodes/evidence.py"
+pattern = '(def fire_indicators[\s\S]*?return families)'
+count_pattern = 'families\.append\("'
+
+[[fact]]
+id = "hvac.filter_clogged_multiple"
+docs = ["hvac_manual.md"]
+value = 3
+unit = ""
+context = 'three times'
+file = "devices/hvac.py"
+pattern = '"maintenance_due" if loading<(3\.0)'

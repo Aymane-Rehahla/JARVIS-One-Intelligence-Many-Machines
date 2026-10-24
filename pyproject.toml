@@ -1,0 +1,27 @@
+[project]
+name = "jarvis"
+version = "0.6.0"
+description = "JARVIS: one intelligence made of machine nodes (CTM reasoning, CMM memory, LLM words, voice), proven on a simulated farm"
+requires-python = ">=3.12,<3.13"
+# Dependencies: requirements.in (top level) and requirements.lock (exact, hashed). Install from the lock only.
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = [".", "tools"]
+addopts = "-ra --strict-markers"
+markers = [
+    "deferred: could disturb the Phase 5 training; runs only with JARVIS_RUN_DEFERRED=1 (see tests/DEFERRED.md)",
+]
+
+[tool.coverage.run]
+source = ["tools", "nodes", "interface/gateway"]
+
+[tool.pyright]
+include = ["tools", "tests", "nodes", "interface/gateway"]
+exclude = ["**/__pycache__", "interface/web", "_dev", ".venv"]
+extraPaths = ["tools"]
+pythonVersion = "3.12"
+pythonPlatform = "Windows"
+typeCheckingMode = "standard"
+venvPath = "."
+venv = ".venv"

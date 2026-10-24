@@ -1,0 +1,15 @@
+# Identity of this Jarvis. Read by node.py and llm/engines.py (from step 6A); validated by a pydantic model (Q1).
+# Ports live in launcher/ports.toml. tools/sync_nodes.py never copies this file.
+schema_version = 1
+id = "incubator-2"
+machine = "incubator"
+speaks = false
+voice = false
+
+[llm]
+model = "models/llm/Qwen3-0.6B-Q8_0.gguf"
+server = 2
+slot = 0
+
+[embeddings]
+model = "models/embeddings/bge-small-en-v1.5"

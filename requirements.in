@@ -1,0 +1,32 @@
+# JARVIS Phase 6 Python dependencies (top level only).
+# The exact, hashed versions live in requirements.lock. Regenerate it with:
+#   .venv\Scripts\python -m piptools compile --generate-hashes --strip-extras --allow-unsafe -o requirements.lock requirements.in
+# Install from the lock only:
+#   .venv\Scripts\python -m pip install --require-hashes -r requirements.lock
+#
+# Not installed yet (step 6E, after the owner decides on emotion2vec+, whose model is 1.12 GB):
+#   funasr, torch, torchaudio. A dry run in step 6.0 checked that they resolve to Windows wheels on Python 3.12.
+
+# --- runtime ---
+pydantic>=2.7,<3          # contracts, node.toml, tool schemas (Q1)
+fastapi>=0.115            # gateway (6A), MCP over HTTP
+uvicorn>=0.30
+websockets>=13
+httpx>=0.27               # llama.cpp HTTP client
+nats-py>=2.9              # NATS messaging (S19)
+mcp>=1.10                 # Model Context Protocol server (S21)
+numpy>=2.0
+onnxruntime>=1.20         # bge-small embeddings, openWakeWord
+tokenizers>=0.20          # bge-small tokenizer.json
+sherpa-onnx>=1.12         # Silero VAD, Parakeet, Kokoro (6E)
+openwakeword>=0.6         # "hey jarvis" (6E)
+soundfile>=0.12           # audio files (6E tests)
+sounddevice>=0.5          # microphone and speaker (6E)
+
+# --- development and tests ---
+pip-tools>=7.4
+pytest>=8
+pytest-asyncio>=0.24
+pytest-cov>=5
+hypothesis>=6
+pyright>=1.1.390

@@ -1,0 +1,16 @@
+# Every port, all on 127.0.0.1 (Q7). The single source of truth for ports (plan section 4.1).
+schema_version = 1
+host = "127.0.0.1"
+
+nats = 4222
+llama_server_1 = 8081   # Qwen 3.5 2B roleplay, 1 slot (incubator-1)
+llama_server_2 = 8082   # Qwen3-0.6B, 3 slots (incubator-2, hvac, animal-protection)
+matrix_api = 8000
+gateway = 8010
+website = 5173
+
+[mcp]
+incubator-1 = 8101
+incubator-2 = 8102
+hvac = 8103
+animal-protection = 8104
