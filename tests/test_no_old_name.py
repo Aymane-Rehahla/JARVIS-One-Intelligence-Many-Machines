@@ -1,24 +1,28 @@
 """The project's old name must not appear anywhere inside JARVIS/ (owner's point 2).
 
-Checked, in any capitalisation: every file and folder name, every file's content (logs, environment and website
-packages included), and the git history (commit messages, diffs and file paths). The only files whose content is not
-read are the model weights of 50 MB or more: they are byte-identical to their upstream releases, which
+Checked, in any capitalisation and as ASCII/UTF-8 or UTF-16 (`tools/name_guard.py`): every file and folder name, every
+file's content (logs, the environment, the website packages and git's own plain files included), the staged tree,
+and every object in the git repository (commit messages, authors and committers, trees, every file version, tags)
+and every ref name. Git's compressed object files are read through git rather than as raw bytes. The only files whose
+content is not read are model weights of 50 MB or more: they are byte-identical to their upstream releases, which
 `models/MANIFEST.json` and `tools/hash_models.py check` prove.
 """
 from __future__ import annotations
 
+import json
 import os
-import subprocess
 from pathlib import Path
 
+from name_guard import NEEDLES, OLD, contains, history_offenders, identity_offenders, staged_offenders
+
 ROOT = Path(__file__).resolve().parents[1]
-OLD = ("thir" + "duni").encode("ascii")            # written in two parts so this file doesn't contain the word
 BIG_BYTES = 50 * 1024 * 1024
 CACHE = ROOT / ".cache" / "old_name_scan.json"
+SKIPPED = (".git/objects/",)                          # compressed: read through git by history_offenders()
 
 
 def _walk(root: Path) -> tuple[list[Path], list[Path]]:
-    """All folders and files under root, without following links, git internals listed separately."""
+    """All folders and files under root, without following links."""
     folders: list[Path] = []
     files: list[Path] = []
     stack = [root]
@@ -34,11 +38,19 @@ def _walk(root: Path) -> tuple[list[Path], list[Path]]:
     return folders, files
 
 
+def test_the_check_finds_every_spelling_and_encoding() -> None:
+    word = OLD.encode("ascii")
+    for text in (word, word.upper(), word.capitalize(), b"x" + word.swapcase() + b"y"):
+        assert contains(text) and contains(text.decode().encode("utf-16-le")) and contains(text.decode().encode("utf-16"))
+    assert not contains(b"third uni") and not contains("JARVIS".encode("utf-16-le"))
+    assert len(NEEDLES) == 3
+
+
 def test_no_file_or_folder_name_contains_it() -> None:
     folders, files = _walk(ROOT)
-    offenders = [str(p.relative_to(ROOT)) for p in folders + files if OLD in str(p.relative_to(ROOT)).lower().encode()]
+    offenders = [str(p.relative_to(ROOT)) for p in folders + files if contains(str(p.relative_to(ROOT)).encode())]
     assert offenders == []
-    assert OLD not in str(ROOT).lower().encode(), "the project folder itself"
+    assert not contains(str(ROOT).encode()), "the project folder itself"
 
 
 def test_no_file_content_contains_it() -> None:
@@ -50,18 +62,18 @@ def test_no_file_content_contains_it() -> None:
     offenders: list[str] = []
     _, files = _walk(ROOT)
     for path in files:
-        rel = path.relative_to(ROOT)
-        if rel.parts[:1] in ((".git",), (".cache",)):
-            continue                                      # git objects are compressed (history checked below); our cache
+        key = path.relative_to(ROOT).as_posix()
+        if path == CACHE or key.startswith(SKIPPED):
+            continue
         stat = path.stat()
         if stat.st_size >= BIG_BYTES:
             continue                                      # model weights, proven identical to upstream by MANIFEST.json
-        key, fingerprint = rel.as_posix(), [stat.st_size, stat.st_mtime_ns]
+        fingerprint = [stat.st_size, stat.st_mtime_ns]
         if cached.get(key) == fingerprint:
             clean[key] = fingerprint
             continue
         with path.open("rb") as handle:
-            if OLD in handle.read().lower():
+            if contains(handle.read()):
                 offenders.append(key)
             else:
                 clean[key] = fingerprint
@@ -70,8 +82,6 @@ def test_no_file_content_contains_it() -> None:
 
 
 def _load_cache() -> dict[str, list[int]]:
-    import json
-
     try:
         data = json.loads(CACHE.read_text(encoding="utf-8"))
         return data if isinstance(data, dict) else {}
@@ -80,29 +90,23 @@ def _load_cache() -> dict[str, list[int]]:
 
 
 def _save_cache(clean: dict[str, list[int]]) -> None:
-    import json
-
     CACHE.parent.mkdir(exist_ok=True)
     CACHE.write_text(json.dumps(clean), encoding="utf-8")
 
 
 def test_big_files_are_only_manifest_checked_model_weights() -> None:
-    import json
-
     manifest = json.loads((ROOT / "models" / "MANIFEST.json").read_text(encoding="utf-8"))["files"]
     _, files = _walk(ROOT)
-    big = [p for p in files if ".git" not in p.relative_to(ROOT).parts[:1] and p.stat().st_size >= BIG_BYTES]
+    big = [p for p in files if not p.relative_to(ROOT).as_posix().startswith(SKIPPED) and p.stat().st_size >= BIG_BYTES]
     for path in big:
         rel = path.relative_to(ROOT).as_posix()
         assert rel.startswith("models/") and rel.removeprefix("models/") in manifest, f"{rel} is big but not a model"
 
 
+def test_the_staged_tree_and_the_git_identity_do_not_contain_it() -> None:
+    assert staged_offenders() == [] and identity_offenders() == []
+
+
 def test_git_history_does_not_contain_it() -> None:
-    head = subprocess.run(["git", "rev-parse", "--verify", "-q", "HEAD"], cwd=ROOT, capture_output=True, check=False)
-    if head.returncode != 0:
-        return                                            # no commits yet: nothing to search
-    log = subprocess.run(["git", "log", "--all", "-p", "--name-status", "--format=%H%n%an%n%ae%n%B"], cwd=ROOT,
-                         capture_output=True, check=True)
-    assert OLD not in log.stdout.lower(), "a commit message, author, diff or path in the history contains it"
-    refs = subprocess.run(["git", "for-each-ref", "--format=%(refname)"], cwd=ROOT, capture_output=True, check=True)
-    assert OLD not in refs.stdout.lower(), "a branch or tag name contains it"
+    """Every object in .git, reachable or not: commits (message, author, committer), trees, file versions, tags."""
+    assert history_offenders() == []
