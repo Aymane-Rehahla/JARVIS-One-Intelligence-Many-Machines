@@ -1,6 +1,10 @@
 # JARVIS knowledge sources: proposal for owner approval
 
-Prepared 2026-10-23. Every link below was fetched on 2026-10-23. Unless noted otherwise, the fetch was a scripted HTTP GET that followed redirects. "HTTP 200, full text" means the response was the guide itself, with no login, paywall or landing-page-only content. CDC pages refuse scripted requests, so those were checked with a web-fetch tool that returned the page content.
+**Status: waiting for the owner's decision.** What to decide, and how to record it, is in [Your decision](#your-decision)
+at the end. Nothing is approved and no domain guide is written until then.
+
+Prepared 2026-10-23, revised 2026-10-24 after the second review (HVAC scope flag, filter and duct-pressure notes, IDs for
+the optional extras). Every link below was fetched on 2026-10-23. Unless noted otherwise, the fetch was a scripted HTTP GET that followed redirects. "HTTP 200, full text" means the response was the guide itself, with no login, paywall or landing-page-only content. CDC pages refuse scripted requests, so those were checked with a web-fetch tool that returned the page content.
 
 How to read the numbers:
 - Each "Numbers stated" bullet repeats a value as the source gives it.
@@ -23,8 +27,7 @@ Simulation reference values (the machine manual overrides any guide):
 | I3 | Artificial Incubation (AFS-8100) | Oklahoma State University Extension; published Feb. 2017 | https://extension.okstate.edu/fact-sheets/artificial-incubation | Yes: HTTP 200, full text (HTML). The old PDF link at pods.okstate.edu timed out, so use this HTML version. | Incubation periods, temperature, RH before and after pipping, egg position, turning angle and frequency, ventilation, day-by-day embryo development | Free to read; no licence stated; cite, don't copy |
 | I4 | Tips for a Successful Hatch (EPS-003) | Texas A&M AgriLife Extension; 7/13 (July 2013) | https://poultry.tamu.edu/wp-content/uploads/sites/14/2023/07/EPS-003-Tips-for-a-Successful-Hatch.pdf | Yes: HTTP 200, full text (PDF) | Egg storage, temperature band, RH, candling day, lockdown steps (turner off, RH up, lid closed), hatch timing | Free to read; no licence stated; cite, don't copy |
 | I5 | A Systematic Approach to Solving Hatchability and Chick Quality Problems (VM136) | University of Florida IFAS Extension (EDIS); originally June 2002, reviewed Dec 2018, page stamped "Reviewed 02/2025" | https://ask.ifas.ufl.edu/publication/VM101 (PDF: https://ask.ifas.ufl.edu/publication/VM101/pdf). The old edis.ifas.ufl.edu link redirects here. | Yes: HTTP 200, full text (HTML and PDF) | Hatch-residue breakout method, benchmark percentages for infertile and early, mid and late dead, causes of each failure class | CC BY-NC-ND 4.0 (EDIS copyright page; images excluded) |
-
-Optional extra (not counted in the five): **Care and Incubation of Hatching Eggs**, Tom W. Smith, Mississippi State University Poultry Science; undated PDF, file dated 2009. https://www.poultry.msstate.edu/pdf/extension/incubation.pdf. Verified: HTTP 200, full text (PDF). It adds candling at 7, 14 and 18 days by air-cell size, the 12 % egg-weight-loss target, a wet-bulb to %RH table and power-outage advice. Reuse terms: free to read; cite, don't copy.
+| I6 | *Optional extra:* Care and Incubation of Hatching Eggs | Tom W. Smith, Mississippi State University Poultry Science; undated PDF, file dated 2009 | https://www.poultry.msstate.edu/pdf/extension/incubation.pdf | Yes: HTTP 200, full text (PDF) | Candling at 7, 14 and 18 days by air-cell size, the 12 % egg-weight-loss target, a wet-bulb to %RH table, power-outage advice | Free to read; cite, don't copy |
 
 ### Numbers stated
 
@@ -82,7 +85,7 @@ Optional extra (not counted in the five): **Care and Incubation of Hatching Eggs
 - Embryo landmarks: eyes visible at 7–8 days; feathers start at 13–14 days; all structures formed by day 15.
 - Causes: deaths on days 1–4 point to egg handling and storage. Deaths on days 5–18 point to machine management, turning, or temperature or RH that is too high or too low. Dead-in-shell points to poor hatcher ventilation and malposition.
 
-**Optional extra (MSU Care and Incubation of Hatching Eggs)**
+**I6, optional extra (MSU Care and Incubation of Hatching Eggs)**
 - Forced-air: 100 °F, with less than ½° swing and no more than 1° total variation. Still-air: 102 °F.
 - RH from setting until 3 days before hatch: 58–60 % (84–86 °F wet bulb). At hatch: 65 % or more.
 - Chicken table: 100 °F; 85–87 °F wet bulb; no turning after day 18; 90 °F wet bulb for the last 3 days; open vents more on day 18.
@@ -107,6 +110,14 @@ Optional extra (not counted in the five): **Care and Incubation of Hatching Eggs
 
 ## 2. HVAC (poultry-house ventilation)
 
+**Scope mismatch, for your decision.** You asked for poultry-house ventilation and troubleshooting, and these sources
+cover exactly that: broiler houses ventilated by exhaust fans, inlets, tunnel mode and evaporative pads. The simulated
+HVAC is a different machine: one ducted air handler serving three zones, with a supply and a return fan, a compressor
+and refrigerant circuit, a condensate pan, an air filter, outdoor-air dampers and electric heating (see the HVAC
+manual). So these sources can explain why the barn's climate matters to the birds (temperature, humidity, ammonia,
+CO2, air quality), but not how to troubleshoot the air handler itself: its compressor, refrigerant, condensate, filter
+and duct faults come from the machine manual alone. The choice is in [Your decision](#your-decision).
+
 | # | Title | Publisher, year | URL | Verified | Covers | Reuse terms |
 |---|---|---|---|---|---|---|
 | H1 | Spring and Fall Broiler Production Presents Challenges (Publication 2780) | Mississippi State University Extension Service; 2019 (POD-05-19) | https://extension.msstate.edu/sites/default/files/publications/p2780_web.pdf | Yes: HTTP 200, full text (PDF) | Minimum vs transitional vs tunnel ventilation and when to switch, wind-chill, NH3 and RH targets, moisture balance | Copy and distribute unaltered for non-profit education, with credit to MSU Extension (stated) |
@@ -114,10 +125,12 @@ Optional extra (not counted in the five): **Care and Incubation of Hatching Eggs
 | H3 | Prepare Broiler Houses for Summer Weather (Publication 2778) | Mississippi State University Extension Service; revised 2024 (POD-07-24) | https://extension.msstate.edu/sites/default/files/publications/P2778_web.pdf | Yes: HTTP 200, full text (PDF, 6 pp) | Tunnel air speed, fan belts, bearings and shutters, evaporative pad care, static pressure limits, night cooling, standby generator | Same MSU terms (stated) |
 | H4 | Basic Tunnel Fan Selection Criteria (Poultry Housing Tips Vol. 38 No. 5) | University of Georgia, Dept. of Poultry Science (M. Czarick); 2026 | https://www.poultryventilation.com/wp-content/uploads/vol38n5.pdf (web version: https://www.poultryventilation.com/resources/basic-tunnel-fan-selection-criteria/) | Yes: HTTP 200, full text (PDF and HTML) | Static pressure vs tunnel air speed, fan capacity at pressure, shutters and cones, fan efficiency, belt-wear failures | Free to read; no licence stated; cite, don't copy |
 | H5 | Importance of Adequate Ventilation on Air Quality During Cold Weather (Broiler Tip) | University of Georgia Cooperative Extension (B. Fairchild); Jan 2003, still hosted in UGA's archive | https://poultry.caes.uga.edu/content/dam/caes-subsite/poultry/documents/archived-poultry-tips/importance-of-ventilation-during-cold-weather-jan-03.pdf | Yes: HTTP 200, full text (PDF) | O2, CO2, CO and NH3 in poultry houses: normal levels, effect thresholds for birds, the role of minimum ventilation | Free to read; no licence stated; cite, don't copy |
+| H6 | *Optional extra:* Broiler House Ventilation During Cold Weather (Publication 2749) | Mississippi State University Extension Service; revised 2024 | https://extension.msstate.edu/sites/default/files/publications/P2749_web.pdf | Yes: HTTP 200, full text (PDF) | House-tightness tests, inlet opening widths, the minimum-ventilation static-pressure range | Same MSU terms (stated) |
 
-Optional extra: **Broiler House Ventilation During Cold Weather (Publication 2749)**, MSU Extension, revised 2024. https://extension.msstate.edu/sites/default/files/publications/P2749_web.pdf. Verified: HTTP 200, full text (PDF). It adds house-tightness tests, inlet opening widths and the minimum-ventilation static-pressure range. Same MSU reuse terms.
-
-Coverage gap: none of these covers air *filters* as such; poultry houses usually have none. H3 covers filters on the evaporative-pad water line and pad cleaning. If the simulated HVAC has air filters, the machine manual is the only source.
+Coverage gap: none of these covers air-handler *filters*; poultry houses usually have none (H3 covers only the
+filters on the evaporative-pad water line, and pad cleaning). The simulated HVAC does have an air filter: about 35 Pa
+across it when clean, maintenance due at twice that and clogged at three times (HVAC manual). So the machine manual is
+the only source for the filter.
 
 ### Numbers stated
 
@@ -176,7 +189,7 @@ Coverage gap: none of these covers air *filters* as such; poultry houses usually
 - CO: below 200 ppm causes drowsiness, with quick recovery. 600–1,000 ppm causes toe picking, gasping and diarrhea. Above 1,500 ppm, death can occur within 1.5 h.
 - NH3: keep below 25 ppm. Even 30 ppm harms young birds over long exposure.
 
-**Optional extra (MSU P2749)**
+**H6, optional extra (MSU P2749)**
 - Tightness test at 1 cfm per ft² of floor: should reach 0.13–0.15 in. (curtain-sided) or 0.20–0.22 in. (solid sidewall).
 - Minimum-ventilation static pressure 0.08–0.12 in. for a 40-ft-wide house, about 0.15 in. for wider houses. Each 0.01 in. adds about 2 ft of air throw.
 - Inlet openings: ceiling vents 1–2 in., sidewall vents 1.5–2.5 in.
@@ -193,7 +206,13 @@ Coverage gap: none of these covers air *filters* as such; poultry houses usually
 - **CO2 alarm 3,000 ppm:** matches H2's 3,000 ppm welfare threshold exactly.
 - **CO alarm 35 ppm:** far below the bird-effect levels in H5 (drowsiness under 200 ppm). It is set for people; see section 3, NIOSH.
 - **O2 low 19.5 %:** stricter than the bird data in H5 (about 18 %). It matches the human confined-space limit; see section 3.
-- **Not modelled yet, but useful for troubleshooting:** static-pressure bands (H3, H4, P2749), tunnel air speed (H3, H4), symptoms of belt and shutter wear (H3, H4), and minimum-ventilation rate per bird (H2).
+- **Static pressure is not comparable:** the simulation's duct static pressure (about 120 Pa) is the pressure inside the
+  air handler's ducts. The 25–30 Pa limits in H3 and H4 (0.10–0.12 in. w.c.) are the pressure difference across a
+  tunnel-ventilated house's walls. They measure different things, so a guide must not compare them or call 120 Pa
+  "too high".
+- **Not in the simulation, but in these sources:** house static-pressure bands (H3, H4, H6), tunnel air speed (H3, H4),
+  belt and shutter wear (H3, H4) and minimum-ventilation rate per bird (H2). They describe a tunnel-ventilated house,
+  so they are background, not troubleshooting steps for the simulated air handler.
 
 ---
 
@@ -216,8 +235,7 @@ Supporting references:
 | A6 | Disaster Preparation for Livestock Operations (Timely Information) | Alabama Cooperative Extension System (Auburn) with LSU AgCenter; Sept 2017 | https://ssl.acesag.auburn.edu/agriculture/livestock-poultry/beef/documents/TimelyInformation-DisasterPreparationforLivestockOperations.pdf | Yes: HTTP 200, full text (PDF) | Livestock water needs when supply fails, hurricane and flood checklist, generator upkeep, barn vs pasture during storms | Free to read; no licence stated; cite, don't copy |
 | A7 | Cattle Heat Stress Alert (fact sheet) | USDA Southeast Regional Climate Hub; undated | https://www.climatehubs.usda.gov/sites/default/files/SERCH%20Cattle%20Heat%20Stress%20Alert%20Factsheet.pdf | Yes: HTTP 200, full text (PDF) | THI heat-stress thresholds by cattle type, signs, responses | US federal government work; cite |
 | A8 | A Guide to Safety in Confined Spaces (DHHS (NIOSH) Publication No. 87-113) | CDC / NIOSH; July 1987, still hosted on CDC Stacks | https://stacks.cdc.gov/view/cdc/5830/cdc_5830_DS1.pdf | Yes: content retrieved via web-fetch tool (scanned PDF with a text layer) | Definition of an oxygen-deficient atmosphere (19.5 %), gas displacement, entry and rescue rules | US federal government work, public domain; cite |
-
-Optional extra for the power-outage angle: **Prepare for Natural Disaster on Commercial Farms**, University of Maryland Extension (J. Moyle), updated July 13, 2021. https://extension.umd.edu/resource/prepare-natural-disaster-commercial-farms. Verified: HTTP 200, full text (HTML). Reuse terms: free to read; cite, don't copy.
+| A9 | *Optional extra (power outages):* Prepare for Natural Disaster on Commercial Farms | University of Maryland Extension (J. Moyle); updated July 13, 2021 | https://extension.umd.edu/resource/prepare-natural-disaster-commercial-farms | Yes: HTTP 200, full text (HTML) | Generator fuel, emergency food and water, outage preparation | Free to read; cite, don't copy |
 
 Gap: I found no farm-animal **tornado** guide from the preferred publishers. NC State's tornado page is about people only. A3 and A6 cover wind damage, debris and power loss, which are the main tornado effects on a barn.
 
@@ -299,7 +317,7 @@ Gap: I found no farm-animal **tornado** guide from the preferred publishers. NC 
 - Entry checklist: O2 at least 19.5 % and not more than 21 %. Above 21 % is oxygen-enriched.
 - The guide's chart of lower O2 levels (16 %, 14 %, 6 %) is partly illegible in the scan, so those values are not quoted here.
 
-**Optional extra (UMD 2021)**
+**A9, optional extra (UMD 2021)**
 - Keep enough generator fuel for at least 24 h, "if not longer".
 - Family emergency food and water: 72 h minimum, one month preferable.
 
@@ -311,8 +329,37 @@ Gap: I found no farm-animal **tornado** guide from the preferred publishers. NC 
 - **CO alarm 35 ppm:** equals the NIOSH REL TWA. It is higher than the ACGIH TLV of 25 ppm quoted in A4 and lower than the OSHA PEL of 50 ppm.
 - **O2 low 19.5 %:** equals the NIOSH oxygen-deficiency definition (A8).
 - **Response timing:** not in the simulation spec. A3 says birds can die in about 15 min without ventilation, which suggests a hard deadline for the response to an HVAC or power failure.
-- **Generator fuel reserve:** sources disagree. A3 asks for 2 weeks, the UMD extra for at least 24 h, and H3 asks for a tank at least ½ full. If the simulation models generator fuel, the guide should give the machine manual's figure and cite A3 as best practice.
+- **Generator fuel reserve:** sources disagree. A3 asks for 2 weeks, A9 (the UMD extra) for at least 24 h, and H3 asks for a tank at least ½ full. If the simulation models generator fuel, the guide should give the machine manual's figure and cite A3 as best practice.
 - **Water supply:** A3 asks for 24 h of stored water. For poultry consumption, H2 gives about 2,200 gal/day for 20,000 broilers at about 6 lb; A6 covers cattle. Check these against what the simulation uses.
+
+---
+
+## Your decision
+
+Three things to decide. Nothing is approved until you record it yourself (below).
+
+1. **Approve or strike each source.** Core sources: I1–I5 (incubators), H1–H5 (HVAC), A1–A5 and the supporting A6–A8
+   (animal protection). Optional extras: I6, H6, A9; each adds only the details listed in its row. Striking a source
+   just means leaving its ID out.
+2. **The HVAC scope** (see the note at the top of section 2). Either:
+   - **(a)** approve the poultry-house sources as background on the barn climate and bird welfare, and leave the
+     air handler's own troubleshooting (compressor, refrigerant, condensate, filter, ducts) to the machine manual; or
+   - **(b)** additionally ask me to find free public sources on air-handler maintenance and troubleshooting
+     (government energy-efficiency or building-services guidance, for example). They would come to you as a second,
+     separate proposal; nothing from them is used until you approve it.
+3. **Reuse terms.** Every guide is written in my own words with citations; nothing is copied. I5 and A1 are
+   CC BY-NC-ND (no derivatives), so from them I would state facts with a citation and never adapt their text.
+
+**How to record it** (you at the terminal: the command asks you to type APPROVE, so no script can do it for you):
+
+```
+.venv\Scripts\python tools\knowledge.py approve-sources --ids I1,I2,I3,I4,I5,H1,H2,H3,H4,H5,A1,A2,A3,A4,A5,A6,A7,A8 --by owner
+```
+
+Add or remove IDs as you decide (for example `,I6,H6,A9` for the extras). The command records the approved IDs with
+their links and this file's SHA-256 in `docs/knowledge/sources-approval.json`. Only then are domain guides written, and
+each guide may cite only approved links (`tools/knowledge.py check` enforces it). Every guide then comes back to you
+as a draft for approval, like the manuals.
 
 ---
 
