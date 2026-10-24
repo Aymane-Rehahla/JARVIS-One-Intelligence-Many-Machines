@@ -7,19 +7,20 @@ requires-python = ">=3.12,<3.13"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = [".", "tools"]
+pythonpath = [".", "tools", "nodes/incubator-1", "matrix", "interface/gateway", "launcher"]
 addopts = "-ra --strict-markers"
+asyncio_default_fixture_loop_scope = "function"
 markers = [
     "deferred: could disturb the Phase 5 training; runs only with JARVIS_RUN_DEFERRED=1 (see tests/DEFERRED.md)",
 ]
 
 [tool.coverage.run]
-source = ["tools", "nodes", "interface/gateway"]
+source = ["tools", "nodes", "interface/gateway", "matrix", "launcher"]
 
 [tool.pyright]
-include = ["tools", "tests", "nodes", "interface/gateway"]
+include = ["tools", "tests", "nodes", "interface/gateway", "matrix", "launcher"]
 exclude = ["**/__pycache__", "interface/web", "_dev", ".venv"]
-extraPaths = ["tools"]
+extraPaths = ["tools", "nodes/incubator-1", "matrix", "interface/gateway", "launcher"]
 pythonVersion = "3.12"
 pythonPlatform = "Windows"
 typeCheckingMode = "standard"
