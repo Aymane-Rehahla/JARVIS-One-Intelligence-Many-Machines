@@ -13,7 +13,10 @@ import json
 import os
 from pathlib import Path
 
+import pytest
+
 from name_guard import NEEDLES, OLD, contains, history_offenders, identity_offenders, staged_offenders
+from name_guard import main as name_guard_main
 
 ROOT = Path(__file__).resolve().parents[1]
 BIG_BYTES = 50 * 1024 * 1024
@@ -110,3 +113,16 @@ def test_the_staged_tree_and_the_git_identity_do_not_contain_it() -> None:
 def test_git_history_does_not_contain_it() -> None:
     """Every object in .git, reachable or not: commits (message, author, committer), trees, file versions, tags."""
     assert history_offenders() == []
+
+
+def test_the_command_line_checks_a_commit_message_and_the_history(tmp_path: Path,
+                                                                  capsys: pytest.CaptureFixture[str]) -> None:
+    clean = tmp_path / "clean.txt"
+    clean.write_text("Add the gateway\n", encoding="utf-8")
+    assert name_guard_main(["staged", "--message", str(clean)]) == 0
+    bad = tmp_path / "bad.txt"
+    bad.write_bytes(f"Fix the {OLD.upper()} paths\n".encode("utf-16"))           # UTF-16, as some editors write
+    assert name_guard_main(["staged", "--message", str(bad)]) == 1
+    assert "FOUND in commit message" in capsys.readouterr().out
+    assert name_guard_main(["history"]) == 0
+    assert name_guard_main(["staged", "--message", str(tmp_path / "missing.txt")]) == 2

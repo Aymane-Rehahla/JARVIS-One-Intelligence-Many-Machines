@@ -16,9 +16,9 @@ still no edits in the training's folders. The pause length is counted from the m
 
 ## Step 6.0: set up, with the v3 changes (23 Oct 2026)
 
-Status: the "done when" checks pass and the v3 changes are applied (evidence below). The step stops here on purpose,
-at the plan's guaranteed stop: **the owner must approve the public sources** (`docs/knowledge/sources-proposal.md`)
-before any domain guide is written.
+Status: the "done when" checks pass, the v3 changes are applied and both independent reviews' findings are fixed
+(evidence below). Under plan v3.1 the source list goes to the owner and the work continues while they review it; no
+domain guide is written until **the owner approves the public sources** (`docs/knowledge/sources-proposal.md`).
 
 ### "Done when" checks (plan section 9, step 6.0)
 
@@ -34,7 +34,7 @@ before any domain guide is written.
 
 | What | Result |
 |---|---|
-| Full suite, with a complete re-read of every file for the old name (`JARVIS_FULL_NAME_SCAN=1 .venv\Scripts\python -m pytest --cov`) | **397 passed, 4 skipped** (the deferred voice tests, D1) in 7 min 42 s; coverage 92 % (verify.py 96 %, knowledge.py 93 %, hash_models.py 89 %, resource_monitor.py 86 %, persona_search 67–99 % per module). A cached rerun of the old-name test after writing this log: 4 passed in 22.5 s |
+| Full suite, with a complete re-read of every file for the old name (`JARVIS_FULL_NAME_SCAN=1 .venv\Scripts\python -m pytest --cov`) | first pass: 397 passed, 4 skipped. **After the second review's fixes (24 Oct): 495 passed, 4 skipped** (the deferred voice tests, D1) in 6 min 4 s; coverage 91 % (verify.py 97 %, knowledge.py 92 %, hash_models.py 89 %, resource_monitor.py 88 %, persona_search 69–99 % per module, name_guard.py 69 %, then its command line got a test: the old-name file, 7 passed) |
 | pyright 1.1.414 (standard, Windows) on `tools/`, `tests/`, `nodes/`, `interface/gateway/` | **0 errors, 0 warnings** |
 
 ### What step 6.0 built (first pass, reviewed)
@@ -66,6 +66,25 @@ A fresh reviewer found no blockers, five should-fix items and four nits. All are
 | 5 | Unrecorded deviations | recorded below |
 | nits | `\n` that turned into a line break in a README; manifest path safety; I/O exit codes; pytest priority; fixed hypothesis seeds; marker lookup; ignore rules; GiB labels; README in/out/test lines | all fixed |
 
+### The second independent review (after the v3 changes) and what was fixed
+
+A fresh reviewer checked the v3 work and found twelve items. All are fixed; each fix has tests.
+
+| # | Finding | Fix and evidence |
+|---|---|---|
+| 1 | `verify.py` read a key `min` or a suffix `_min` as minutes, so `{"min": 36.8}` made a correct "36.8 °C" fail (and bare `s`, `h`, `c`, `v`, `w`, `l` were ambiguous) | statistics (`min`, `max`, `mean`, `avg`, their key endings, and `value`) take the unit of what they summarise: the object's `unit`, its `signal`, or the key above; no unit from ambiguous bare keys; `_min` never means minutes. 21 key cases and 4 evidence shapes tested |
+| 2 | Dates and times were masked without range checks ("55/60 %", "3/4", "37:50" passed unchecked), and times were never checked | only valid dates (slash dates need a year) and times are masked; **every time of day said must match a time in the evidence** (to the minute; "2 pm" within 15 min; seconds when said); `states_farm_time()` and a farm-time criterion in the persona scoring (hard fail for farm status, numbers and danger). Report schema 2 |
+| 3 | The blind sheet said "every number has already been checked" while showing hard-failed replies; any configuration could reach the top 3 | only configurations with no verify fail and no danger hard fail are eligible (fewer than 3: the sheet says so; fewer than 2: no sheet); a failed check is printed under its reply; the sheet says exactly what was checked; `blind/`, `sealed/` (the key) and `scored/` are separate, and the owner rates before opening the last two |
+| 4 | The film safeguard could not catch JARVIS's own film lines; nothing scored claimed actions | `data/film_blocklist.json`: 13 well-known lines trimmed to their distinctive part, stored only as 48 SHA-256 hashes of word 4-grams (no film text in any file; two 4-grams of one line are a hit; tested with a made-up line). A hard fail for claiming an action the evidence does not record (`checks.py`; 21 sample sentences, offers, denials and machine events excluded) |
+| 5 | RAM guard: PID reuse between check and kill, any program could register, no lock, coarse sampling | one process handle for the identity check and the kill (creation time and image path); only images under `JARVIS/` or the venv's base Python may register; a lock file; 30 s time-based rule; 2 s sampling while something is registered (decision 0011). The running monitor was restarted with the new code (24 Oct 02:01) |
+| 6 | The RAM evidence and decision 0011 were out of date ("3 samples", "0.6 GB") | decision 0011 rewritten with the measured run: 5,636 samples, 881 (16 %) below 2 GiB but never two in a row, lowest free RAM 0.03 GiB, lowest commit headroom 1.98 GiB |
+| 7 | Knowledge tooling: copies could be approved one by one, approval without a person, unchanged versions, a tautological numbers test | `approve` covers all identical copies at once, needs a terminal and a typed `APPROVE`, and changed content needs a higher version; the numbers test finds every node's documents, reads "two" to "twelve" and "twice", supports count facts (10 added), and checks domain guides for conflicts with the simulation (they must be listed under "Conflicts with the simulation") |
+| 8 | The old-name test missed UTF-16 text, the staged tree, committer identities and tag contents | `tools/name_guard.py` + the test: UTF-16 as well as ASCII; git's plain files; the staged tree; **every object in `.git`, reachable or not** (commits with author, committer and message, trees, file versions, tags) and every ref. The first full object scan found the name in 40 unreachable blobs left by staging before the rename (no commit, index or reflog used them); they were pruned with `git gc --prune=now`, after which the history check is clean. The check now runs before every commit and tag (plan v3.1 run rules) |
+| 9 | 6D would copy the training's code and checkpoints, which may carry the old name | written into step 6D as an owner decision (plan v3.1): re-save weights-only state dicts with tensor-for-tensor equality proven and new hashes recorded, or load the weights from outside `JARVIS/` |
+| 10 | Hot-join was not in 6B's "done when"; the guard's "stays below" reading was not put to the owner | 6B's "done when" now has the full hot-join check (three nodes, start the fourth, ask about it); both are owner decisions in plan section 12, point 0 |
+| 11 | The HVAC sources describe poultry-house ventilation while the simulated HVAC is a ducted air handler; a wrong filter line; duct pressure compared with house static pressure | the proposal flags the scope mismatch for the owner, corrects the filter line (the simulation has one), warns that 120 Pa duct pressure is not comparable to the 25–30 Pa house figures, gives the optional extras IDs (I6, H6, A9) and ends with "Your decision" and the approval command; a test pins the 21 IDs |
+| 12 | Nits: plan Q1 and the `rom/` row, `node.toml` comment, the website's "its own Jarvis node", `hash_models write` hashing twice | all fixed; the website spells JARVIS one way in its visible text (event source, preview replies, scenario text) and was rebuilt (typecheck and build pass, 11.8 s); `write` hashes each file once (tested) |
+
 ### The v3 changes (owner's message of 23 Oct)
 
 | # | Change | Evidence |
@@ -75,7 +94,7 @@ A fresh reviewer found no blockers, five should-fix items and four nits. All are
 | 3 | Knowledge per node | Each node: its machine manual, plus the shared `owner_rules.md`, `safety_actions.md` (all machines), `farm_layout.md` and `contacts.md` (identical in all four). TOML headers (node, title, kind, version, `status = "draft"`, sources with links). `tools/knowledge.py`: `status`, `approve --by owner` (records the SHA-256 in `rom/approvals.json`), `check --fix` (changed documents go back to draft); only approved, unchanged documents are indexable. `docs/knowledge/simulation_facts.toml`: 161 simulation numbers, each tied by regex to the code; tests prove every fact equals the code, every number in the manuals and shared documents is backed by a fact with the same value, unit and line context, and every fact is used. **All documents are drafts: nothing is approved or indexed yet.** Source proposal for the domain guides: `docs/knowledge/sources-proposal.md` (decision 0008) |
 | 4 | Persona search | `tools/persona_search/`: 45 fixed prompts in 7 categories, 3 system prompts, 3 original example sets (6, 7 and 4 exchanges), a 24-setting sampling grid (216 configurations); scoring for character, British tone, concision, no AI disclaimer, and `verify.py` (wrong numbers fail); leaderboard and a blind A/B/C sheet of the top 3 for the owner. `nodes/*/llm/verify.py` (identical in all four). Smoke test with a fake backend; full run deferred as D2 (decision 0009) |
 | 5 | Hot-join | Designed into the plan (A6, H1), the comms README and the 6A "done when"; the integration test needs the 6A nodes and NATS, so it is built in 6A/6B; demo step in 6F |
-| 6 | Limits while training runs | One test runner at a time was kept (the persona helper ran its own tests; the lead ran none meanwhile). RAM guard in the monitor: stops only programs registered in `logs/guarded.json`, on free RAM below 2 GiB for 3 samples or commit headroom below 1 GiB; creation-time checks prevent touching a reused PID; tested with real processes (decision 0011) |
+| 6 | Limits while training runs | One test runner at a time was kept (the persona helper ran its own tests; the lead ran none meanwhile). RAM guard in the monitor: stops only programs registered in `logs/guarded.json`, when free RAM stays below 2 GiB for 30 s or commit headroom falls below 1 GiB; identity checked through one process handle (creation time and image), so a reused PID is never touched; tested with real processes (decision 0011, revised after the second review) |
 | 7 | Recorded | `docs/phase6-llm-plan.md` is v3 with a changelog; decisions 0006–0011 |
 
 ### Differences from the plan (ground rule 8, plan section 10.7)
@@ -97,19 +116,29 @@ A fresh reviewer found no blockers, five should-fix items and four nits. All are
 
 ### Open issues and decisions for the owner
 
-- **Approve (or change) the public sources** per node: `docs/knowledge/sources-proposal.md`. This is the guaranteed stop.
+- **Approve (or change) the public sources** per node: `docs/knowledge/sources-proposal.md`, ending with "Your
+  decision": approve or strike each ID, and choose the HVAC scope (a: poultry-house sources as background, the air
+  handler's troubleshooting from its manual; b: also research air-handler sources). Recorded only by you, with
+  `tools\knowledge.py approve-sources`. Under plan v3.1 the work continues while you review it.
 - **emotion2vec+:** download the 1.12 GB model and install FunASR and torch (about 2 GB more on C:), or drop the tone hint.
 - **Review and approve the drafts** in each `nodes/<node>/memory/rom/` with `tools\knowledge.py approve <file> --by owner`.
   The manuals carry your requested line, "derived from the farm simulation model, reviewed by the owner"; it becomes
   true when you approve them.
-- **Persona-search choices made by the helper**, to confirm:
+- **Persona-search choices**, to confirm:
   - ordinals are checked like other numbers;
   - an unsigned number matches a negative value only next to a direction word;
   - breaking the fourth wall and film lines (including "I'm afraid I can't do that") are hard fails;
   - "-ize" spellings count as American;
+  - a reply may say an action happened only when the evidence records it (your spec: never claim actions that didn't
+    happen), so "I've stopped its heater" passes when the safety gate's record shows it;
+  - not stating the farm time is a hard fail in the farm status, numbers and danger categories;
   - evidence goes in the user message (or as tool messages, `--evidence-mode tool`, once 6A shows template support).
-- **RAM is the real limit:** the training alone pushes free RAM down to about 0.6–1 GB at its peaks (18.6 GB committed). 6A
-  loads at most Qwen3-0.6B, registered with the RAM guard.
+- **The RAM guard's trigger:** it acts when free RAM *stays* below 2 GiB for 30 s (or commit headroom falls below
+  1 GiB), not on every dip below 2 GB: the training made 881 one-sample dips in 20 hours (decision 0011).
+- **6D checkpoints and the old name:** re-save weights-only state dicts (tensor equality proven, new hashes), or load
+  the weights from outside `JARVIS/` (plan step 6D).
+- **RAM while training runs:** the training alone pushes free RAM down to about 0.03–1 GiB at its peaks. While it is
+  paused (now) the limits are lifted; when it resumes, 6A's two servers must be stopped or the 2B one unloaded.
 - **Training CPU:** the three brains run with `--threads 2` each (CPU about 55 %); only noted, the training isn't touched.
 - `close_gates` is in Animal Protection's action list but has no gate command (documented; a test watches it).
 - The website warns about one 1.1 MB bundle (the 3D farm); npm skipped esbuild's optional install script (builds fine).
