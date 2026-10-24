@@ -111,7 +111,9 @@ A fresh reviewer checked the v3 work and found twelve items. All are fixed; each
 A fresh reviewer checked the fixes above and found five groups of problems. All are fixed. The training runs again, so
 the touched test files were run one at a time: persona harness 69 passed, `test_verify.py` 147 passed,
 `test_rom_numbers.py` 186 passed, `test_knowledge.py` + `test_rom_quotes.py` 33 passed; pyright on the changed files:
-0 errors. The full suite is deferred (`tests/DEFERRED.md`, D4).
+0 errors. Before the tag: `name_guard.py staged` and `history` clean; `test_no_old_name.py` 7 passed (27 s, with the
+content cache: unchanged files were not read again). The full suite and the full re-read are deferred
+(`tests/DEFERRED.md`, D4).
 
 | # | Finding | Fix and evidence |
 |---|---|---|
