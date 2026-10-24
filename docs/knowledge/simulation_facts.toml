@@ -2,10 +2,14 @@
 #
 # Each fact says where the number lives in the farm simulation's code (`file` under _dev/farm_poc_snapshot/, a regex
 # `pattern` whose capture groups x and y are read from the code, and an optional `expr` turning them into the value as
-# written in the documents). `docs` lists the documents that may state it and `context` is a regex that must match the
-# document line where the number appears. tests/test_rom_numbers.py checks both directions:
+# written in the documents). A count fact has a `count_pattern` instead: its value is the number of matches inside the
+# text the first group captures. `docs` lists the documents that may state it and `context` is a regex that must match
+# the document line where the number appears. tests/test_rom_numbers.py checks:
 #   1. every fact's value equals what the code says;
-#   2. every number in the machine manuals and shared documents is backed by a fact (same value, unit and context).
+#   2. every number in the machine manuals and shared documents, in digits or spelled out ("two" to "twelve", "twice"),
+#      is backed by a fact (same value, unit and context), and every fact is used;
+#   3. in a domain guide, a number with a fact's unit on a line its context matches (`guide_context` when given; unitless
+#      facts only with a `guide_context`) must equal the fact or sit under "## Conflicts with the simulation".
 # In step 6D `file` paths move to the copied reasoning and matrix code.
 
 schema_version = 1
@@ -1590,3 +1594,12 @@ unit = ""
 context = 'three times'
 file = "devices/hvac.py"
 pattern = '"maintenance_due" if loading<(3\.0)'
+
+[[fact]]
+id = "hvac.filter_maintenance_multiple"
+docs = ["hvac_manual.md"]
+value = 2
+unit = ""
+context = 'twice'
+file = "devices/hvac.py"
+pattern = '"normal" if loading<(2\.0)'
