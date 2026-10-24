@@ -2,10 +2,14 @@
 
 What was done, the evidence, and open issues. Updated every step (plan ground rule 8). Times are local (UTC+1).
 
-## Training pause (24 Oct 2026)
+## Training pause (24 Oct 2026): over, the training runs again
 
-The owner paused the CTM training. While it is paused, the RAM and CPU limits of ground rule 1 are lifted; there are
-still no edits in the training's folders. The pause length is counted from the moment the last training work ended.
+The owner paused the CTM training; while it was paused, the RAM and CPU limits of ground rule 1 were lifted (there
+were still no edits in the training's folders). **The training restarted at 04:55:20 and runs again** (wrap-up B2,
+then the exam), so those limits apply again. The owner's correction (24 Oct 13:37): until the owner says the training
+is done, no LLM server is started and the full test suite is not run; the lighter 6A work goes first (contracts,
+gateway, supervisor code, single test files). After the training, the trained brains and `cmm.py` arrive in a release
+folder, and the farm runtime switches from the rule brains to them.
 
 | What | Time (local) | Evidence |
 |---|---|---|
@@ -13,6 +17,14 @@ still no edits in the training's folders. The pause length is counted from the m
 | The training's follow-up steps ran: B1 record and tune, then two smoke runs | 23 Oct 23:05:34 to 24 Oct 01:15:49 | `launcher.log` ("done: B1" at 23:29:46); the last smoke run's `run.log` ("== finished") and `checks-done.txt` |
 | **Pause: the last training work ended** | **24 Oct 01:15:49** (00:15:49 UTC) | the last file any training process wrote; the monitor's CPU fell from 34 % to 2 % in the next samples (01:16:03) and stayed there |
 | The owner's message arrived; no training process alive | 24 Oct 01:42:55 | process list: only the resource monitor runs; free RAM 9.89 of 15.80 GiB |
+| **The training restarted** (wrap-up B2, three brains in parallel) | **24 Oct 04:55:20** | `launcher.log` ("start: wrap-up B2 (three brains in parallel)"); the three training processes were created at 04:55:20 |
+| **Pause length** | **3 h 39 min 31 s** | 01:15:49 to 04:55:20: the training's end time moves back by this much |
+| The owner's correction arrived | 24 Oct 13:37:35 | free RAM 2.50 of 15.80 GiB; the three training processes use about 2.5, 3.5 and 3.8 GB; of ours only the resource monitor runs |
+
+What ran in the pause: the full test suite (6 min 4 s, at about 02:05) and a short smoke test of the first 6A code (a
+NATS server, the farm runtime and two nodes, at 04:48, all stopped by 04:49). After 04:55:20 only the independent
+reviewer may have run (read-only checks and single test files) until the session ended; no LLM server was started at
+any time.
 
 ## Step 6.0: set up, with the v3 changes (23 Oct 2026)
 
@@ -137,8 +149,9 @@ A fresh reviewer checked the v3 work and found twelve items. All are fixed; each
   1 GiB), not on every dip below 2 GB: the training made 881 one-sample dips in 20 hours (decision 0011).
 - **6D checkpoints and the old name:** re-save weights-only state dicts (tensor equality proven, new hashes), or load
   the weights from outside `JARVIS/` (plan step 6D).
-- **RAM while training runs:** the training alone pushes free RAM down to about 0.03–1 GiB at its peaks. While it is
-  paused (now) the limits are lifted; when it resumes, 6A's two servers must be stopped or the 2B one unloaded.
+- **RAM while training runs:** the training alone pushes free RAM down to about 0.03–1 GiB at its peaks (2.5 GiB free
+  at 13:37 on 24 Oct). Until you say the training is done, no LLM server starts and the full suite does not run (D3,
+  D4 in `tests/DEFERRED.md`).
 - **Training CPU:** the three brains run with `--threads 2` each (CPU about 55 %); only noted, the training isn't touched.
 - `close_gates` is in Animal Protection's action list but has no gate command (documented; a test watches it).
 - The website warns about one 1.1 MB bundle (the 3D farm); npm skipped esbuild's optional install script (builds fine).

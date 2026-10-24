@@ -1,7 +1,8 @@
 # 0011: The RAM guard while the training runs
 
-Status: accepted (owner's instruction, plan v3, point 6); revised 24 Oct after the second review. While the owner has
-the training paused (plan v3.1) the limits below are lifted, and the guard keeps running as a safety net.
+Status: accepted (owner's instruction, plan v3, point 6); revised 24 Oct after the second review. The owner paused the
+training on 24 Oct from 01:15:49 to 04:55:20 and the limits below were lifted for that time; they apply again (plan
+v3.1), and the guard kept running throughout.
 
 ## Context
 The Phase 5 training uses most of the 16 GB of RAM. The resource monitor sampled it every 10 s for the whole time the

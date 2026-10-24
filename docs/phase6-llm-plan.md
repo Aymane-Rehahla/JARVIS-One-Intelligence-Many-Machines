@@ -1,7 +1,7 @@
 # Phase 6 plan: the JARVIS LLM layer (v3.1)
 
 v3.1, 24 Oct 2026 (v3 was 23 Oct, v2 22 Oct 2026) · Phase 5 v2 training runs until **27 Oct 12:00 at the latest, moved
-back by the length of the owner's pause** (v3.1) · Hand-in **1 Nov**
+back by the owner's pause of 3 h 39 min 31 s** (24 Oct 01:15:49 to 04:55:20) · Hand-in **1 Nov**
 
 **Reading order:** creating the tree (section 1) is safe at any time. Read the ground rules (section 2) and the engineering standard (section 3) before anything else. Section 10 is the working procedure for whoever builds this.
 
@@ -9,18 +9,21 @@ back by the length of the owner's pause** (v3.1) · Hand-in **1 Nov**
 
 ## Changelog
 
-**v3.1 (24 Oct 2026), the owner's order while the training is paused:**
-1. **The owner paused the CTM training** (the last training work ended 24 Oct 01:15:49; evidence in `WORKLOG.md`).
-   While it is paused, the RAM and CPU limits of ground rule 1 and the v3 limits of rule 10 are lifted; there are still
-   no edits in the training's folders. The training's end time moves back by the length of the pause, which is reported
-   to the owner before the training resumes.
-2. **Order:** commit a checkpoint, finish the 6.0 review and fixes, tag `step-6.0`; send the owner the public-source
-   list and continue while the owner reviews it; 6A with both LLM servers loaded for real; then the persona search from
-   the owner's persona spec (`docs/persona-spec.md`: system prompt, example exchanges, settings grid, the 48-line test
-   set and its scoring), with the top 3 sent to the owner for blind rating; 6E voice now, latency measurement included,
-   while RAM is free; then 6B, 6W and 6C. 6D (trained brains, final run) waits for the end of the training.
-3. **No parallel helpers;** a commit after every finished piece, so a usage cutoff never loses more than minutes.
-4. **The old name, before every commit and tag:** `tools/name_guard.py staged --message <file>` before each commit;
+**v3.1 (24 Oct 2026), the owner's pause, then the owner's correction:**
+1. **The owner paused the CTM training** from 24 Oct 01:15:49 (the last training work ended) to **04:55:20 (the
+   training restarted: wrap-up B2, then the exam)**: 3 h 39 min 31 s, by which the training's end time moves back
+   (evidence in `WORKLOG.md`). In the pause the limits of ground rule 1 and rule 10 were lifted; **they apply again**.
+2. **The owner's correction (24 Oct 13:37):** until the owner says the training is done, **no LLM server is started and
+   the full test suite is not run** (deferred as D3 and D4 in `tests/DEFERRED.md`). The lighter 6A work goes first:
+   contracts, gateway, supervisor code, single test files, one at a time. After the training, the **trained brains and
+   `cmm.py` arrive in a release folder**, and the farm runtime switches from the rule brains to them (step 6D).
+3. **Order:** commit a checkpoint, finish the 6.0 review and fixes, tag `step-6.0`; send the owner the public-source
+   list and continue while the owner reviews it; the light 6A work; after the training: 6A's two LLM servers loaded
+   for real, the persona search from the owner's persona spec (`docs/persona-spec.md`: system prompt, example
+   exchanges, settings grid, the 48-line test set and its scoring) with the top 3 sent to the owner for blind rating,
+   6E voice with its latency measurement, then 6B, 6W and 6C as the plan has them, and 6D with the released brains.
+4. **No parallel helpers;** a commit after every finished piece, so a usage cutoff never loses more than minutes.
+5. **The old name, before every commit and tag:** `tools/name_guard.py staged --message <file>` before each commit;
    before each tag, the full scan (`JARVIS_FULL_NAME_SCAN=1` on `tests/test_no_old_name.py`) and
    `tools/name_guard.py history`.
 
@@ -578,6 +581,8 @@ Each step ends with: tests green, `WORKLOG.md` updated with evidence, an indepen
 ### 6D Live farm and final run · 27–28 Oct
 
 - Copy the reasoning code into each node's `reasoning/` and `memory/`, and the farm into `matrix/`, **from the training run's `code_snapshot/`**, so the trained weights load with the exact code that trained them. Add the demo-fault routes to this copy without changing any physics, encoders or labels.
+- **Where they come from (owner, v3.1):** after the training, the trained brains and `cmm.py` are in a release folder;
+  the farm runtime switches from the 6A rule brains to them, and `cmm.py` goes to each node's `memory/`.
 - **The old name and the checkpoints (owner decision, v3.1):** the code snapshot and the trained checkpoints may carry
   the old name (docstrings, default paths, labels inside pickled metadata), and nothing inside `JARVIS/` may. Proposed:
   remove the name from the code copy as decision 0010 did for the snapshot (names only; physics, encoders and labels
