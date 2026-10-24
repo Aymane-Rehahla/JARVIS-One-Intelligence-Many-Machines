@@ -1,0 +1,454 @@
+"""The farm runtime: ticks the Matrix and the four reasoning brains, and publishes what each node may see on NATS.
+
+Step 6A (now) runs the **test feed**: the read-only snapshot of the farm (`_dev/farm_poc_snapshot/`) with its rule
+brains, labelled "live: simulated brains". Step 6D switches it to the copied farm and the trained CTMs ("live: trained
+brains"). Published (contracts.py; plan section 4.3):
+    farm.<node>.status, .assessment   every tick, at most MAX_PUBLISH_HZ times per real second (the latest wins)
+    farm.<node>.events                every alarm raised or cleared, every safety-gate decision, offline/online
+    farm.<node>.incident              when the node's reasoning opens, changes or closes an incident
+    farm.links                        which radio links are cut and which machines are offline, on change and every 10 s
+    farm.sim                          the farm clock, every real second and on every change
+Only public telemetry and the reasoning's own outputs leave this program: no scenario label, fault schedule, hidden
+truth or evaluator score (ground rule 4).
+
+The Matrix API (127.0.0.1, `matrix_api` in launcher/ports.toml) is how the gateway drives the farm clock:
+    GET  /health
+    POST /sim/start · /sim/pause · /sim/reset · /sim/speed {"speed": S}
+    POST /links/{node}/cut {"seconds": S} · /links/{node}/restore      (robustness tests: the Matrix cuts a radio link)
+Demo faults (POST /faults/{scenario_id}) come in step 6W.
+
+The snapshot's NodeRuntime imports its CTM brain module, which needs torch; this environment has no torch and the test
+feed runs rule brains only, so that one module is replaced by a stub that refuses to build a CTM (decision 0012).
+
+Usage: python matrix/farm_runtime.py [--seed N] [--speed S] [--paused] [--nats URL] [--port P] [--logs DIR | --no-logs]
+"""
+from __future__ import annotations
+
+import argparse
+import asyncio
+import contextlib
+import logging
+import sys
+import time
+import tomllib
+import types
+from collections.abc import Mapping
+from pathlib import Path
+from typing import Any, Literal
+
+ROOT = Path(__file__).resolve().parents[1]
+SNAPSHOT_PARENT = ROOT / "_dev"
+REFERENCE_NODE = ROOT / "nodes" / "incubator-1"            # the four copies are identical (tests/test_nodes_in_sync.py)
+for _path in (REFERENCE_NODE, SNAPSHOT_PARENT):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
+sys.dont_write_bytecode = True                              # the snapshot is read-only: no __pycache__ inside it
+
+import uvicorn  # noqa: E402
+from fastapi import FastAPI, HTTPException  # noqa: E402
+from pydantic import BaseModel, ConfigDict, Field, JsonValue  # noqa: E402
+
+from comms.jsonlog import log, program_logger  # noqa: E402
+from comms.nats_link import NatsLink  # noqa: E402
+from contracts import (FARM_LINKS, FARM_SIM, NODE_IDS, FarmAssessment, FarmEvent, FarmEventType,  # noqa: E402
+                       FarmIncident, FarmStatus, FeedLabel, GateDecision, LinkStatus, NodeId, SimState, farm_subject)
+
+MAX_PUBLISH_HZ = 10.0
+SIM_EVERY_S = 1.0
+LINKS_EVERY_S = 10.0
+SPEED_WINDOW_S = 5.0
+MAX_SPEED = 1000.0
+LABEL: FeedLabel = "live: simulated brains"
+
+
+class _NoCTM:
+    """Stands in for the snapshot's CTM brain classes: the test feed runs rule brains only."""
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        raise RuntimeError("CTM brains need torch and the trained weights; the 6A test feed runs rule brains only")
+
+
+def load_snapshot() -> tuple[Any, Any]:
+    """The snapshot's MatrixEngine and NodeRuntime classes (with the CTM module stubbed, see the module docstring)."""
+    name = "farm_poc_snapshot.nodes.ctm_brain"
+    if name not in sys.modules:
+        stub = types.ModuleType(name)
+        stub.__dict__.update(NodeBrainConfig=_NoCTM, NodeCTMBrain=_NoCTM)
+        sys.modules[name] = stub
+    from farm_poc_snapshot.matrix.engine import MatrixEngine
+    from farm_poc_snapshot.nodes.runtime import NodeRuntime
+    return MatrixEngine, NodeRuntime
+
+
+def _alarm_codes(readings: Mapping[str, Any]) -> set[str]:
+    codes: set[str] = set()
+    for alarm in readings.get("alarms") or []:
+        if isinstance(alarm, str):
+            codes.add(alarm)
+        elif isinstance(alarm, Mapping) and isinstance(alarm.get("code"), str):
+            codes.add(str(alarm["code"]))
+    return codes
+
+
+def _plain(value: Any) -> Any:
+    """JSON-ready copy: sets become sorted lists, tuples lists."""
+    if isinstance(value, Mapping):
+        return {str(k): _plain(v) for k, v in value.items()}
+    if isinstance(value, (set, frozenset)):
+        return sorted(_plain(v) for v in value)
+    if isinstance(value, (list, tuple)):
+        return [_plain(v) for v in value]
+    return value
+
+
+class SpeedRequest(BaseModel):
+    """POST /sim/speed."""
+
+    model_config = ConfigDict(extra="forbid")
+    speed: float = Field(gt=0.0, le=MAX_SPEED)
+
+
+class CutRequest(BaseModel):
+    """POST /links/{node}/cut."""
+
+    model_config = ConfigDict(extra="forbid")
+    seconds: float = Field(default=60.0, gt=0.0, le=86_400.0)
+
+
+class FarmRuntime:
+    """The farm, its four brains and their publication (see the module docstring)."""
+
+    def __init__(self, link: NatsLink, *, logger: logging.Logger, seed: int = 7, speed: float = 1.0,
+                 running: bool = True, config: Mapping[str, Any] | None = None,
+                 max_publish_hz: float = MAX_PUBLISH_HZ) -> None:
+        if not 0 < speed <= MAX_SPEED or max_publish_hz <= 0:
+            raise ValueError("speed and publish rate must be positive")
+        self.link = link
+        self.logger = logger
+        self.seed = seed
+        self.config = dict(config or {})
+        self.speed = speed
+        self.running = running
+        self.max_publish_hz = max_publish_hz
+        self._engine_cls, self._runtime_cls = load_snapshot()
+        self.engine: Any = None
+        self.runtime: Any = None
+        self._publish_lock = asyncio.Lock()
+        self.reset()
+
+    # --- the farm ----------------------------------------------------------------------------------------------
+
+    def reset(self) -> None:
+        """A fresh farm and fresh brains."""
+        self.engine = self._engine_cls(seed=self.seed, config=self.config or None)
+        self.runtime = self._runtime_cls(self.engine)
+        self._alarms: dict[str, set[str]] = {node: set() for node in NODE_IDS}
+        self._online: dict[str, bool] = {node: True for node in NODE_IDS}
+        self._incidents: dict[str, tuple[str | None, str]] = {node: (None, "") for node in NODE_IDS}
+        self._event_seq = 0
+        self._last_publish = float("-inf")
+        self._last_sim = float("-inf")
+        self._last_links_sent = float("-inf")
+        self._links: tuple[tuple[str, ...], tuple[str, ...]] | None = None
+        self._speed_samples: list[tuple[float, float]] = []
+        self._pending: dict[str, Any] = {}
+        log(self.logger, logging.INFO, "farm reset", seed=self.seed, episode=self.engine.world.episode_id)
+
+    @property
+    def tick(self) -> int:
+        return int(self.engine.clock.tick)
+
+    @property
+    def time_s(self) -> float:
+        return float(self.engine.clock.time)
+
+    @property
+    def step_seconds(self) -> float:
+        return float(self.engine.clock.step_seconds)
+
+    def farm_time(self) -> tuple[str, int]:
+        """("HH:MM", day): the farm's own clock, the same one the Matrix's phone service uses."""
+        hour = float(self.engine.comms.hour_of_day())
+        minutes = int(hour * 60) % 1440
+        start_hour = (hour - self.time_s / 3600.0) % 24.0
+        day = 1 + int((start_hour * 3600.0 + self.time_s) // 86_400)
+        return f"{minutes // 60:02d}:{minutes % 60:02d}", day
+
+    def actual_speed(self) -> float:
+        """Farm seconds per real second over the last few seconds (0 while paused)."""
+        if not self.running or len(self._speed_samples) < 2:
+            return 0.0
+        (t0, s0), (t1, s1) = self._speed_samples[0], self._speed_samples[-1]
+        return (s1 - s0) / (t1 - t0) if t1 > t0 else 0.0
+
+    def cut_links(self) -> list[NodeId]:
+        """Machines whose radio link the Matrix has cut right now."""
+        tick = self.tick
+        return [node for node in NODE_IDS
+                if (window := self.runtime.bus.isolated.get(node)) is not None and window[0] <= tick < window[1]]
+
+    def step(self) -> dict[str, Any]:
+        """One farm tick: physics, devices, the four brains, the safety gate."""
+        results: dict[str, Any] = self.runtime.step()
+        now = time.monotonic()
+        self._speed_samples.append((now, self.time_s))
+        while len(self._speed_samples) > 2 and now - self._speed_samples[0][0] > SPEED_WINDOW_S:
+            self._speed_samples.pop(0)
+        return results
+
+    # --- publication -------------------------------------------------------------------------------------------
+
+    def _common(self, node: NodeId) -> dict[str, Any]:
+        farm_time, _ = self.farm_time()
+        return {"node": node, "tick": self.tick, "time_s": self.time_s, "farm_time": farm_time, "label": LABEL}
+
+    def messages_for_tick(self, results: Mapping[str, Any], *, include_state: bool) -> list[tuple[str, BaseModel]]:
+        """Everything to publish after one tick (status and assessment only when `include_state`)."""
+        out: list[tuple[str, BaseModel]] = []
+        for node in NODE_IDS:
+            result = results.get(node, {})
+            device = self.engine.world.devices[node]
+            online = bool(device.online)
+            readings: dict[str, JsonValue] = _plain(self.engine.device(node)) if online else {}
+            common = self._common(node)
+            for event in self._events(node, online, readings, result):
+                out.append((farm_subject(node, "events"), event))
+            if include_state:
+                out.append((farm_subject(node, "status"), FarmStatus(**common, online=online, readings=readings)))
+                output = result.get("output")
+                if output is not None:
+                    out.append((farm_subject(node, "assessment"), self._assessment(node, output, result, common)))
+            incident = self._incident(node, common)
+            if incident is not None:
+                out.append((farm_subject(node, "incident"), incident))
+        return out
+
+    def _events(self, node: NodeId, online: bool, readings: Mapping[str, Any],
+                result: Mapping[str, Any]) -> list[FarmEvent]:
+        found: list[tuple[FarmEventType, dict[str, JsonValue]]] = []
+        if online != self._online[node]:
+            found.append(("machine_online" if online else "machine_offline", {}))
+            self._online[node] = online
+        if online:
+            codes = _alarm_codes(readings)
+            raised: list[tuple[FarmEventType, dict[str, JsonValue]]] = [
+                ("alarm_raised", {"code": code}) for code in sorted(codes - self._alarms[node])]
+            cleared: list[tuple[FarmEventType, dict[str, JsonValue]]] = [
+                ("alarm_cleared", {"code": code}) for code in sorted(self._alarms[node] - codes)]
+            found += raised + cleared
+            self._alarms[node] = codes
+        gate_kinds: tuple[tuple[str, FarmEventType], ...] = (("action", "safety_action"),
+                                                             ("communication", "safety_communication"))
+        for key, kind in gate_kinds:
+            decision = result.get(key)
+            if isinstance(decision, Mapping):
+                found.append((kind, {"proposed": str(decision.get(key, "")), "allowed": bool(decision.get("allowed")),
+                                     "reason": str(decision.get("reason", ""))}))
+        events: list[FarmEvent] = []
+        for kind, data in found:
+            self._event_seq += 1
+            events.append(FarmEvent(**self._common(node), sequence=self._event_seq, type=kind, data=data))
+        return events
+
+    @staticmethod
+    def _assessment(node: NodeId, output: Any, result: Mapping[str, Any], common: Mapping[str, Any]) -> FarmAssessment:
+        def gate(key: str) -> GateDecision | None:
+            decision = result.get(key)
+            if not isinstance(decision, Mapping):
+                return None
+            return GateDecision(proposed=str(decision.get(key, "")), allowed=bool(decision.get("allowed")),
+                                reason=str(decision.get("reason", "")))
+
+        return FarmAssessment(**common, assessment=output.assessment, diagnosis=output.diagnosis,
+                              confidence=float(output.confidence), incident_kind=output.incident_kind,
+                              incident_id=result.get("incident_id"), recommendation=str(output.recommendation),
+                              evidence=[str(e) for e in output.evidence],
+                              brain="ctm" if output.brain == "ctm" else "rule",
+                              action=gate("action"), communication=gate("communication"))
+
+    def _incident(self, node: NodeId, common: Mapping[str, Any]) -> FarmIncident | None:
+        memory = self.runtime.nodes[node].memory
+        active = memory.active()
+        before_id, before_hash = self._incidents[node]
+        if active is None:
+            if before_id is None:
+                return None
+            self._incidents[node] = (None, "")
+            closed = memory.incidents.get(before_id)
+            return FarmIncident(**common, incident_id=before_id, state="closed",
+                                kind=closed.get("kind") if closed else None, summary=_plain(closed or {}))
+        summary = _plain(active)
+        digest = repr(sorted(summary.items()))
+        if before_id == active["incident_id"] and digest == before_hash:
+            return None
+        state: Literal["opened", "changed"] = "changed" if before_id == active["incident_id"] else "opened"
+        self._incidents[node] = (active["incident_id"], digest)
+        return FarmIncident(**common, incident_id=active["incident_id"], state=state, kind=active.get("kind"),
+                            summary=summary)
+
+    def sim_state(self) -> SimState:
+        farm_time, day = self.farm_time()
+        return SimState(tick=self.tick, time_s=self.time_s, farm_time=farm_time, day=day, running=self.running,
+                        target_speed=self.speed, actual_speed=round(self.actual_speed(), 3), label=LABEL,
+                        episode_id=str(self.engine.world.episode_id))
+
+    def link_state(self) -> LinkStatus:
+        offline: list[NodeId] = [node for node in NODE_IDS if not self.engine.world.devices[node].online]
+        return LinkStatus(tick=self.tick, time_s=self.time_s, cut=self.cut_links(), offline=offline)
+
+    async def publish(self, messages: list[tuple[str, BaseModel]]) -> None:
+        for subject, message in messages:
+            await self.link.publish(subject, message)
+
+    async def publish_clock(self, *, force: bool = False) -> None:
+        """farm.sim every SIM_EVERY_S; farm.links on change and every LINKS_EVERY_S."""
+        now = time.monotonic()
+        if force or now - self._last_sim >= SIM_EVERY_S:
+            self._last_sim = now
+            await self.link.publish(FARM_SIM, self.sim_state())
+        links = self.link_state()
+        key = (tuple(links.cut), tuple(links.offline))
+        if force or key != self._links or now - self._last_links_sent >= LINKS_EVERY_S:
+            self._links, self._last_links_sent = key, now
+            await self.link.publish(FARM_LINKS, links)
+
+    # --- the loop ----------------------------------------------------------------------------------------------
+
+    async def run(self, stop: asyncio.Event) -> None:
+        """Tick at the target speed until `stop` is set; publish after every tick."""
+        await self.publish_clock(force=True)
+        next_tick = time.monotonic()
+        while not stop.is_set():
+            if not self.running:
+                await self.publish_clock()
+                with contextlib.suppress(asyncio.TimeoutError):
+                    await asyncio.wait_for(stop.wait(), timeout=0.1)
+                next_tick = time.monotonic()
+                continue
+            async with self._publish_lock:
+                results = self.step()
+                now = time.monotonic()
+                include = now - self._last_publish >= 1.0 / self.max_publish_hz
+                if include:
+                    self._last_publish = now
+                await self.publish(self.messages_for_tick(results, include_state=include))
+                await self.publish_clock()
+            next_tick += self.step_seconds / self.speed
+            delay = next_tick - time.monotonic()
+            if delay < -1.0:                               # cannot keep up: do not try to catch up in a burst
+                next_tick = time.monotonic()
+                delay = 0.0
+            with contextlib.suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(stop.wait(), timeout=max(0.0, delay))
+
+    # --- control (the Matrix API) --------------------------------------------------------------------------------
+
+    async def control(self, action: str, *, speed: float | None = None) -> SimState:
+        async with self._publish_lock:
+            if action == "start":
+                self.running = True
+            elif action == "pause":
+                self.running = False
+            elif action == "reset":
+                self.reset()
+            elif action == "speed" and speed is not None:
+                self.speed = speed
+                self._speed_samples.clear()
+            else:
+                raise ValueError(f"unknown action {action!r}")
+            log(self.logger, logging.INFO, "farm clock", action=action, speed=self.speed, running=self.running)
+            await self.publish_clock(force=True)
+            return self.sim_state()
+
+    async def cut(self, node: NodeId, seconds: float) -> LinkStatus:
+        async with self._publish_lock:
+            ticks = max(1, int(round(seconds / self.step_seconds)))
+            self.runtime.bus.isolate(node, self.tick, self.tick + ticks)
+            log(self.logger, logging.INFO, "radio link cut", node=node, ticks=ticks)
+            await self.publish_clock(force=True)
+            return self.link_state()
+
+    async def restore(self, node: NodeId) -> LinkStatus:
+        async with self._publish_lock:
+            self.runtime.bus.isolated.pop(node, None)
+            log(self.logger, logging.INFO, "radio link restored", node=node)
+            await self.publish_clock(force=True)
+            return self.link_state()
+
+
+def create_api(farm: FarmRuntime) -> FastAPI:
+    """The Matrix API (see the module docstring); every route answers with the new farm or link state."""
+    app = FastAPI(title="JARVIS Matrix API (farm runtime)", version="0.6.0", docs_url=None, redoc_url=None)
+
+    @app.get("/health")
+    def health() -> dict[str, JsonValue]:
+        return {"status": "ok", "tick": farm.tick, "running": farm.running, "label": LABEL}
+
+    @app.post("/sim/{action}")
+    async def sim(action: Literal["start", "pause", "reset", "speed"], body: SpeedRequest | None = None) -> SimState:
+        if action == "speed" and body is None:
+            raise HTTPException(422, "speed needs a body: {\"speed\": S}")
+        return await farm.control(action, speed=body.speed if body else None)
+
+    @app.post("/links/{node}/cut")
+    async def cut(node: NodeId, body: CutRequest | None = None) -> LinkStatus:
+        return await farm.cut(node, (body or CutRequest()).seconds)
+
+    @app.post("/links/{node}/restore")
+    async def restore(node: NodeId) -> LinkStatus:
+        return await farm.restore(node)
+
+    return app
+
+
+def read_ports(path: Path = ROOT / "launcher" / "ports.toml") -> dict[str, Any]:
+    return tomllib.loads(path.read_text(encoding="utf-8"))
+
+
+async def amain(args: argparse.Namespace) -> int:
+    logger = program_logger("farm_runtime", None if args.no_logs else args.logs, echo=args.echo)
+    ports = read_ports()
+    link = NatsLink("farm-runtime", args.nats or f"nats://{ports['host']}:{ports['nats']}", logger=logger)
+    try:
+        await link.connect()
+    except Exception as error:                                 # NoServersError and friends
+        log(logger, logging.ERROR, "NATS unreachable", error=str(error))
+        return 2
+    farm = FarmRuntime(link, logger=logger, seed=args.seed, speed=args.speed, running=not args.paused)
+    server = uvicorn.Server(uvicorn.Config(create_api(farm), host=ports["host"], port=args.port or ports["matrix_api"],
+                                           log_level="warning", lifespan="off"))
+    stop = asyncio.Event()
+    api = asyncio.create_task(server.serve())
+    api.add_done_callback(lambda _: stop.set())
+    try:
+        await farm.run(stop)
+    finally:
+        server.should_exit = True
+        with contextlib.suppress(Exception):
+            await asyncio.wait_for(api, timeout=5.0)
+        await link.close()
+        log(logger, logging.INFO, "farm runtime stopped", tick=farm.tick)
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Command-line entry point; returns the process exit code."""
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--seed", type=int, default=7, help="farm seed (default 7)")
+    parser.add_argument("--speed", type=float, default=1.0, help="farm seconds per real second (default 1)")
+    parser.add_argument("--paused", action="store_true", help="start paused")
+    parser.add_argument("--nats", help="NATS URL (default: from launcher/ports.toml)")
+    parser.add_argument("--port", type=int, help="Matrix API port (default: from launcher/ports.toml)")
+    where = parser.add_mutually_exclusive_group()
+    where.add_argument("--logs", type=Path, default=ROOT / "logs", help="log folder (default: logs/)")
+    where.add_argument("--no-logs", action="store_true", help="no log file")
+    parser.add_argument("--echo", action="store_true", help="also print the log to stderr")
+    args = parser.parse_args(argv)
+    try:
+        return asyncio.run(amain(args))
+    except KeyboardInterrupt:
+        return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

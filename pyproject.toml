@@ -20,7 +20,7 @@ source = ["tools", "nodes", "interface/gateway", "matrix", "launcher"]
 [tool.pyright]
 include = ["tools", "tests", "nodes", "interface/gateway", "matrix", "launcher"]
 exclude = ["**/__pycache__", "interface/web", "_dev", ".venv"]
-extraPaths = ["tools", "nodes/incubator-1", "matrix", "interface/gateway", "launcher"]
+extraPaths = ["tools", "nodes/incubator-1", "matrix", "interface/gateway", "launcher", "_dev"]
 pythonVersion = "3.12"
 pythonPlatform = "Windows"
 typeCheckingMode = "standard"
