@@ -1,4 +1,4 @@
-# Identity of this Jarvis. Read by node.py and llm/engines.py (from step 6A); validated by a pydantic model (Q1).
+# Identity of this node of JARVIS. Read by node.py and llm/engines.py (from step 6A); validated by a pydantic model (Q1).
 # Ports live in launcher/ports.toml. tools/sync_nodes.py never copies this file.
 schema_version = 1
 id = "animal-protection"

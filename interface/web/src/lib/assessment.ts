@@ -1,6 +1,6 @@
 import { ASSESSMENTS, DEVICE_IDS, type Assessment, type FarmState } from "@/services/matrix"
 
-/** Light-theme classes for each of the five conclusions a Jarvis node can reach. */
+/** Light-theme classes for each of the five conclusions a JARVIS node can reach. */
 export const ASSESSMENT_TONES: Record<Assessment, { status: "good" | "info" | "warning" | "critical"; badge: string; dot: string; card: string }> = {
   NORMAL: { status: "good", badge: "border-emerald-200 bg-emerald-50 text-emerald-700", dot: "bg-emerald-500", card: "border-slate-200" },
   HANDLED_BY_MACHINE: { status: "info", badge: "border-teal-200 bg-teal-50 text-teal-700", dot: "bg-teal-500", card: "border-teal-200" },

@@ -31,9 +31,9 @@ export type VoiceState = "idle" | "wake" | "listening" | "speaking"
 
 const WAKE_MS = 900
 const LISTEN_MS = 2400
-const VOICE_QUESTION = "(voice) Jarvis, what's the status?"
+const VOICE_QUESTION = "(voice) JARVIS, what's the status?"
 
-/** Roughly how long Jarvis would take to say `text` aloud. */
+/** Roughly how long JARVIS would take to say `text` aloud. */
 function speakingMs(text: string): number {
   return Math.min(9000, Math.max(2000, text.length * 55))
 }
@@ -54,7 +54,7 @@ export type DemoFarm = {
   clearResolved: () => void
   sendMessage: (text: string) => void
   clearPersisted: () => void
-  /** Simulates saying "Jarvis" and asking for the status. Returns false outside demo mode. */
+  /** Simulates saying "JARVIS" and asking for the status. Returns false outside demo mode. */
   voiceDemo: () => boolean
 }
 
@@ -126,7 +126,7 @@ export function useDemoFarm(): DemoFarm {
 
   useEffect(() => clearVoiceTimers, [clearVoiceTimers])
 
-  // Jarvis speaks every new message it sends to the owner...
+  // JARVIS speaks every new message it sends to the owner...
   useEffect(() => {
     const { announcements, lastAnnouncement } = state.jarvis
     if (announcements > spokenAnnouncements.current && lastAnnouncement) speak(lastAnnouncement)

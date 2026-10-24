@@ -154,6 +154,13 @@ def test_domain_guides_may_cite_only_owner_approved_sources(sandbox: Path, tmp_p
         approve_sources(["Z9"], by="owner", knowledge_dir=knowledge)
 
 
+def test_the_source_proposal_gives_every_source_an_id_and_a_public_link() -> None:
+    sources = proposal_sources(ROOT / "docs" / "knowledge" / PROPOSAL_NAME)
+    expected = {f"I{i}" for i in range(1, 7)} | {f"H{i}" for i in range(1, 7)} | {f"A{i}" for i in range(1, 10)}
+    assert set(sources) == expected
+    assert all(urls and all(url.startswith("https://") for url in urls) for urls in sources.values())
+
+
 def test_a_local_link_in_a_guide_is_a_problem(tmp_path: Path) -> None:
     guide = _guide(tmp_path, "notes.md")
     assert any("must cite public sources" in issue for issue in problems(guide))

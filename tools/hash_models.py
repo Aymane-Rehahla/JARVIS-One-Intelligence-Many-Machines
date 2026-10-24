@@ -131,9 +131,9 @@ def changes_since(old: Manifest, new: Manifest) -> list[str]:
     return sorted(changed + vanished)
 
 
-def write_manifest(models_dir: Path) -> Manifest:
-    """Hash every model file and write models_dir/MANIFEST.json."""
-    manifest = build_manifest(models_dir)
+def write_manifest(models_dir: Path, manifest: Manifest | None = None) -> Manifest:
+    """Write models_dir/MANIFEST.json, hashing every model file unless an already built `manifest` is given."""
+    manifest = manifest or build_manifest(models_dir)
     text = json.dumps(manifest.model_dump(), indent=2, sort_keys=True) + "\n"
     (models_dir / MANIFEST_NAME).write_text(text, encoding="utf-8", newline="\n")
     return manifest
@@ -196,7 +196,7 @@ def main(argv: list[str] | None = None) -> int:
             for rel in differences:
                 print(f"  {rel}")
             return 1
-        manifest = write_manifest(args.models)
+        manifest = write_manifest(args.models, new)                       # hashed once, above
         total = sum(entry.size for entry in manifest.files.values())
         unknown = [rel for rel, entry in manifest.files.items() if entry.source == UNKNOWN_SOURCE]
         print(f"wrote {args.models / MANIFEST_NAME}: {len(manifest.files)} files, {total:,} bytes")

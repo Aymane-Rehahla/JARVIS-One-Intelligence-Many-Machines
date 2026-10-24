@@ -2,7 +2,7 @@
 //
 // Everything in this file is demonstration data, scripted by hand. No value
 // comes from the real Matrix, the CTM brains, the memory (CMM) or an LLM.
-// The devices, thresholds, device codes and Jarvis assessments mirror the
+// The devices, thresholds, device codes and JARVIS assessments mirror the
 // real farm simulation, so the demo shows what the system would
 // actually do, and the shapes are ready to be fed by the live Matrix later.
 
@@ -45,7 +45,7 @@ export type Device = {
 
 export type EventSeverity = "Info" | "Warning" | "Critical"
 
-export type EventSource = "Device" | "Jarvis" | "Operator"
+export type EventSource = "Device" | "JARVIS" | "Operator"
 
 export type EventRecord = {
   id: string
@@ -62,7 +62,7 @@ export type EventRecord = {
   evidence: string
 }
 
-/** The five conclusions a Jarvis node can reach (farm_poc/nodes/contracts.py). */
+/** The five conclusions a JARVIS node can reach (farm_poc/nodes/contracts.py). */
 export const ASSESSMENTS = ["NORMAL", "HANDLED_BY_MACHINE", "WATCHING", "ESCALATE_TO_USER", "DANGER"] as const
 
 export type Assessment = (typeof ASSESSMENTS)[number]
@@ -77,7 +77,7 @@ export const ASSESSMENT_LABELS: Record<Assessment, string> = {
 
 export type GateVerdict = "approved" | "blocked"
 
-/** One Jarvis node: each machine has its own. */
+/** One node of JARVIS: each machine carries one, and together they are one JARVIS. */
 export type JarvisNode = {
   id: DeviceId
   assessment: Assessment
@@ -112,7 +112,7 @@ export type JarvisActivityEntry = {
 export type JarvisState = {
   nodes: Record<DeviceId, JarvisNode>
   messages: PeerMessage[]
-  /** How many messages Jarvis has sent to the owner, so the voice indicator can announce new ones. */
+  /** How many messages JARVIS has sent to the owner, so the voice indicator can announce new ones. */
   announcements: number
   lastAnnouncement: string
 }
@@ -122,7 +122,7 @@ export type ChatMessage = {
   role: "operator" | "jarvis"
   text: string
   timeS: number
-  /** Marks illustrative Jarvis replies as preview content, not real AI. */
+  /** Marks illustrative JARVIS replies as preview content, not real AI. */
   preview?: boolean
 }
 
@@ -196,7 +196,7 @@ export const SCENARIOS: Scenario[] = [
     label: "Incubator humidity sensor drift",
     shortLabel: "Sensor drift",
     description:
-      "One of Incubator 2's three humidity sensors drifts upward while the air itself doesn't change. The other two keep reading normal, so Jarvis treats it as a sensor fault, not a humidity problem.",
+      "One of Incubator 2's three humidity sensors drifts upward while the air itself doesn't change. The other two keep reading normal, so JARVIS treats it as a sensor fault, not a humidity problem.",
     devices: ["incubator-2"],
     durationS: 1500,
   },
@@ -422,7 +422,7 @@ export function activeIncidentCount(state: FarmState): number {
 }
 
 // ---------------------------------------------------------------------------
-// Demo engine: scripted scenarios, telemetry, events, Jarvis nodes
+// Demo engine: scripted scenarios, telemetry, events, JARVIS nodes
 // ---------------------------------------------------------------------------
 
 export function startSimulation(state: FarmState): FarmState {
@@ -532,12 +532,12 @@ function notifyOwner(state: FarmState, id: DeviceId, text: string): void {
   node.ownerMessage = text
   pushEvent(state, {
     severity: node.assessment === "DANGER" ? "Critical" : "Warning",
-    type: "Jarvis notified the owner",
+    type: "JARVIS notified the owner",
     device: deviceName(id),
     deviceId: id,
     description: text,
     evidence: `${ASSESSMENT_LABELS[node.assessment]} · ${diagnosisLabel(node.diagnosis)}`,
-    source: "Jarvis",
+    source: "JARVIS",
   })
   pushActivity(state, id, `Notified the owner: ${text}`, "decision")
   state.jarvis.announcements += 1
@@ -813,7 +813,7 @@ export function clearResolvedEvents(state: FarmState): FarmState {
   return next
 }
 
-// Jarvis chat is a deterministic, clearly-labeled preview. Replies are
+// JARVIS chat is a deterministic, clearly-labeled preview. Replies are
 // canned and explicitly marked so they are never mistaken for real AI.
 // They read the current demo state so they agree with every other page.
 
@@ -850,12 +850,12 @@ function buildPreviewReply(state: FarmState, text: string): string {
     return "Preview reply: open the Simulator page, pick a scenario and select Inject scenario. It plays a scripted incident while the simulated clock runs."
   }
   if (/jarvis|ctm|brain|memory|llm/.test(normalized)) {
-    return "Preview reply: each machine has its own Jarvis node. Here they follow a demo script; the real nodes (CTM brain, memory and LLM) aren't connected to this website yet."
+    return "Preview reply: JARVIS is one intelligence with a node on every machine, and you talk to it through incubator-1. Here the nodes follow a demo script; the real nodes (CTM brain, memory and LLM) aren't connected to this website yet."
   }
   if (/hello|hi\b|hey|help/.test(normalized)) {
-    return "Preview reply: this is a conversation preview. Ask about the status, the incubators, the HVAC, the barn or Jarvis to get canned demo replies."
+    return "Preview reply: this is a conversation preview. Ask about the status, the incubators, the HVAC, the barn or JARVIS to get canned demo replies."
   }
-  return "Preview reply: I can talk about the demo devices, the scenarios and the Jarvis nodes. No real AI is connected yet."
+  return "Preview reply: I can talk about the demo devices, the scenarios and the JARVIS nodes. No real AI is connected yet."
 }
 
 export function sendChatMessage(state: FarmState, text: string): FarmState {

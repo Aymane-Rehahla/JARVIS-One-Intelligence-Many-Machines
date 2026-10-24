@@ -16,7 +16,7 @@ const SPOKEN: Record<VoiceState, string> = {
 }
 
 /**
- * Top-right voice indicator: a green burst when Jarvis hears its wake word,
+ * Top-right voice indicator: a green burst when JARVIS hears its wake word,
  * breathing ripples while it listens and an equalizer while it speaks.
  */
 export function JarvisVoice({

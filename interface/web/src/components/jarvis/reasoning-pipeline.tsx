@@ -15,7 +15,7 @@ type Stage = {
   icon: ComponentType<{ className?: string }>
 }
 
-/** What every Jarvis node does with each reading, in order (farm_poc/nodes). */
+/** What every JARVIS node does with each reading, in order (farm_poc/nodes). */
 const STAGES: Stage[] = [
   { label: "Telemetry & device codes", demoStatus: "Demo data", detail: "Readings and device codes from its own machine, every second.", icon: Activity },
   { label: "Peer link", demoStatus: "Demo data", detail: "Broadcasts from the other three nodes over a ZigBee-like link.", icon: Radio },

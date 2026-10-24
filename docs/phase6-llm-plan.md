@@ -1,12 +1,28 @@
-# Phase 6 plan: the JARVIS LLM layer (v3)
+# Phase 6 plan: the JARVIS LLM layer (v3.1)
 
-v3, 23 Oct 2026 (v2 was 22 Oct 2026) · Phase 5 v2 training runs until **27 Oct 12:00 at the latest** · Hand-in **1 Nov**
+v3.1, 24 Oct 2026 (v3 was 23 Oct, v2 22 Oct 2026) · Phase 5 v2 training runs until **27 Oct 12:00 at the latest, moved
+back by the length of the owner's pause** (v3.1) · Hand-in **1 Nov**
 
 **Reading order:** creating the tree (section 1) is safe at any time. Read the ground rules (section 2) and the engineering standard (section 3) before anything else. Section 10 is the working procedure for whoever builds this.
 
 **The bar:** this project is judged by PhD mentors. Every module meets the engineering standard, every claim in the presentation is backed by a measured number and a script that reproduces it, and the safety-critical path never depends on the LLM.
 
 ## Changelog
+
+**v3.1 (24 Oct 2026), the owner's order while the training is paused:**
+1. **The owner paused the CTM training** (the last training work ended 24 Oct 01:15:49; evidence in `WORKLOG.md`).
+   While it is paused, the RAM and CPU limits of ground rule 1 and the v3 limits of rule 10 are lifted; there are still
+   no edits in the training's folders. The training's end time moves back by the length of the pause, which is reported
+   to the owner before the training resumes.
+2. **Order:** commit a checkpoint, finish the 6.0 review and fixes, tag `step-6.0`; send the owner the public-source
+   list and continue while the owner reviews it; 6A with both LLM servers loaded for real; then the persona search from
+   the owner's persona spec (`docs/persona-spec.md`: system prompt, example exchanges, settings grid, the 48-line test
+   set and its scoring), with the top 3 sent to the owner for blind rating; 6E voice now, latency measurement included,
+   while RAM is free; then 6B, 6W and 6C. 6D (trained brains, final run) waits for the end of the training.
+3. **No parallel helpers;** a commit after every finished piece, so a usage cutoff never loses more than minutes.
+4. **The old name, before every commit and tag:** `tools/name_guard.py staged --message <file>` before each commit;
+   before each tag, the full scan (`JARVIS_FULL_NAME_SCAN=1` on `tests/test_no_old_name.py`) and
+   `tools/name_guard.py history`.
 
 **v3 (23 Oct 2026), the owner's seven changes:**
 1. **One JARVIS, many nodes.** The project is JARVIS (Just A Rather Very Intelligent System). Each machine carries its own
@@ -31,7 +47,8 @@ v3, 23 Oct 2026 (v2 was 22 Oct 2026) · Phase 5 v2 training runs until **27 Oct 
 **Run rules (v3):** every step ends with tests green, evidence in `WORKLOG.md`, an independent review with its findings
 fixed, a commit and a tag. Stop and report instead of continuing if a ground rule would be bent, a test fails and can't
 be fixed properly, free RAM stays below 2 GB, anything would touch the training's folders or processes, or something
-needs a decision that isn't in the plan.
+needs a decision that isn't in the plan. Every commit passes `tools/name_guard.py staged`, and every tag the full
+old-name scan and `tools/name_guard.py history` (v3.1).
 
 **v2 (22 Oct 2026):** what changed from v1: voice is installed in all four nodes (switched on only in incubator-1); emotion2vec+ is added; the pre-downloaded models are listed; the website is integrated now through a gateway (step 6W); new sections cover the engineering standard, evaluation and evidence, and the working procedure.
 
@@ -146,7 +163,7 @@ The four folders hold identical code, voice included. Only three things differ:
 | | incubator-1 | incubator-2 | hvac | animal-protection |
 |---|---|---|---|---|
 | `node.toml` | speaks, **voice on**, Qwen 3.5 2B roleplay on server 1 | silent, voice off, Qwen3-0.6B on server 2, slot 0 | silent, voice off, server 2, slot 1 | silent, voice off, server 2, slot 2 |
-| `memory/rom/` | incubator manual, hatching docs, owner rules, safety list | same as incubator-1 | HVAC manual, owner rules, safety list | animal-protection manual, owner rules, safety list |
+| `memory/rom/` | incubator manual; incubation and hatching guide (after source approval); shared owner rules, safety list, farm layout, contacts | same as incubator-1 | HVAC manual; ventilation guide (after source approval); the shared four | animal-protection manual; heat, fire, flood and storm guide (after source approval); the shared four |
 | `data/` | its own databases | its own | its own | its own |
 
 **Why incubator-1 speaks:** it is always the node closest to the user. The other three have the same voice box, switched off so they can't start talking or listening by accident. A switched-off voice box loads nothing, so it costs no RAM or CPU.
@@ -184,7 +201,7 @@ Identical code has two benefits:
 
 | # | Standard | What it means in practice |
 |---|---|---|
-| Q1 | **Typed** | Type hints everywhere. Every NATS message, tool input and output, gateway message and `node.toml` is a pydantic v2 model. `pyright` passes on `jarvis/` and `interface/gateway/`; the website's `npm run typecheck` passes. |
+| Q1 | **Typed** | Type hints everywhere. Every NATS message, tool input and output, gateway message and `node.toml` is a pydantic v2 model. `pyright` passes on `nodes/`, `tools/`, `tests/` and `interface/gateway/`; the website's `npm run typecheck` passes. |
 | Q2 | **Validated at every border** | Every incoming message is validated and carries `schema_version`. Invalid or unknown-version messages are logged and dropped; they never crash a program. Contracts are defined once in Python and exported to `interface/contracts/`; the website checks every message with zod, and a test runs the same sample messages through both sides. |
 | Q3 | **Tested** | Unit tests for every module, integration tests for every step, plus golden, retrieval, failure and safety suites. Coverage of at least 80 % on `llm/`, `comms/` and `interface/gateway/`. Property tests (hypothesis) for parsers such as `verify.py`'s number extraction. One command runs everything: `pytest`. |
 | Q4 | **Bounded** | Every network call and wait has a timeout; every queue has a maximum size; every cache has a size or an expiry. Nothing can wait forever or grow without limit. |
@@ -531,7 +548,9 @@ Each step ends with: tests green, `WORKLOG.md` updated with evidence, an indepen
 - **Done when:**
   - every tool passes its unit tests;
   - "the HVAC is struggling" finds the passage that only says "compressor";
-  - every answer writes an audit row with its request id.
+  - every answer writes an audit row with its request id;
+  - hot-join, complete (H1): start JARVIS with three nodes, start the fourth, and ask incubator-1 about that machine:
+    it answers from the new node's tools within seconds, with no restart (an integration test).
 
 ### 6W Website integration · 24–27 Oct (alongside 6B and 6C)
 
@@ -559,6 +578,12 @@ Each step ends with: tests green, `WORKLOG.md` updated with evidence, an indepen
 ### 6D Live farm and final run · 27–28 Oct
 
 - Copy the reasoning code into each node's `reasoning/` and `memory/`, and the farm into `matrix/`, **from the training run's `code_snapshot/`**, so the trained weights load with the exact code that trained them. Add the demo-fault routes to this copy without changing any physics, encoders or labels.
+- **The old name and the checkpoints (owner decision, v3.1):** the code snapshot and the trained checkpoints may carry
+  the old name (docstrings, default paths, labels inside pickled metadata), and nothing inside `JARVIS/` may. Proposed:
+  remove the name from the code copy as decision 0010 did for the snapshot (names only; physics, encoders and labels
+  unchanged), and re-save each checkpoint as a weights-only state dict without its metadata, proving tensor-for-tensor
+  equality with the original and recording the new hashes. The alternative is to load the weights from outside
+  `JARVIS/`. The owner chooses before 6D starts.
 - `matrix/farm_runtime.py` publishes the trained CTMs' outputs ("live: trained brains"). The farm runtime can keep its own Python environment; NATS connects it to the rest.
 - Proactive alerts: when any node reaches ESCALATE or DANGER, incubator-1 announces it at once from a fixed template filled with that node's published output; the LLM may reword it only if that fits within the alert deadline, and `verify.py` checks the result.
 - Run everything in `tests/DEFERRED.md`. Run the full evaluation (section 8) and write `docs/results-phase6.md`. Fix what fails.
@@ -611,9 +636,11 @@ Never cut: the ground rules, the engineering standard, verification, recovery, d
 
 ## 12. Open points
 
-0. **v3 decisions waiting for the owner:** approval of the public sources per node (`docs/knowledge/sources-proposal.md`);
-   emotion2vec+ is 1.12 GB, not about 0.35 GB (download it, or drop the tone hint); review of the drafted manuals and
-   shared documents (`tools/knowledge.py approve`).
+0. **v3 decisions waiting for the owner:** approval of the public sources per node (`docs/knowledge/sources-proposal.md`),
+   including its HVAC scope question; emotion2vec+ is 1.12 GB, not about 0.35 GB (download it, or drop the tone hint);
+   review of the drafted manuals and shared documents (`tools/knowledge.py approve`); the 6D checkpoint approach (step
+   6D); and whether the RAM guard should act when free RAM *drops* below 2 GB or, as built, when it *stays* below 2 GB
+   for 30 s (the training's own peaks dip below 2 GB for single samples many times a day).
 
 1. **The 9 agreed tools** aren't written down anywhere in the project. Section 6 is a proposal; replace it with the agreed list if they differ.
 2. **bge-small on all four nodes.** "Each roleplaying node" is read here as all four, since each searches its own manuals. If only incubator-1 was meant, the other three fall back to keyword search.

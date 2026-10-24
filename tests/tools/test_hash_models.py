@@ -39,6 +39,20 @@ def test_write_lists_every_model_file_with_its_hash_and_source(models: Path) -> 
     assert on_disk["schema_version"] == 1 and set(on_disk["files"]) == set(manifest.files)
 
 
+def test_the_write_command_hashes_each_file_once(models: Path, monkeypatch: pytest.MonkeyPatch,
+                                                capsys: pytest.CaptureFixture[str]) -> None:
+    hashed: list[Path] = []
+    real = hash_models.sha256_file
+
+    def counting(path: Path, chunk_bytes: int = 1 << 20) -> str:
+        hashed.append(path)
+        return real(path, chunk_bytes=chunk_bytes)
+
+    monkeypatch.setattr(hash_models, "sha256_file", counting)
+    assert main(["write", "--models", str(models)]) == 0
+    assert len(hashed) == 3 == len(set(hashed)) and "3 files" in capsys.readouterr().out
+
+
 def test_check_passes_on_an_untouched_folder(models: Path) -> None:
     write_manifest(models)
     report = check_manifest(models)

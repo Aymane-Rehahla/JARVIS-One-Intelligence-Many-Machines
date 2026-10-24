@@ -1,4 +1,4 @@
-// An illustrative model of how one Jarvis node's brain, a small Continuous Thought
+// An illustrative model of how one JARVIS node's brain, a small Continuous Thought
 // Machine (CTM), reasons.
 //
 // Nothing here is the real CTM. The demo script decides the outcome (the node's
