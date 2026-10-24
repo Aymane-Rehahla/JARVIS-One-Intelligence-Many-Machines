@@ -1,9 +1,18 @@
-"""The run's human outputs: leaderboard.md, the owner's blind rating sheet for the top 3, ratings and the reveal.
+"""The run's human outputs: the leaderboard, the owner's blind rating sheet for the top 3, ratings and the reveal.
 
-Blind sheet: the same seeded subset of prompts for the top configurations; for each prompt their replies are shuffled
-with a fixed seed and labelled A/B/C, so the order says nothing about the configuration. The key goes to
-blind_key.json. The owner scores every reply 1–5 with rate.py, then `rate.py reveal` names the winner (highest
-mean rating; ties go to the higher automatic score). The tool only prepares the sheet: the owner's rating decides.
+Only **eligible** configurations may reach the blind sheet: no verify failure on any prompt (every number and time
+they said matched the tool results) and no hard fail on any danger prompt. The top 3 eligible ones by automatic score
+go on the sheet; if fewer than 3 qualify the sheet says so and shows fewer, and with fewer than 2 there is no sheet.
+
+Blind sheet: the same seeded subset of prompts for the chosen configurations; for each prompt their replies are
+shuffled with a fixed seed and labelled A/B/C, so the order says nothing about the configuration. A reply that failed
+any other automatic check is shown with that finding, never silently. The run folder keeps what would give the game
+away apart from the sheet:
+    blind/blind_rating.md    the owner's sheet (and blind/ratings.json, the owner's ratings)
+    sealed/blind_key.json    which configuration is behind each label
+    scored/                  results.jsonl, summary.json and leaderboard.md, which name the configurations
+The owner rates everything with rate.py before opening scored/ or sealed/, then `rate.py reveal` names the winner
+(highest mean rating; ties go to the higher automatic score). The tool only prepares the sheet: the owner decides.
 """
 from __future__ import annotations
 
@@ -19,6 +28,12 @@ from persona_search.selection import select_prompts
 
 ROOT = Path(__file__).resolve().parents[2]
 LABELS = "ABC"
+SCORED_DIR = "scored"
+BLIND_DIR = "blind"
+SEALED_DIR = "sealed"
+RESULTS = "results.jsonl"
+SUMMARY = "summary.json"
+LEADERBOARD = "leaderboard.md"
 BLIND_SHEET = "blind_rating.md"
 BLIND_KEY = "blind_key.json"
 RATINGS = "ratings.json"
@@ -47,6 +62,7 @@ def _cell(text: str) -> str:
 def write_leaderboard(path: Path, meta: RunMeta, summaries: Sequence[ConfigSummary],
                       records: Sequence[ReplyRecord]) -> None:
     """Write leaderboard.md: the ranking, the winner's settings, the scoring rules and the first hard fails."""
+    eligible = sum(1 for s in summaries if s.eligible)
     lines = [
         "# Persona search: leaderboard",
         "",
@@ -56,34 +72,41 @@ def write_leaderboard(path: Path, meta: RunMeta, summaries: Sequence[ConfigSumma
         "",
         f"Reply score: 0 on any hard fail, otherwise 100 × ({W_TONE} tone + {W_CONCISE} concise + "
         f"{W_SUBSTANCE} substance). Configuration score: mean over its prompts. Ranked by score, then fewer hard "
-        "fails, then lower latency. The owner's blind rating of the top 3 decides (blind_rating.md).",
+        "fails, then lower latency. **Eligible** for the owner's blind rating: no verify fail and no danger hard fail "
+        f"({eligible} of {len(summaries)} configurations). The owner's blind rating of the top 3 eligible decides.",
         "",
-        "| Rank | Configuration | Score | Hard fails | Verify fails | Character fails | Danger fails | Mean words "
-        "| Mean latency (s) | Tokens/s |",
-        "|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| Rank | Configuration | Eligible | Score | Hard fails | Verify fails | Character fails | Action claims "
+        "| No farm time | Danger fails | Mean words | Mean latency (s) | Tokens/s |",
+        "|---:|---|:-:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for rank, s in enumerate(summaries[:LEADERBOARD_ROWS], start=1):
         latency = f"{s.mean_latency_s:.2f}" if s.mean_latency_s is not None else "–"
         speed = f"{s.tokens_per_s:.1f}" if s.tokens_per_s is not None else "–"
-        lines.append(f"| {rank} | `{s.config.id}` | {s.score:.1f} | {s.hard_fails}/{s.replies} | {s.verify_fails} | "
-                     f"{s.character_fails} | {s.danger_hard_fails} | {s.mean_words:.0f} | {latency} | {speed} |")
+        lines.append(f"| {rank} | `{s.config.id}` | {'yes' if s.eligible else 'no'} | {s.score:.1f} | "
+                     f"{s.hard_fails}/{s.replies} | {s.verify_fails} | {s.character_fails} | {s.action_fails} | "
+                     f"{s.farm_time_fails} | {s.danger_hard_fails} | {s.mean_words:.0f} | {latency} | {speed} |")
     if len(summaries) > LEADERBOARD_ROWS:
-        lines.append(f"\n{len(summaries) - LEADERBOARD_ROWS} more configurations in summary.json.")
-    if summaries:
-        best = summaries[0]
-        lines += ["", "## Best configuration", "",
-                  f"- system prompt: `data/system_prompts/{best.config.system_prompt}.md`",
-                  f"- example set: `data/examples/{best.config.examples}.json`",
+        lines.append(f"\n{len(summaries) - LEADERBOARD_ROWS} more configurations in {SUMMARY}.")
+    best = next((s for s in summaries if s.eligible), None)
+    if best is not None:
+        lines += ["", "## Best eligible configuration", "",
+                  f"- id: `{best.config.id}`",
+                  f"- system prompt: `{best.config.system_prompt}`; examples: `{best.config.examples}`",
                   f"- sampling: temperature {best.config.sampling.temperature}, top_p {best.config.sampling.top_p}, "
                   f"min_p {best.config.sampling.min_p}, repeat_penalty {best.config.sampling.repeat_penalty}",
                   "- score by category: " + ", ".join(f"{k} {v:.1f}" for k, v in best.category_scores.items())]
+    else:
+        lines += ["", "## No eligible configuration", "",
+                  "Every configuration failed verify on some prompt or failed hard on a danger prompt."]
     lines += ["", "## Scoring rules", "",
               "- Hard fails: no reply, leaked reasoning, AI disclaimer or claiming a model/vendor name, breaking the "
-              "fourth wall, film names or stock film lines, and any number that llm/verify.py cannot match to the "
-              "prompt's tool results.",
+              "fourth wall, film names, stock film lines or blocklisted film lines, any number or time that "
+              "llm/verify.py cannot match to the prompt's tool results, claiming an action the tool results do not "
+              "record, and not stating the farm time where it is required.",
               "- Tone deductions: " + ", ".join(f"{k} −{v}" for k, v in TONE_DEDUCTIONS.items()) + ".",
               "- Word limits: " + ", ".join(f"{k} {v.max_words}" for k, v in CATEGORY_RULES.items()) + ".",
-              "- Substance: a verified number when the prompt needs numbers, and each must-mention term."]
+              "- Substance: a verified number when the prompt needs numbers, the farm time when the tool results have "
+              "one, and each must-mention term."]
     failed = [r for r in records if r.score.hard_fails][:HARD_FAIL_EXAMPLES]
     if failed:
         lines += ["", f"## Hard fails (first {HARD_FAIL_EXAMPLES})", "",
@@ -92,6 +115,7 @@ def write_leaderboard(path: Path, meta: RunMeta, summaries: Sequence[ConfigSumma
             shown = r.error if r.error else r.text
             lines.append(f"| `{r.config_id}` | {r.prompt_id} | {', '.join(r.score.hard_fails)} | "
                          f"{_cell(_clip(shown, 100))} |")
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
 
 
@@ -119,23 +143,40 @@ def blind_labels(prompt_ids: Sequence[str], configs: Sequence[str], seed: int) -
 def write_blind_sheet(out_dir: Path, meta: RunMeta, summaries: Sequence[ConfigSummary],
                       records: Sequence[ReplyRecord], prompts: Sequence[PersonaPrompt], *, n_prompts: int = 12,
                       top_k: int = 3) -> BlindKey | None:
-    """Write blind_rating.md and blind_key.json for the top configurations; None when fewer than two ran."""
-    top = [s.config.id for s in summaries[:min(top_k, len(LABELS))]]
+    """Write blind/blind_rating.md and sealed/blind_key.json for the top eligible configurations.
+
+    Returns None (and a sheet that says why) when fewer than two configurations are eligible.
+    """
+    eligible = [s for s in summaries if s.eligible]
+    top = [s.config.id for s in eligible[:min(top_k, len(LABELS))]]
+    sheet = out_dir / BLIND_DIR / BLIND_SHEET
+    sheet.parent.mkdir(parents=True, exist_ok=True)
     if len(top) < 2:
+        sheet.write_text("# Persona search: blind rating\n\n"
+                         f"Run `{meta.run_id}`: no blind rating is possible. {len(eligible)} of {len(summaries)} "
+                         "configurations passed the automatic checks needed for it (no verify fail on any prompt, no "
+                         f"hard fail on a danger prompt); a blind comparison needs at least two. See "
+                         f"`{SCORED_DIR}/{LEADERBOARD}`.\n", encoding="utf-8", newline="\n")
         return None
     replies = {(r.config_id, r.prompt_id): r for r in records}
     chosen = [p for p in select_prompts(prompts, n_prompts, meta.seed, salt="blind")
               if all((c, p.id) in replies for c in top)]
     labels = blind_labels([p.id for p in chosen], top, meta.seed)
     key = BlindKey(run_id=meta.run_id, seed=meta.seed, configs=top,
-                   auto_scores={s.config.id: s.score for s in summaries[:len(top)]}, labels=labels)
+                   auto_scores={s.config.id: s.score for s in eligible[:len(top)]}, labels=labels)
     run_dir = _shown(out_dir)
     letters = " ".join(f"{label}=5" for label in LABELS[:len(top)])
+    fewer = (f" Only {len(top)} configurations passed the automatic checks needed for this sheet, so each prompt has "
+             f"{len(top)} replies." if len(top) < top_k else "")
     lines = [
         "# Persona search: blind rating",
         "",
         f"Run `{meta.run_id}` · {len(chosen)} prompts · {len(top)} replies per prompt, shuffled for each prompt "
-        "(fixed seed). Every number has already been checked against the tool results.",
+        "(fixed seed), so the letters say nothing about which configuration wrote them." + fewer,
+        "",
+        "Every configuration on this sheet passed two automatic checks on every prompt of the run: each number and "
+        "time it said matched the prompt's tool results (llm/verify.py), and none of its danger replies failed a "
+        "hard check. Any other automatic finding is printed under the reply it concerns.",
         "",
         "Score each reply from 1 (poor) to 5 (excellent): does it sound like JARVIS (formal, calm, dry, British), "
         "is it short enough, and would you be happy to hear it? Record one prompt at a time:",
@@ -147,7 +188,7 @@ def write_blind_sheet(out_dir: Path, meta: RunMeta, summaries: Sequence[ConfigSu
         "",
         f"    .venv\\Scripts\\python tools\\persona_search\\rate.py reveal {run_dir}",
         "",
-        f"Do not open `{BLIND_KEY}` before you finish.",
+        f"Do not open `{SCORED_DIR}/` or `{SEALED_DIR}/` before you finish: they say which configuration is which.",
     ]
     for number, prompt in enumerate(chosen, start=1):
         lines += ["", "---", "", f"## {number}. `{prompt.id}` · {prompt.category.replace('_', ' ')}", "",
@@ -159,19 +200,23 @@ def write_blind_sheet(out_dir: Path, meta: RunMeta, summaries: Sequence[ConfigSu
             record = replies[(config, prompt.id)]
             shown = record.text if record.error is None else f"(no reply: {record.error})"
             lines += ["", f"**{label}.**", *_quote(shown)]
-    (out_dir / BLIND_SHEET).write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
-    (out_dir / BLIND_KEY).write_text(key.model_dump_json(indent=2) + "\n", encoding="utf-8", newline="\n")
+            if record.score.hard_fails:
+                lines += ["", f"*Automatic check failed: {', '.join(record.score.hard_fails)}.*"]
+    sheet.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+    sealed = out_dir / SEALED_DIR / BLIND_KEY
+    sealed.parent.mkdir(parents=True, exist_ok=True)
+    sealed.write_text(key.model_dump_json(indent=2) + "\n", encoding="utf-8", newline="\n")
     return key
 
 
 def load_key(run_dir: Path) -> BlindKey:
-    """Read blind_key.json. Raises FileNotFoundError or pydantic.ValidationError."""
-    return BlindKey.model_validate_json((run_dir / BLIND_KEY).read_text(encoding="utf-8"))
+    """Read sealed/blind_key.json. Raises FileNotFoundError or pydantic.ValidationError."""
+    return BlindKey.model_validate_json((run_dir / SEALED_DIR / BLIND_KEY).read_text(encoding="utf-8"))
 
 
 def load_ratings(run_dir: Path) -> Ratings:
-    """Read ratings.json, or an empty Ratings if none were recorded yet."""
-    path = run_dir / RATINGS
+    """Read blind/ratings.json, or an empty Ratings if none were recorded yet."""
+    path = run_dir / BLIND_DIR / RATINGS
     if not path.exists():
         return Ratings()
     return Ratings.model_validate_json(path.read_text(encoding="utf-8"))
@@ -189,7 +234,9 @@ def record_ratings(run_dir: Path, prompt_id: str, scores: Mapping[str, int]) -> 
     if any(not ratings.scale_min <= value <= ratings.scale_max for value in scores.values()):
         raise ValueError(f"scores must be whole numbers from {ratings.scale_min} to {ratings.scale_max}")
     ratings.ratings[prompt_id] = dict(sorted(scores.items()))
-    (run_dir / RATINGS).write_text(ratings.model_dump_json(indent=2) + "\n", encoding="utf-8", newline="\n")
+    path = run_dir / BLIND_DIR / RATINGS
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(ratings.model_dump_json(indent=2) + "\n", encoding="utf-8", newline="\n")
     return ratings
 
 

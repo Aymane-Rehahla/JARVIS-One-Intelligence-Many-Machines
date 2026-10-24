@@ -7,18 +7,24 @@ Hard fails (the reply scores 0, whatever else it does well):
                     (Qwen, ChatGPT...); denying it ("I am not ChatGPT") is allowed
     fourth_wall     talks about its system prompt, instructions, programming, roleplay or persona
     film_reference  names from the films or a stock film line: JARVIS's lines must be original
-    verify_failed   a number that matches no tool result of the prompt (llm/verify.py, the production check)
+    film_line       reproduces a blocklisted film line (hashed 4-grams, checks.py)
+    verify_failed   a number or time that matches no tool result of the prompt (llm/verify.py, the production check)
+    claimed_action  says an action happened that the prompt's evidence does not record (checks.py): JARVIS talks, the
+                    safety path acts (ground rule 3)
+    no_farm_time    the evidence has a farm time and the reply does not state it, in FARM_TIME_REQUIRED categories
+                    (ground rule 6); in the other categories stating it is one of the substance checks
 Otherwise, reply score = 100 × (W_TONE × tone + W_CONCISE × concise + W_SUBSTANCE × substance), each part 0–1:
     tone       1 minus TONE_DEDUCTIONS: American spellings, slang, missing address, not calm (more than one "!" or
                shouting in capitals), stage directions / markdown / emoji
     concise    1 up to the category's word limit, falling linearly to 0 at twice the limit
-    substance  share of the prompt's checks met: at least one verified number when the prompt needs numbers, and
-               every `must_mention` term (alternatives separated by "|")
+    substance  share of the prompt's checks met: at least one verified number when the prompt needs numbers, the farm
+               time stated when the evidence has one, and every `must_mention` term (alternatives separated by "|")
 """
 from __future__ import annotations
 
 import re
 
+from persona_search.checks import film_line_hits, unbacked_claims
 from persona_search.models import Category, CategoryRule, HardFail, NumberCheck, PersonaPrompt, ReplyScore
 from persona_search.verify_bridge import check_numbers
 
@@ -35,6 +41,7 @@ CATEGORY_RULES: dict[Category, CategoryRule] = {
     "break_character": CategoryRule(max_words=45),
     "numbers": CategoryRule(max_words=70),
 }
+FARM_TIME_REQUIRED: frozenset[Category] = frozenset({"farm_status", "numbers", "danger"})
 
 TONE_DEDUCTIONS: dict[str, float] = {
     "american_spelling": 0.25,   # per occurrence
@@ -136,6 +143,8 @@ def character_fails(text: str) -> list[HardFail]:
         fails.append("fourth_wall")
     if _FILM_RE.search(text):
         fails.append("film_reference")
+    if film_line_hits(text):
+        fails.append("film_line")
     return fails
 
 
@@ -184,6 +193,10 @@ def substance_score(text: str, prompt: PersonaPrompt, numbers: NumberCheck) -> t
         checks.append(numbers.verified > 0)
         if numbers.verified == 0:
             notes.append("gives no verified number")
+    if numbers.farm_time_stated is not None:
+        checks.append(numbers.farm_time_stated)
+        if not numbers.farm_time_stated:
+            notes.append("does not state the farm time of its data")
     normal = _normal(text)
     for term in prompt.must_mention:
         found = any(_normal(option) in normal for option in term.split("|"))
@@ -208,6 +221,11 @@ def score_reply(raw: str, prompt: PersonaPrompt, *, address: str = "sir", error:
     hard += character_fails(text)
     if not numbers.ok:
         hard.append("verify_failed")
+    claims = unbacked_claims(text, prompt.evidence)
+    if claims:
+        hard.append("claimed_action")
+    if numbers.farm_time_stated is False and prompt.category in FARM_TIME_REQUIRED and "no_reply" not in hard:
+        hard.append("no_farm_time")
     tone, tone_notes = tone_score(text, address=address, address_expected=rule.address_expected)
     concise = concise_score(words, limit)
     substance, substance_notes = substance_score(text, prompt, numbers)
@@ -215,7 +233,8 @@ def score_reply(raw: str, prompt: PersonaPrompt, *, address: str = "sir", error:
     if words > limit:
         notes.append(f"{words} words (limit {limit})")
     if not numbers.ok:
-        notes.append("unverified numbers: " + ", ".join(numbers.unverified))
+        notes.append("unverified numbers or times: " + ", ".join(numbers.unverified))
+    notes += [f"claims an action the evidence does not record: {claim.text!r}" for claim in claims]
     total = 0.0 if hard else round(100.0 * (W_TONE * tone + W_CONCISE * concise + W_SUBSTANCE * substance), 2)
     return ReplyScore(hard_fails=hard, tone=round(tone, 4), concise=round(concise, 4), substance=round(substance, 4),
                       words=words, total=total, numbers=numbers, notes=notes)

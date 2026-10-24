@@ -36,9 +36,13 @@ def load_verify() -> ModuleType:
 
 
 def check_numbers(reply: str, evidence: Sequence[ToolEvidence] | None) -> NumberCheck:
-    """Run verify_reply on a reply against the prompt's tool results (none means every number fails)."""
+    """Run verify_reply on a reply against the prompt's tool results (none means every number and time fails), and
+    states_farm_time for the farm-time criterion."""
     verify = load_verify()
     tools = [item.model_dump(mode="json") for item in evidence or ()]
-    report = verify.verify_reply(reply[:verify.MAX_REPLY_CHARS], tools)
-    return NumberCheck(ok=bool(report.ok), verified=len(report.matched),
-                       unverified=[str(number.text) for number in report.unmatched], ignored=len(report.ignored))
+    text = reply[:verify.MAX_REPLY_CHARS]
+    report = verify.verify_reply(text, tools)
+    unverified = [str(number.text) for number in report.unmatched] + [f"time {t.text}" for t in report.unmatched_times]
+    return NumberCheck(ok=bool(report.ok), verified=len(report.matched), unverified=unverified,
+                       ignored=len(report.ignored), times_checked=int(report.times_checked),
+                       farm_time_stated=verify.states_farm_time(text, tools))

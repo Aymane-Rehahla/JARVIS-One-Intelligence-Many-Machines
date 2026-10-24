@@ -56,20 +56,27 @@ confirms the model's chat template supports tools). Thinking mode is switched of
 |---|---|
 | `run.json` | seed, backend, address, evidence mode, configurations, prompts, counts (Q8) |
 | `configs.json` | every configuration that ran |
-| `results.jsonl` | one line per (configuration, prompt): reply, cleaned text, latency, tokens, score and reasons; written as it goes |
-| `summary.json` | per configuration: score, hard fails, verify/character/danger fails, words, latency, category scores |
-| `leaderboard.md` | the ranking, the best configuration's files and settings, the scoring rules, the first hard fails |
-| `blind_rating.md` | the owner's sheet: 12 prompts (seeded, spread over categories), the top 3 replies per prompt shuffled per prompt (seeded) and labelled A/B/C |
-| `blind_key.json` | label → configuration for each prompt; not for the owner until after rating |
-| `ratings.json`, `winner.json` | written by `rate.py` |
+| `blind/blind_rating.md` | **the owner's sheet**: 12 prompts (seeded, spread over categories), the replies of the top 3 *eligible* configurations shuffled per prompt (seeded) and labelled A/B/C; any automatic finding is printed under its reply |
+| `blind/ratings.json` | the owner's ratings, written by `rate.py` |
+| `sealed/blind_key.json` | label → configuration for each prompt: open it only after rating |
+| `scored/results.jsonl` | one line per (configuration, prompt): reply, cleaned text, latency, tokens, score and reasons; written as it goes |
+| `scored/summary.json` | per configuration: score, eligibility, hard fails, verify/character/action/farm-time/danger fails, words, latency, category scores |
+| `scored/leaderboard.md` | the ranking, the best eligible configuration, the scoring rules, the first hard fails |
+| `winner.json` | written by `rate.py reveal` |
 
-## How scoring works (`scoring.py`)
+`scored/` and `sealed/` name the configurations, so the owner rates the sheet before opening either.
+
+## How scoring works (`scoring.py`, `checks.py`)
 
 **Hard fails** make a reply score 0: no reply; leaked `<think>` reasoning; an AI disclaimer ("As an AI", "language
 model", "I cannot assist with that") or claiming to be a named product (Qwen, ChatGPT…; a denial such as "I am not
 ChatGPT" is allowed); breaking the fourth wall (system prompt, instructions, programming, roleplay, persona); film
-names or stock film lines; and **any number that `nodes/incubator-1/llm/verify.py` cannot match to the prompt's
-evidence** (the production check, so good character with wrong numbers fails).
+names or stock film lines; a **blocklisted film line** (`data/film_blocklist.json`: well-known lines stored only as
+SHA-256 hashes of their word 4-grams; two matching 4-grams of one line are a hit); **any number or time of day that
+`nodes/incubator-1/llm/verify.py` cannot match to the prompt's evidence** (the production check, so good character
+with wrong numbers fails); **claiming an action the evidence does not record** ("I've switched off the heater" with
+no recorded `action`, `actions_taken` or `communication` for it: JARVIS talks, the safety path acts); and **not
+stating the farm time** of the evidence in the farm status, numbers and danger categories.
 
 Otherwise **reply score = 100 × (0.35 tone + 0.30 concise + 0.35 substance)**:
 
@@ -79,10 +86,12 @@ Otherwise **reply score = 100 × (0.35 tone + 0.30 concise + 0.35 substance)**:
 - **concise**: 1 within the category's word limit (danger 40, small talk 45, break character 45, angry owner 60,
   joke 60, numbers 70, farm status 80), falling linearly to 0 at twice the limit.
 - **substance**: the share of the prompt's checks met: at least one verified number when the prompt needs numbers,
-  and every `must_mention` term.
+  the farm time when the evidence has one, and every `must_mention` term.
 
 **Configuration score** = mean reply score over its prompts. The leaderboard ranks by score, then fewer hard fails,
-then lower latency, and shows danger hard fails separately.
+then lower latency. A configuration is **eligible** for the blind sheet only with no verify fail on any prompt and no
+hard fail on any danger prompt; with fewer than 3 eligible the sheet says so and shows fewer, with fewer than 2 there
+is no sheet.
 
 ## Blind rating (the owner decides)
 
@@ -92,8 +101,8 @@ then lower latency, and shows danger hard fails separately.
 .venv\Scripts\python tools\persona_search\rate.py reveal logs\persona_search\<run>
 ```
 
-`reveal` maps the ratings back through `blind_key.json`: the winner has the highest mean rating (ties go to the
-higher automatic score). It refuses while prompts are unrated unless `--partial` is given.
+`reveal` maps the ratings back through `sealed/blind_key.json`: the winner has the highest mean rating (ties go to
+the higher automatic score). It refuses while prompts are unrated unless `--partial` is given.
 
 ## Files
 
@@ -103,6 +112,7 @@ higher automatic score). It refuses while prompts are unrated unless `--partial`
 | `rate.py` | records the owner's ratings and reveals the winner |
 | `search.py` | builds the messages, runs every (configuration × prompt), summarises |
 | `scoring.py` | the automatic score |
+| `checks.py` | the film-line blocklist check and the claimed-action check |
 | `report.py` | leaderboard, blind sheet, ratings, reveal |
 | `backend.py` | `OpenAICompatibleBackend` (httpx; timeouts; retries bounded to 5 with capped backoff) and `FakeBackend` |
 | `fake.py` | canned replies for `--fake` (seeded flaws so the leaderboard has something to rank) |

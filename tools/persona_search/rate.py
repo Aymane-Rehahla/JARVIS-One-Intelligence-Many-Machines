@@ -5,7 +5,8 @@ Usage:
     python tools/persona_search/rate.py status RUN_DIR                        which prompts are still unrated
     python tools/persona_search/rate.py reveal RUN_DIR [--partial]            map ratings to configurations; winner
 
-Ratings go to RUN_DIR/ratings.json, the result to RUN_DIR/winner.json. Exit codes: 0 done, 2 bad input or files.
+Ratings go to RUN_DIR/blind/ratings.json, the key is read from RUN_DIR/sealed/blind_key.json and the result goes to
+RUN_DIR/winner.json. Exit codes: 0 done, 2 bad input or files.
 """
 from __future__ import annotations
 

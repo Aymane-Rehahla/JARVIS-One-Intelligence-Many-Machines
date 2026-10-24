@@ -6,9 +6,9 @@ Usage:
     python tools/persona_search/run.py --plan [--limit N]     print what a run would do and its rough duration
 
 Every (configuration × prompt) is asked once; each reply is scored (scoring.py) and the run folder gets
-results.jsonl, summary.json, leaderboard.md, blind_rating.md and blind_key.json (search.py, report.py). Then the
-owner rates the blind sheet with rate.py. Exit codes: 0 done, 1 the run stopped on backend failures, 2 bad data,
-bad arguments, a busy --out folder or a server that is not ready.
+scored/ (results.jsonl, summary.json, leaderboard.md), blind/blind_rating.md and sealed/blind_key.json (search.py,
+report.py). Then the owner rates the blind sheet with rate.py, before opening scored/ or sealed/. Exit codes: 0 done,
+1 the run stopped on backend failures, 2 bad data, bad arguments, a busy --out folder or a server that is not ready.
 """
 from __future__ import annotations
 
@@ -22,6 +22,7 @@ if __package__ in (None, ""):
 from persona_search.backend import Backend, BackendError, FakeBackend, OpenAICompatibleBackend
 from persona_search.fake import PersonaFake
 from persona_search.loading import DATA_DIR, DataError, load_data
+from persona_search.report import BLIND_DIR, BLIND_SHEET, SCORED_DIR, SEALED_DIR
 from persona_search.search import (MAX_REQUESTS, SECONDS_PER_REQUEST_ESTIMATE, RunOptions, default_run_dir,
                                    run_search)
 from persona_search.selection import build_configs, select_configs, select_prompts
@@ -104,12 +105,10 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     finally:
         backend.close()
-    best = result.summaries[0]
-    print(f"done: {result.meta.requests} replies, {result.meta.errors} errors. Best: {best.config.id} "
-          f"(score {best.score:.1f}, hard fails {best.hard_fails}/{best.replies})")
-    for name in ("leaderboard.md", "blind_rating.md", "results.jsonl"):
-        if (out / name).exists():
-            print(f"  {out / name}")
+    eligible = sum(1 for s in result.summaries if s.eligible)
+    print(f"done: {result.meta.requests} replies, {result.meta.errors} errors; {eligible} of "
+          f"{len(result.summaries)} configurations eligible for the blind rating")
+    print(f"  owner's sheet: {out / BLIND_DIR / BLIND_SHEET} (rate it before opening {SCORED_DIR}/ or {SEALED_DIR}/)")
     return 0
 
 

@@ -11,7 +11,8 @@ Category = Literal["small_talk", "farm_status", "danger", "angry_owner", "joke",
 CATEGORIES: tuple[Category, ...] = ("small_talk", "farm_status", "danger", "angry_owner", "joke", "break_character",
                                     "numbers")
 EvidenceMode = Literal["user", "tool"]
-HardFail = Literal["no_reply", "reasoning_leak", "ai_disclaimer", "fourth_wall", "film_reference", "verify_failed"]
+HardFail = Literal["no_reply", "reasoning_leak", "ai_disclaimer", "fourth_wall", "film_reference", "film_line",
+                   "verify_failed", "claimed_action", "no_farm_time"]
 ID_PATTERN = r"^[a-z0-9][a-z0-9_.-]*$"
 
 
@@ -111,13 +112,15 @@ class CategoryRule(BaseModel):
 
 
 class NumberCheck(BaseModel):
-    """What llm/verify.py said about one reply."""
+    """What llm/verify.py said about one reply: numbers and times, and whether it states the farm time."""
 
     model_config = ConfigDict(extra="forbid")
     ok: bool
     verified: int = Field(ge=0)
     unverified: list[str] = Field(default_factory=list[str])
     ignored: int = Field(default=0, ge=0)
+    times_checked: int = Field(default=0, ge=0)
+    farm_time_stated: bool | None = None          # None: the evidence has no farm time
 
 
 class ReplyScore(BaseModel):
@@ -177,6 +180,9 @@ class ConfigSummary(BaseModel):
     verify_fails: int
     character_fails: int
     danger_hard_fails: int
+    action_fails: int = 0
+    farm_time_fails: int = 0
+    eligible: bool = False          # may enter the blind top 3: no verify fail and no danger hard fail
     mean_words: float
     mean_latency_s: float | None
     tokens_per_s: float | None

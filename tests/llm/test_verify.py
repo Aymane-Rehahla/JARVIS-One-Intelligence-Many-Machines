@@ -1,4 +1,4 @@
-"""llm/verify.py: every number Jarvis says must match a tool result of the same turn (plan S18, ground rule 6)."""
+"""llm/verify.py: every number and time JARVIS says must match a tool result of the same turn (plan S18, ground rule 6)."""
 from __future__ import annotations
 
 import importlib.util
@@ -35,7 +35,7 @@ STATUS = [
     {"name": "get_status", "data": {"node": "incubator-1", "farm_time": "14:05", "temperature_c": 37.46,
                                     "humidity_pct": 55.2, "co2_ppm": 812, "fan_rpm": 1187, "heater_power_w": 86,
                                     "ram_bytes": 1207615488, "outside_temperature_c": -2.4,
-                                    "rate_c_per_min": -0.2, "since_last_turn_min": 47}},
+                                    "rate_c_per_min": -0.2, "since_last_turn_minutes": 47}},
     {"name": "get_assessment", "data": {"assessment": "NORMAL", "confidence": 0.553,
                                         "evidence": ["CO at 140 ppm near the door", "battery 64 % charged"]}},
 ]
@@ -202,9 +202,91 @@ def test_a_reply_without_numbers_passes_trivially() -> None:
 
 
 def test_the_report_is_plain_json() -> None:
-    report = verify.verify_reply("37.5 °C and 99 ppm", STATUS)
+    report = verify.verify_reply("37.5 °C and 99 ppm at 15:05", STATUS)
     again = verify.VerifyReport.model_validate_json(report.model_dump_json())
-    assert again == report and again.schema_version == 1
+    assert again == report and again.schema_version == 2 and again.unmatched_times
+
+
+# --- units of statistics (review 2, finding 1) ---------------------------------------------------------------------
+
+@pytest.mark.parametrize(("key", "unit"), [
+    ("temperature_c", "°C"), ("temperature_c_max", "°C"), ("temperature_c_min", "°C"), ("humidity_pct_mean", "%"),
+    ("fan_rpm_avg", "rpm"), ("temperature_min", None), ("since_last_turn_min", None), ("min", None), ("max", None),
+    ("s", None), ("h", None), ("c", None), ("v", None), ("w", None), ("l", None), ("minutes", "min"),
+    ("seconds", "s"), ("rpm", "rpm"), ("ppm", "ppm"), ("uptime_minutes", "min"), ("rate_c_per_min", None),
+])
+def test_unit_for_key_never_reads_a_statistic_as_minutes(key: str, unit: str | None) -> None:
+    assert verify.unit_for_key(key) == unit
+
+
+@pytest.mark.parametrize("evidence", [
+    {"signal": "temperature_c", "min": 36.8, "max": 37.9, "mean": 37.4},          # get_trend's shape
+    {"temperature_c": {"min": 36.8, "max": 37.9}},
+    {"temperature_c_min": 36.8, "temperature_c_max": 37.9},
+    {"min": {"value": 36.8, "unit": "°C"}, "max": {"value": 37.9, "unit": "°C"}},
+])
+def test_statistics_take_the_unit_of_what_they_summarise(evidence: dict[str, Any]) -> None:
+    assert verify.verify_reply("a low of 36.8 °C and a high of 37.9 °C", evidence).ok
+    assert not verify.verify_reply("a low of 36.8 minutes", evidence).ok
+    assert not verify.verify_reply("a high of 37.9 %", evidence).ok
+
+
+def test_a_statistic_with_no_clue_has_no_unit_and_matches_by_value() -> None:
+    assert verify.verify_reply("a low of 36.8 °C", {"temperature_min": 36.8}).ok
+    assert verify.verify_reply("a low of 36.8 °C", {"min": 36.8}).ok
+    assert verify.verify_reply("47 seconds", {"since_last_turn_min": 47}).ok     # `_min` is no longer minutes
+
+
+# --- dates and times (review 2, finding 2) ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("text", ["55/60 %", "3/4 full", "at 37:50", "on 32/13/2026", "13 pm", "on 2026-13-01"])
+def test_only_valid_dates_and_times_are_masked(text: str) -> None:
+    quantities, _ = verify.scan_numbers(text)
+    assert quantities, text                                   # read as numbers, so they need evidence
+    assert not verify.verify_reply(text, {}).ok
+
+
+@pytest.mark.parametrize("text", ["on 23/10/2026", "on 10/23/26", "on 2026-10-23", "at 23:59", "at 00:00",
+                                  "on 31 October", "at 12 am"])
+def test_valid_dates_and_times_are_not_quantities(text: str) -> None:
+    assert verify.scan_numbers(text)[0] == []
+
+
+@pytest.mark.parametrize(("reply", "ok"), [
+    ("As of 14:05 farm time, sir.", True), ("As of 15:05 farm time, sir.", False), ("at 2:05 pm", True),
+    ("at 2:05 am", False), ("shortly after 2 pm", True), ("at 3 pm", False), ("at 14:05:30", False),
+    ("the gate opened at 03:12", True), ("the gate opened at 3:12 am", True), ("at 13:58", True),
+    ("at 2 o'clock", True), ("at 10:15", False),
+])
+def test_every_time_said_must_be_a_time_in_the_evidence(reply: str, ok: bool) -> None:
+    evidence = [{"name": "get_status", "data": {"farm_time": "14:05", "updated": "2026-10-23T13:58:00Z"}},
+                {"name": "get_events", "data": {"events": ["03:12 gate opened"]}}]
+    report = verify.verify_reply(reply, evidence)
+    assert report.ok is ok, (reply, report.problems())
+    assert report.times_checked == len(verify.scan_times(reply))
+
+
+def test_seconds_count_when_the_reply_says_them() -> None:
+    assert verify.verify_reply("at 14:05:30", {"farm_time": "14:05:30"}).ok
+    assert verify.verify_reply("at 14:05", {"farm_time": "14:05:30"}).ok
+    assert not verify.verify_reply("at 14:05:31", {"farm_time": "14:05:30"}).ok
+
+
+def test_an_unmatched_time_is_reported_and_allowed_texts_skip_it() -> None:
+    report = verify.verify_reply("Sir, as of 15:05 farm time all is well.", STATUS)
+    assert not report.ok and report.unmatched == []
+    assert report.problems() == ["time '15:05' (characters 11-16) matches no time in this turn's tool results"]
+    assert verify.verify_reply("Sir, as of 15:05 farm time all is well.", STATUS, allowed=["15:05"]).ok
+    assert not verify.verify_reply("It is 09:30, sir.", []).ok             # no evidence: a time is invented
+
+
+def test_states_farm_time_needs_the_farm_time_to_the_minute() -> None:
+    assert verify.states_farm_time("As of 14:05 farm time, sir, all is well.", STATUS) is True
+    assert verify.states_farm_time("As of 15:05 farm time, sir, all is well.", STATUS) is False
+    assert verify.states_farm_time("All is well, sir.", STATUS) is False
+    assert verify.states_farm_time("Shortly after 2 pm, sir.", STATUS) is False
+    assert verify.states_farm_time("All is well, sir.", {"temperature_c": 37.5}) is None
+    assert [t.path for t in verify.farm_times(STATUS)] == ["get_status.farm_time"]
 
 
 # --- properties ----------------------------------------------------------------------------------------------------
@@ -217,7 +299,7 @@ finite = st.floats(min_value=-1e6, max_value=1e6, allow_nan=False, allow_infinit
 def test_any_evidence_value_said_with_standard_rounding_passes(value: float, decimals: int, thousands: bool) -> None:
     said = f"{value:,.{decimals}f}" if thousands else f"{value:.{decimals}f}"
     reply = f"As of 14:05 farm time, sir, incubator-2 reads {said} °C."
-    report = verify.verify_reply(reply, [{"name": "get_status", "data": {"temperature_c": value}}])
+    report = verify.verify_reply(reply, [{"name": "get_status", "data": {"farm_time": "14:05", "temperature_c": value}}])
     assert report.ok, (said, report.problems())
 
 

@@ -1,0 +1,119 @@
+{
+  "schema_version": 1,
+  "rule": "Well-known lines from the films, trimmed to their distinctive part and stored only as SHA-256 hashes of their normalised word 4-grams (lower case, apostrophes dropped, other non-alphanumerics split words). A text reproduces a line when it contains two different 4-grams of it, or the only 4-gram of a one-4-gram entry. Paraphrases are not caught.",
+  "lines": [
+    {
+      "id": "f01",
+      "ngram_sha256": [
+        "1c577a5574791fb7d5a24e6dad7ea42a672f517f1dc56c4ff197a6674edbf0e8",
+        "312979d09f5a5e4270eae4df0c8d6093d3667e4fab30f354157befe51d6b5f1b",
+        "3653e984ff299aa14f0b44e4dc037c9d84e4c801c6f80a34cf02c33e00df730b",
+        "53bcba303477a6c3a56f17153584b50fd19440b754984b60549a07a9c99dc52d",
+        "6fab2cb304c4fca79723304d48f0cd4d5519ea4027a4166dc1cec9297033b7f8",
+        "f9ac67b3c77916d072e319ce4740e24e36164c5e0af74f605295b7929e00b499"
+      ]
+    },
+    {
+      "id": "f02",
+      "ngram_sha256": [
+        "2de5f58f0bcd0e46fcf50c7293b3193292a31f4ec5bbf203bc1809cc90cc7655",
+        "4f11baa1c69daf30fd4a23ea3bcdbcca1c5c90d59ab158731d6eb0e4e2e4813b",
+        "a68526463b49b56f55711fa320227b1216c2c0c6632316cfa7dd79ca29981265"
+      ]
+    },
+    {
+      "id": "f03",
+      "ngram_sha256": [
+        "cde6bb2a694f95ed6192994aafaddc891b49908f4336919b43a61e1a9c4aefc4",
+        "e1a5d93699dc0f29bfecd6a017db0bd3b768add0afa9d795fe6f794656e22e57",
+        "e656b436aac037c17d4fda0eaf070673803883aa0f88151997fc3d4fd226c0e5"
+      ]
+    },
+    {
+      "id": "f04",
+      "ngram_sha256": [
+        "1c364f6fb5a369741eaa1b507938f4471bac18f22cf513542134c199921f5323",
+        "29fe7718d34b64e530d3387e15bcdba171bb0bfd8571c4e16ed3b0a8acd70eb7",
+        "66ed3878239da36fb6928a11f906c0ac77dfded6b0393157a430a8a22d643b82",
+        "84832166cc3840d37452cc3d39cf52cc9e95fba21d1e4fdb55979caafc1c19f0",
+        "bed5529b79071d0cadda3235378141b98abe8d5a4ff1d3da9166877f0f46551b"
+      ]
+    },
+    {
+      "id": "f05",
+      "ngram_sha256": [
+        "83bd61b305c777e900fba742227415418e18526f777d2430c79228ae525a7d44"
+      ]
+    },
+    {
+      "id": "f06",
+      "ngram_sha256": [
+        "d38890c2b3f96ba6c280433f1327907a09617aebfd507b7c7325d0f8fc699e01",
+        "dd36b22e00e049ef91560ba86b97769f00805a4d9246a098f668259b488cf1b7",
+        "ef3d67d91ae5dd72e65fa94e3d0aabae1c00e33e85f7040c8416dfbb02020af6"
+      ]
+    },
+    {
+      "id": "f07",
+      "ngram_sha256": [
+        "2924e0e3f2dfc236f5226e55522682e575d0fadce8c8bdce36a8617de35bcc9c",
+        "99a6d0662532505c2a626136240df095df170e576324eb1655aa49e7dfe3a054",
+        "a7bed1c1b6c0efc695b4676c1da90b2b09e8b23ccd775bde92369733b004a690",
+        "ce405a00c643b3a8c9de4704c83c7c17fd64307f4e715e370a4dfeb7a152b8cb",
+        "d87f3669b410c6aa2f35df73692705f06d143391588ae5469ec0cae5d6ef8221",
+        "e654c3595897704ec7e36a1cd83b3a6cc89050a68f724bfa919af9ad2772bf14"
+      ]
+    },
+    {
+      "id": "f08",
+      "ngram_sha256": [
+        "49f85f88681d56fb881589847c38786bd00747706d75fb8874b22ed9567cc0b8",
+        "7720b0a59a8818256a65bd52a53b8e7ac83273f66aaa375b439579d7956f1adc",
+        "99717919b51c5a92aa279e3b3799d71d147fafca4115f8766983db3d6784974d",
+        "b49bea6e3e812f1abc5bef620cc9cc4db5d7dac455a226d9c16ec0c361ee221b",
+        "d87f3669b410c6aa2f35df73692705f06d143391588ae5469ec0cae5d6ef8221",
+        "e654c3595897704ec7e36a1cd83b3a6cc89050a68f724bfa919af9ad2772bf14"
+      ]
+    },
+    {
+      "id": "f09",
+      "ngram_sha256": [
+        "0930056d59daa8a080829709d47a4ce275f89a2e97e1dd810016c0700e965e0b",
+        "1ddd29b9e805e1389fba6f7328f08a3a49f6cfe92c14671addbae70a61daf761",
+        "645eead7a76e34706684532731f7a81419f4e00838d4a61e16e3b9aeb15c59f8",
+        "8cbf82c0d2d4971c540233cf798fd842a9b869f18896c3e3e35af6449f287b81",
+        "95e664d1ee52dd490b1ba6842be1d3983fa73c2360fe78de6cdfd59945a3de52"
+      ]
+    },
+    {
+      "id": "f10",
+      "ngram_sha256": [
+        "0e25a8c478f2335b7526621c4a761eb631c94e501987bcb6071a3334354e8bc3",
+        "2925ad8e29992b7cd30168a0aa83ab77a0f3925c4092916918bfb624ca7dadcb",
+        "d6008ae0d5c5e70af2099cfb038870364e236c10cacecd6d8919251013361012",
+        "e09ee20958d608200abece13c9ce73531ef6d8bf06ab8472f9f1b975e2396370"
+      ]
+    },
+    {
+      "id": "f11",
+      "ngram_sha256": [
+        "23cb05feee9fbd9994f4e08b8a5c499754af8daef0bf8cd7c1000f2722e0e472",
+        "ed8fd09607079bac0faaf25440e9b8231029685d5e4ed0ab64799d262ed06680"
+      ]
+    },
+    {
+      "id": "f12",
+      "ngram_sha256": [
+        "1e1c58643f9ff7b7b2c351f27fa4c5700225269e67c8bc4f4edaff283ab8f788",
+        "57f6d13fb9aa49456e646ebdff5be364d84695514092a414cd718c53c58b450a",
+        "cb2d749f7e65e1b70d95d22399d41927f300eaa6918960b791c2d9a0ae984ccd"
+      ]
+    },
+    {
+      "id": "f13",
+      "ngram_sha256": [
+        "5fe1a24253f9e66a4d51c0d6b0672c85d02237acbfae6dc9a26252dedcd1a5f6"
+      ]
+    }
+  ]
+}

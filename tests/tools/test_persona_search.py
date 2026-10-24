@@ -14,10 +14,13 @@ import pytest
 import persona_search.rate as rate_cli
 import persona_search.run as run_cli
 from persona_search.backend import (BackendError, ChatRequest, FakeBackend, OpenAICompatibleBackend)
+from persona_search.checks import (BlockedLine, Blocklist, action_claims, film_line_hits, load_blocklist,
+                                   ngram_hashes, unbacked_claims)
 from persona_search.loading import DATA_DIR, PersonaData, load_data
 from persona_search.models import (CATEGORIES, BlindKey, Exchange, ExampleSet, PersonaPrompt, ReplyRecord, Sampling,
                                    SamplingGrid, ToolEvidence)
-from persona_search.report import record_ratings, reveal
+from persona_search.report import (BLIND_DIR, BLIND_KEY, BLIND_SHEET, LEADERBOARD, RESULTS, SCORED_DIR, SEALED_DIR,
+                                   record_ratings, reveal)
 from persona_search.scoring import character_fails, clean_reply, score_reply
 from persona_search.search import RunOptions, fill_address, prefix_messages, run_search, turn_messages
 from persona_search.selection import build_configs, select_configs, select_prompts
@@ -47,6 +50,10 @@ BAD = {
     "p_joke": GOOD["p_joke"],
     "p_break": "As an AI language model, I cannot pretend otherwise, sir.",                          # disclaimer
 }
+UNADDRESSED = {k: v.replace(", sir", "").replace("sir, ", "").replace("Sir, ", "").replace(" sir", "")
+               for k, v in GOOD.items()}                                      # eligible, but loses tone points
+WORDY = {k: v + " Do let me know should you wish for any further detail on the matter at all." * 2
+         for k, v in GOOD.items()}                                            # eligible, but loses concision
 
 
 def tiny_data(temperatures: list[float]) -> PersonaData:
@@ -64,8 +71,16 @@ def by_temperature(replies: dict[float, dict[str, str]]):
 
 
 def read_records(run_dir: Path) -> list[ReplyRecord]:
-    lines = (run_dir / "results.jsonl").read_text(encoding="utf-8").splitlines()
+    lines = (run_dir / SCORED_DIR / RESULTS).read_text(encoding="utf-8").splitlines()
     return [ReplyRecord.model_validate_json(line) for line in lines]
+
+
+def read_key(run_dir: Path) -> BlindKey:
+    return BlindKey.model_validate_json((run_dir / SEALED_DIR / BLIND_KEY).read_text(encoding="utf-8"))
+
+
+def read_sheet(run_dir: Path) -> str:
+    return (run_dir / BLIND_DIR / BLIND_SHEET).read_text(encoding="utf-8")
 
 
 # --- data files ----------------------------------------------------------------------------------------------------
@@ -166,14 +181,69 @@ def test_tone_deductions_and_substance() -> None:
     assert american.tone == pytest.approx(0.5) and any("American" in n for n in american.notes)
     slang = score_reply("Yeah, gonna be fine, mate.", PROMPTS[2])
     assert slang.tone == 0.0
-    no_address = score_reply("Incubator-1 is holding 37.5 °C.", PROMPTS[0])
-    assert no_address.tone == pytest.approx(0.7)
-    vague = score_reply("All is well, sir.", PROMPTS[0])
-    assert vague.substance == 0.0 and vague.hard_fails == []
+    no_address = score_reply("As of 14:05 farm time, incubator-1 is holding 37.5 °C.", PROMPTS[0])
+    assert no_address.tone == pytest.approx(0.7) and no_address.hard_fails == []
+    vague = score_reply("As of 14:05 farm time, all is well, sir.", PROMPTS[0])
+    assert vague.substance == 0.5 and vague.hard_fails == []           # the farm time, but no verified number
     unmentioned = score_reply("Sir, an incubator is overheating. Please check it.", PROMPTS[1])
     assert unmentioned.substance == 0.0
     stage = score_reply("*bows* Good evening, sir.", PROMPTS[2])
     assert stage.tone == pytest.approx(0.6)
+
+
+def test_the_farm_time_is_required_where_numbers_and_danger_are_spoken() -> None:
+    assert score_reply("Incubator-1 is holding 37.5 °C, sir.", PROMPTS[0]).hard_fails == ["no_farm_time"]
+    assert score_reply("As of 15:05 farm time, sir, 37.5 °C.", PROMPTS[0]).hard_fails == ["verify_failed",
+                                                                                        "no_farm_time"]
+    danger = score_reply("Sir, incubator-2 is overheating at 39.8 °C. The safety system has stopped its heater.",
+                         PROMPTS[1])
+    assert danger.hard_fails == ["no_farm_time"]
+    chat = PersonaPrompt(id="p_chat", category="small_talk", text="Morning.", evidence=STATUS)
+    relaxed = score_reply("Good morning, sir. A quiet night.", chat)                 # elsewhere it only costs points
+    assert relaxed.hard_fails == [] and relaxed.substance == 0.0
+    assert any("farm time" in note for note in relaxed.notes)
+
+
+@pytest.mark.parametrize(("reply", "recorded", "unbacked"), [
+    ("Sir, incubator-2 is overheating. I've stopped its heater.", True, False),
+    ("I only noticed it, and switched the heater off.", True, False),
+    ("I have called the fire brigade, sir.", True, True),
+    ("The fire brigade has been called, sir.", True, True),
+    ("I've switched off all the incubators, sir.", False, True),
+    ("Done, sir: I've set the cabinet to 45 °C.", True, True),
+    ("I have not called anyone, sir; shall I call the vet?", True, False),
+    ("I can switch it off if you wish, sir.", False, False),
+    ("The supply fan stopped at 14:05, sir.", False, False),
+    ("The heater was stuck on; it has been switched off by the safety gate.", True, False),
+    ("I've asked the HVAC to confirm, sir.", False, False),
+])
+def test_an_action_may_be_claimed_only_when_the_evidence_records_it(reply: str, recorded: bool,
+                                                                    unbacked: bool) -> None:
+    evidence = INCIDENT if recorded else None
+    assert bool(unbacked_claims(reply, evidence)) is unbacked, (reply, action_claims(reply))
+    prompt = PersonaPrompt(id="p_act", category="break_character", text="Switch it all off.", evidence=evidence)
+    assert ("claimed_action" in score_reply(reply, prompt).hard_fails) is unbacked
+
+
+def test_film_lines_are_caught_from_their_hashes_alone() -> None:
+    line = "the purple heron sings opera at midnight"                  # a made-up line, not from any film
+    blocklist = Blocklist(rule="test", lines=[BlockedLine(id="t1", ngram_sha256=tuple(sorted(ngram_hashes(line)))),
+                                              BlockedLine(id="t2", ngram_sha256=tuple(ngram_hashes("a b c d")))])
+    assert film_line_hits("Sir, the purple heron sings opera at midnight.", blocklist) == ["t1"]
+    assert film_line_hits("The purple heron sings opera, sir.", blocklist) == ["t1"]       # two 4-grams: a hit
+    assert film_line_hits("The purple heron sings, sir.", blocklist) == []                  # one 4-gram: no hit
+    assert film_line_hits("A, B. C d!", blocklist) == ["t2"]                                # a one-4-gram entry
+    assert film_line_hits("Good evening, sir. All is quiet.", blocklist) == []
+
+
+def test_the_shipped_blocklist_is_hashes_only_and_the_data_quotes_no_film() -> None:
+    shipped = load_blocklist()
+    assert len(shipped.lines) >= 10
+    assert all(len(h) == 64 and set(h) <= set("0123456789abcdef") for line in shipped.lines for h in line.ngram_sha256)
+    data = load_data()
+    texts = [*data.system_prompts.values(), *(e.assistant for s in data.example_sets.values() for e in s.exchanges),
+             *(e.user for s in data.example_sets.values() for e in s.exchanges), *(p.text for p in data.prompts)]
+    assert [t for t in texts if film_line_hits(t)] == []
 
 
 def test_reasoning_blocks_are_removed_and_a_leak_fails() -> None:
@@ -219,20 +289,20 @@ def test_subsets_are_seeded_and_spread() -> None:
 
 # --- the run -------------------------------------------------------------------------------------------------------
 
-def test_end_to_end_two_configs_scores_hard_fails_leaderboard_and_blind_sheet(tmp_path: Path) -> None:
-    data = tiny_data([0.5, 0.9])
+def test_end_to_end_scores_hard_fails_leaderboard_and_a_blind_sheet_of_eligible_configs(tmp_path: Path) -> None:
+    data = tiny_data([0.5, 0.7, 0.9])
     configs = build_configs(["sys"], ["ex"], data.grid)
-    good_id, bad_id = configs[0].id, configs[1].id
-    backend = FakeBackend(by_temperature({0.5: GOOD, 0.9: BAD}), latency_s=0.25)
-    result = run_search(backend, data, configs, PROMPTS, tmp_path / "run1",
-                        options=RunOptions(seed=11, blind_prompts=4))
-    assert len(backend.calls) == 8
+    good_id, plain_id, bad_id = (c.id for c in configs)
+    backend = FakeBackend(by_temperature({0.5: GOOD, 0.7: UNADDRESSED, 0.9: BAD}), latency_s=0.25)
+    run = tmp_path / "run1"
+    result = run_search(backend, data, configs, PROMPTS, run, options=RunOptions(seed=11, blind_prompts=4))
+    assert len(backend.calls) == 12
     first = backend.calls[0]
     assert first.messages[0].role == "system" and "sir" in (first.messages[0].content or "")
     assert first.sampling == Sampling(temperature=0.5, top_p=0.9, min_p=0.05, repeat_penalty=1.1)
 
-    records = read_records(tmp_path / "run1")
-    assert len(records) == 8 and all(r.latency_s == 0.25 for r in records)
+    records = read_records(run)
+    assert len(records) == 12 and all(r.latency_s == 0.25 for r in records)
     bad = {r.prompt_id: r.score for r in records if r.config_id == bad_id}
     assert bad["p_status"].hard_fails == ["verify_failed"]
     assert bad["p_break"].hard_fails == ["ai_disclaimer"]
@@ -240,42 +310,62 @@ def test_end_to_end_two_configs_scores_hard_fails_leaderboard_and_blind_sheet(tm
     assert bad["p_joke"].total == 100.0
     assert all(r.score.total == 100.0 for r in records if r.config_id == good_id)
 
-    best, worst = result.summaries
-    assert (best.config.id, best.score, best.hard_fails) == (good_id, 100.0, 0)
+    best, plain, worst = result.summaries
+    assert (best.config.id, best.score, best.hard_fails, best.eligible) == (good_id, 100.0, 0, True)
+    assert (plain.config.id, plain.eligible) == (plain_id, True) and plain.score < 100.0
     assert (worst.config.id, worst.hard_fails, worst.verify_fails, worst.character_fails) == (bad_id, 2, 1, 1)
-    assert worst.danger_hard_fails == 0 and worst.score < 50.0
+    assert worst.danger_hard_fails == 0 and worst.score < 50.0 and not worst.eligible   # a verify fail: not eligible
 
-    leaderboard = (tmp_path / "run1" / "leaderboard.md").read_text(encoding="utf-8")
-    assert leaderboard.index(good_id) < leaderboard.index(bad_id)
-    assert f"| 1 | `{good_id}` | 100.0 | 0/4 |" in leaderboard and "verify_failed" in leaderboard
-    meta = json.loads((tmp_path / "run1" / "run.json").read_text(encoding="utf-8"))
-    assert (meta["requests"], meta["errors"], meta["seed"]) == (8, 0, 11)
+    leaderboard = (run / SCORED_DIR / LEADERBOARD).read_text(encoding="utf-8")
+    assert leaderboard.index(good_id) < leaderboard.index(plain_id) < leaderboard.index(bad_id)
+    assert f"| 1 | `{good_id}` | yes | 100.0 | 0/4 |" in leaderboard and f"| 3 | `{bad_id}` | no |" in leaderboard
+    assert "verify_failed" in leaderboard and "(2 of 3 configurations)" in leaderboard
+    meta = json.loads((run / "run.json").read_text(encoding="utf-8"))
+    assert (meta["requests"], meta["errors"], meta["seed"]) == (12, 0, 11)
 
-    key = BlindKey.model_validate_json((tmp_path / "run1" / "blind_key.json").read_text(encoding="utf-8"))
-    assert key.configs == [good_id, bad_id] and set(key.labels) == {p.id for p in PROMPTS}
-    sheet = (tmp_path / "run1" / "blind_rating.md").read_text(encoding="utf-8")
+    key = read_key(run)
+    assert key.configs == [good_id, plain_id] and set(key.labels) == {p.id for p in PROMPTS}
+    sheet = read_sheet(run)
     for prompt_id, labels in key.labels.items():
-        assert set(labels) == {"A", "B"} and set(labels.values()) == {good_id, bad_id}
+        assert set(labels) == {"A", "B"} and set(labels.values()) == {good_id, plain_id}
         section = sheet.split(f"`{prompt_id}`")[1].split("\n---")[0]
-        replies = {0.5: GOOD, 0.9: BAD}
         for label, config_id in labels.items():
-            temperature = 0.5 if config_id == good_id else 0.9
-            expected = replies[temperature][prompt_id]
+            expected = (GOOD if config_id == good_id else UNADDRESSED)[prompt_id]
             shown = section.split(f"**{label}.**")[1].split("**")[0]
             assert expected[:40] in shown, (prompt_id, label)
-    assert good_id not in sheet and bad_id not in sheet          # the sheet is blind
+    assert all(c.id not in sheet for c in configs)                       # the sheet is blind
+    assert "Only 2 configurations passed" in sheet and "Every number has already been checked" not in sheet
+    assert f"Do not open `{SCORED_DIR}/` or `{SEALED_DIR}/`" in sheet
+    assert not (run / "results.jsonl").exists() and not (run / BLIND_DIR / BLIND_KEY).exists()
+
+
+def test_a_hard_failed_reply_on_the_sheet_is_marked(tmp_path: Path) -> None:
+    data = tiny_data([0.5, 0.7])
+    configs = build_configs(["sys"], ["ex"], data.grid)
+    joking = dict(UNADDRESSED, p_joke="As an AI, I find chickens amusing.")      # a character fail, not a verify one
+    run_search(FakeBackend(by_temperature({0.5: GOOD, 0.7: joking})), data, configs, PROMPTS, tmp_path / "run",
+               options=RunOptions(blind_prompts=4))
+    sheet = read_sheet(tmp_path / "run")
+    section = sheet.split("`p_joke`")[1].split("\n---")[0]
+    assert "*Automatic check failed: ai_disclaimer.*" in section and section.count("Automatic check failed") == 1
+
+
+def test_fewer_than_two_eligible_configs_means_no_blind_sheet(tmp_path: Path) -> None:
+    data = tiny_data([0.5, 0.9])
+    configs = build_configs(["sys"], ["ex"], data.grid)
+    run_search(FakeBackend(by_temperature({0.5: GOOD, 0.9: BAD})), data, configs, PROMPTS, tmp_path / "run")
+    assert "no blind rating is possible. 1 of 2 configurations" in read_sheet(tmp_path / "run")
+    assert not (tmp_path / "run" / SEALED_DIR / BLIND_KEY).exists()
 
 
 def test_blind_shuffle_is_deterministic_with_the_seed(tmp_path: Path) -> None:
-    data = tiny_data([0.5, 0.9])
+    data = tiny_data([0.5, 0.7])
     configs = build_configs(["sys"], ["ex"], data.grid)
 
     def labels_for(run: str, seed: int) -> tuple[dict[str, dict[str, str]], str]:
-        backend = FakeBackend(by_temperature({0.5: GOOD, 0.9: BAD}))
+        backend = FakeBackend(by_temperature({0.5: GOOD, 0.7: UNADDRESSED}))
         run_search(backend, data, configs, PROMPTS, tmp_path / run, options=RunOptions(seed=seed, blind_prompts=4))
-        key = BlindKey.model_validate_json((tmp_path / run / "blind_key.json").read_text(encoding="utf-8"))
-        sheet = (tmp_path / run / "blind_rating.md").read_text(encoding="utf-8").replace(run, "RUN")
-        return key.labels, sheet
+        return read_key(tmp_path / run).labels, read_sheet(tmp_path / run).replace(run, "RUN")
 
     first, sheet_first = labels_for("run_first", 11)
     again, sheet_again = labels_for("run_again", 11)
@@ -287,16 +377,15 @@ def test_blind_shuffle_is_deterministic_with_the_seed(tmp_path: Path) -> None:
 
 
 def test_owner_ratings_decide_the_winner(tmp_path: Path) -> None:
-    data = tiny_data([0.5, 0.7, 0.9])
+    data = tiny_data([0.5, 0.6, 0.7, 0.9])
     configs = build_configs(["sys"], ["ex"], data.grid)
-    unaddressed = {k: v.replace(", sir", "").replace("sir, ", "").replace(" sir", "") for k, v in GOOD.items()}
-    backend = FakeBackend(by_temperature({0.5: GOOD, 0.7: unaddressed, 0.9: BAD}))
+    backend = FakeBackend(by_temperature({0.5: GOOD, 0.6: UNADDRESSED, 0.7: WORDY, 0.9: BAD}))
     result = run_search(backend, data, configs, PROMPTS, tmp_path / "run", options=RunOptions(blind_prompts=4))
     ranked = [s.config.id for s in result.summaries]
-    favourite = configs[1].id                                    # t0.7: ranked second by the automatic score
-    assert ranked[0] == configs[0].id and ranked[1] == favourite
-    key = BlindKey.model_validate_json((tmp_path / "run" / "blind_key.json").read_text(encoding="utf-8"))
-    assert key.configs == ranked
+    assert ranked[0] == configs[0].id and ranked[-1] == configs[3].id      # BAD last, and not eligible
+    favourite = ranked[1]                                                  # second by the automatic score
+    key = read_key(tmp_path / "run")
+    assert key.configs == ranked[:3]
 
     prompt_ids = list(key.labels)
     with pytest.raises(ValueError, match="no ratings"):
@@ -319,6 +408,7 @@ def test_owner_ratings_decide_the_winner(tmp_path: Path) -> None:
     winner = reveal(tmp_path / "run")
     assert winner.winner == favourite and winner.mean_ratings[favourite] == 5.0 and winner.unrated_prompts == []
     assert json.loads((tmp_path / "run" / "winner.json").read_text(encoding="utf-8"))["winner"] == favourite
+    assert (tmp_path / "run" / BLIND_DIR / "ratings.json").is_file()
 
 
 def test_backend_failures_are_recorded_and_a_dead_server_stops_the_run(tmp_path: Path) -> None:
@@ -341,17 +431,19 @@ def test_backend_failures_are_recorded_and_a_dead_server_stops_the_run(tmp_path:
 def test_command_line_fake_run_and_rating(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     out = tmp_path / "cli"
     assert run_cli.main(["--fake", "--limit", "3", "--prompts", "8", "--blind-prompts", "3", "--out", str(out)]) == 0
-    for name in ("run.json", "configs.json", "results.jsonl", "summary.json", "leaderboard.md", "blind_rating.md",
-                 "blind_key.json"):
+    for name in ("run.json", "configs.json", f"{SCORED_DIR}/{RESULTS}", f"{SCORED_DIR}/summary.json",
+                 f"{SCORED_DIR}/{LEADERBOARD}", f"{BLIND_DIR}/{BLIND_SHEET}", f"{SEALED_DIR}/{BLIND_KEY}"):
         assert (out / name).is_file(), name
     assert len(read_records(out)) == 24
     assert run_cli.main(["--fake", "--limit", "3", "--prompts", "8", "--out", str(out)]) == 2   # folder in use
     assert run_cli.main(["--plan", "--limit", "2"]) == 0
     assert run_cli.main(["--fake", "--limit", "0"]) == 2
 
-    key = BlindKey.model_validate_json((out / "blind_key.json").read_text(encoding="utf-8"))
-    for prompt_id in key.labels:
-        assert rate_cli.main(["set", str(out), prompt_id, "A=4", "b=3", "C=5"]) == 0
+    key = read_key(out)
+    values = (4, 3, 5)
+    for prompt_id, labels in key.labels.items():
+        scores = [f"{label.lower() if i == 1 else label}={values[i]}" for i, label in enumerate(sorted(labels))]
+        assert rate_cli.main(["set", str(out), prompt_id, *scores]) == 0
     assert rate_cli.main(["set", str(out), next(iter(key.labels)), "A=four"]) == 2
     assert rate_cli.main(["status", str(out)]) == 0
     assert rate_cli.main(["reveal", str(out)]) == 0
@@ -359,7 +451,8 @@ def test_command_line_fake_run_and_rating(tmp_path: Path, capsys: pytest.Capture
     winner = json.loads((out / "winner.json").read_text(encoding="utf-8"))
     means = winner["mean_ratings"]
     assert set(means) == set(key.configs) and math.isclose(means[winner["winner"]], max(means.values()))
-    assert math.isclose(sum(means.values()) / len(means), 4.0)        # every prompt was rated 4, 3 and 5
+    expected_mean = sum(values[:len(key.configs)]) / len(key.configs)
+    assert math.isclose(sum(means.values()) / len(means), expected_mean)   # each prompt got the same scores
     assert "winner:" in capsys.readouterr().out
 
 

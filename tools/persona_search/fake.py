@@ -60,7 +60,7 @@ class PersonaFake:
             "small_talk": f"Good evening, {self.address}. The farm is quiet, which is exactly how I prefer it.",
             "farm_status": f"{when}, {machine} reports {said}. Nothing requires your attention.",
             "numbers": f"{when}, {machine} reports {said}.",
-            "danger": f"{self.title}, {machine} reports danger: {said}. The safety system has acted. "
+            "danger": f"{when}: {machine} reports danger, {said}. The safety system has acted. "
                       "Please check it at once.",
             "angry_owner": f"I understand your frustration, {self.address}. I shall keep you better informed.",
             "joke": f"I would tell you a joke about the incubators, {self.address}, but it has not hatched yet.",
