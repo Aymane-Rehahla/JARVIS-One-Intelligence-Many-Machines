@@ -25,12 +25,12 @@ FOLDER_READMES = (  # every planned folder that holds tracked files, by its READ
 SHARED_NODE_READMES = ("reasoning/README.md", "memory/README.md", "llm/README.md", "llm/persona/README.md",
                        "voice/README.md", "safety/README.md", "comms/README.md")
 IDENTITY = {  # plan section 1.3
-    "incubator-1": dict(machine="incubator", speaks=True, voice=True, server=1, slot=0,
+    "incubator-1": dict(machine="incubator", speaks=True, voice=True, server="incubator-1", slot=0,
                         model="models/llm/Qwen-3.5-2b-roleplay-tuned.Q8_0.gguf"),
-    "incubator-2": dict(machine="incubator", speaks=False, voice=False, server=2, slot=0,
+    "incubator-2": dict(machine="incubator", speaks=False, voice=False, server="incubator-2", slot=0,
                         model="models/llm/Qwen3-0.6B-Q8_0.gguf"),
-    "hvac": dict(machine="hvac", speaks=False, voice=False, server=2, slot=1, model="models/llm/Qwen3-0.6B-Q8_0.gguf"),
-    "animal-protection": dict(machine="animal_protection", speaks=False, voice=False, server=2, slot=2,
+    "hvac": dict(machine="hvac", speaks=False, voice=False, server="hvac", slot=0, model="models/llm/Qwen3-0.6B-Q8_0.gguf"),
+    "animal-protection": dict(machine="animal_protection", speaks=False, voice=False, server="animal-protection", slot=0,
                               model="models/llm/Qwen3-0.6B-Q8_0.gguf"),
 }
 NOT_OURS = (".venv", "interface/web/node_modules", "interface/web/dist", "_dev", ".git", ".cache", ".pytest_cache",
@@ -96,10 +96,11 @@ def test_the_shared_readmes_are_identical_in_all_four() -> None:
 def test_ports_match_section_4_1() -> None:
     ports = tomllib.loads((ROOT / "launcher" / "ports.toml").read_text(encoding="utf-8"))
     assert ports["host"] == "127.0.0.1"
-    assert (ports["nats"], ports["llama_server_1"], ports["llama_server_2"], ports["matrix_api"], ports["gateway"],
-            ports["website"]) == (4222, 8081, 8082, 8000, 8010, 5173)
+    assert (ports["nats"], ports["matrix_api"], ports["gateway"], ports["website"]) == (4222, 8000, 8010, 5173)
+    assert ports["llm"] == {"incubator-1": 8081, "incubator-2": 8082, "hvac": 8083, "animal-protection": 8084}
     assert ports["mcp"] == {"incubator-1": 8101, "incubator-2": 8102, "hvac": 8103, "animal-protection": 8104}
-    flat = [v for k, v in ports.items() if isinstance(v, int) and k != "schema_version"] + list(ports["mcp"].values())
+    flat = [v for k, v in ports.items() if isinstance(v, int) and k != "schema_version"]
+    flat += [*ports["llm"].values(), *ports["mcp"].values()]
     assert len(flat) == len(set(flat)), "two services share a port"
 
 

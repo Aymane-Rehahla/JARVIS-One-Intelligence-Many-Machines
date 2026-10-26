@@ -231,11 +231,13 @@ Identical code has two benefits:
                ◄──► [animal-protection]  agent · tools · documents
                ◄──► [gateway] ◄──► [website]   farm view · chat · voice menu · audit · mentor panel
                           │
- [llama-server 1]  Qwen 3.5 2B roleplay, 1 slot  ◄── incubator-1
- [llama-server 2]  Qwen3-0.6B, 3 slots           ◄── incubator-2 · hvac · animal-protection
+ [llama-incubator-1]        Qwen 3.5 2B roleplay, 1 slot  ◄── incubator-1
+ [llama-incubator-2]        Qwen3-0.6B, 1 slot             ◄── incubator-2
+ [llama-hvac]               Qwen3-0.6B, 1 slot             ◄── hvac
+ [llama-animal-protection]  Qwen3-0.6B, 1 slot             ◄── animal-protection
 ```
 
-Default ports (`launcher/ports.toml`), all on 127.0.0.1: NATS 4222 · llama.cpp 8081 and 8082 · Matrix API 8000 · gateway 8010 · MCP 8101–8104 · website 5173.
+Default ports (`launcher/ports.toml`), all on 127.0.0.1: NATS 4222 · llama.cpp 8081–8084 (one per node) · Matrix API 8000 · gateway 8010 · MCP 8101–8104 · website 5173.
 
 ### 4.2 Why NATS if we already have ZigBee?
 
@@ -640,6 +642,12 @@ Never cut: the ground rules, the engineering standard, verification, recovery, d
 ---
 
 ## 12. Open points
+
+**Owner decision, 26 Oct: one LLM server per node.** The four nodes each have an independent localhost llama.cpp
+server (0013): incubator-1 uses the 2.08 GB Qwen 3.5 2B roleplay model; each other node uses its own 0.64 GB
+Qwen3-0.6B instance. Model weights therefore rise from 2.7 to 4.0 GB of the RX 580's 8 GB VRAM; the KV caches are
+the same size either way, plus per-server overhead. D3 decides from measurements whether it fits. If it does not,
+D3 measures `-ctk q8_0 -ctv q8_0` first, then shorter contexts for the three small nodes.
 
 0. **v3 decisions waiting for the owner:** approval of the public sources per node (`docs/knowledge/sources-proposal.md`),
    including its HVAC scope question; emotion2vec+ is 1.12 GB, not about 0.35 GB (download it, or drop the tone hint);

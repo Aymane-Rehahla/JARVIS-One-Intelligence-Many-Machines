@@ -8,8 +8,8 @@ voice = false
 
 [llm]
 model = "models/llm/Qwen3-0.6B-Q8_0.gguf"
-server = 2
-slot = 2
+server = "animal-protection"
+slot = 0
 
 [embeddings]
 model = "models/embeddings/bge-small-en-v1.5"

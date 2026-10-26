@@ -7,7 +7,7 @@
 | `stop_all.ps1` | 6A | stops them in reverse order |
 | supervisor | 6A | restarts a crashed program and logs it (Q6) |
 
-- **While the training runs:** never more than one LLM server, Qwen3-0.6B only, for plumbing tests; the 2B server only in
-  short runs when free RAM is above 3 GB (owner's point 6).
+- **While the training runs:** no LLM server is started. After training, each node owns one independent local server
+  (decision 0013).
 - **Status (step 6.0):** only `ports.toml` exists.
 - **Tests:** 6A "done when": killing a node gets it restarted by the supervisor.

@@ -9,7 +9,7 @@ the test bench that proves the idea.
 |---|---|---|---|---|
 | Talks to the owner | **yes, for all of JARVIS** | no | no | no |
 | Voice | **on** | installed, off | installed, off | installed, off |
-| Language model | **Qwen 3.5 2B roleplay**, server 1 | Qwen3-0.6B, server 2 slot 0 | slot 1 | slot 2 |
+| Language model | **Qwen 3.5 2B roleplay**, own server | Qwen3-0.6B, own server | Qwen3-0.6B, own server | Qwen3-0.6B, own server |
 | Reasoning brain | CTM incubator brain | same weights, own state | CTM HVAC brain | CTM animal-protection brain |
 | Machine manual | incubator manual | same | HVAC manual | animal-protection manual |
 

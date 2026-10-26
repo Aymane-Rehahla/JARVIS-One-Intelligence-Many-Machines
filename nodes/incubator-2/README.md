@@ -7,7 +7,7 @@ One node of JARVIS: the local AI that lives with the incubator and joins the oth
 | Machine | incubator |
 | Talks to the owner | no (answers through incubator-1) |
 | Voice | installed, off |
-| Language model | Qwen3-0.6B (Q8_0), llama-server 2, slot 0 |
+| Language model | Qwen3-0.6B (Q8_0), its own llama-server, slot 0 |
 | Document search | bge-small-en-v1.5 + keyword search, its own index of approved documents |
 | Reasoning brain | CTM incubator brain (same weights as incubator-1, its own instance and state); rule brain as fallback |
 | Knowledge (`memory/rom/`) | `incubator_manual.md`, incubation and hatching guide (after source approval), and the shared owner rules, safety list, farm layout and contacts |

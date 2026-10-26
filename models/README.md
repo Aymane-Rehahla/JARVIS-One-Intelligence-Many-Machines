@@ -5,8 +5,8 @@ Each node loads its own instance from here. These files are not in git (too big)
 
 | Folder | Files | Size | Used by | Source |
 |---|---|---|---|---|
-| `llm/` | `Qwen-3.5-2b-roleplay-tuned.Q8_0.gguf` | 2.08 GB | incubator-1 (llama-server 1) | mradermacher/Qwen-3.5-2b-roleplay-tuned-GGUF |
-| `llm/` | `Qwen3-0.6B-Q8_0.gguf` | 0.64 GB | incubator-2, hvac, animal-protection (llama-server 2) | Qwen/Qwen3-0.6B-GGUF |
+| `llm/` | `Qwen-3.5-2b-roleplay-tuned.Q8_0.gguf` | 2.08 GB | incubator-1 (its llama server) | mradermacher/Qwen-3.5-2b-roleplay-tuned-GGUF |
+| `llm/` | `Qwen3-0.6B-Q8_0.gguf` | 0.64 GB | incubator-2, hvac and animal-protection (one server each; shared read-only file) | Qwen/Qwen3-0.6B-GGUF |
 | `embeddings/bge-small-en-v1.5/` | `model.onnx` + 5 tokenizer and config files | 133 MB | all four (document search) | BAAI/bge-small-en-v1.5 |
 | `voice/openwakeword/` | `hey_jarvis_v0.1.onnx`, `melspectrogram.onnx`, `embedding_model.onnx` | 3.5 MB | incubator-1 | openWakeWord release v0.5.1 |
 | `voice/silero-vad/` | `silero_vad.onnx` | 0.6 MB | incubator-1 | sherpa-onnx release asr-models |

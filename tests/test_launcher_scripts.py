@@ -24,10 +24,14 @@ pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="the launchers u
 
 def write_ports(path: Path, new_port: Callable[[], int]) -> int:
     """A complete temporary launcher ports file; return its gateway port."""
-    ports = {name: new_port() for name in ("nats", "llama_server_1", "llama_server_2", "matrix_api", "gateway",
-                                            "website", "incubator_1", "incubator_2", "hvac", "animal_protection")}
+    ports = {name: new_port() for name in ("nats", "matrix_api", "gateway", "website", "llm_incubator_1",
+                                            "llm_incubator_2", "llm_hvac", "llm_animal_protection", "incubator_1",
+                                            "incubator_2", "hvac", "animal_protection")}
     path.write_text("\n".join(("schema_version = 1", 'host = "127.0.0.1"', *(f"{name} = {port}" for name, port in ports.items()),
-                                "", "[mcp]", f"incubator-1 = {ports['incubator_1']}",
+                                "", "[llm]", f"incubator-1 = {ports['llm_incubator_1']}",
+                                f"incubator-2 = {ports['llm_incubator_2']}", f"hvac = {ports['llm_hvac']}",
+                                f"animal-protection = {ports['llm_animal_protection']}", "", "[mcp]",
+                                f"incubator-1 = {ports['incubator_1']}",
                                 f"incubator-2 = {ports['incubator_2']}", f"hvac = {ports['hvac']}",
                                 f"animal-protection = {ports['animal_protection']}", "")), encoding="utf-8")
     return ports["gateway"]

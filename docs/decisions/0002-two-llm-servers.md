@@ -1,6 +1,6 @@
 # 0002: Two llama.cpp servers
 
-Status: accepted (plan v2, 22 Oct 2026).
+Status: superseded by 0013 (26 Oct 2026).
 
 ## Context
 The RX 580 has 8 GB of VRAM (`llama-server --list-devices`, 23 Oct: 8192 MiB, 7367 MiB free). One node speaks with

@@ -75,8 +75,8 @@ def test_node_config_rejects_a_wrong_machine_or_server(tmp_path: Path) -> None:
     bad.write_text(text.replace('machine = "hvac"', 'machine = "incubator"'), encoding="utf-8")
     with pytest.raises(ContractError, match="is a hvac"):
         load_node_config(bad)
-    bad.write_text(text.replace("server = 2", "server = 1"), encoding="utf-8")
-    with pytest.raises(ContractError, match="speaking node"):
+    bad.write_text(text.replace('server = "hvac"', 'server = "incubator-1"'), encoding="utf-8")
+    with pytest.raises(ContractError, match="own LLM server"):
         load_node_config(bad)
 
 

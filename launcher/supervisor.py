@@ -3,7 +3,7 @@ program that ends (Q6), and stops them all in reverse order.
 
 The programs (plan section 4.1), all on 127.0.0.1 with the ports of launcher/ports.toml:
     nats                 third_party/nats-server/bin/nats-server.exe -c nats.conf     ready when its port accepts
-    llama-1, llama-2     the two llama.cpp servers (llm/engines.py); left out with --no-llm      GET /health is 200
+    llama-<node>         each node's llama.cpp server (llm/engines.py); left out with --no-llm   GET /health is 200
     farm                 matrix/farm_runtime.py (the 6A test feed)                                GET /health is 200
     incubator-1 ...      nodes/<node>/runtime.py, one program per node                            running
     gateway              interface/gateway/gateway.py                                             GET /health is 200
@@ -128,17 +128,17 @@ def build_programs(ports: dict[str, Any], *, llm: bool, website: bool, nodes: tu
     programs = [Program("nats", (str(NATS_SERVER), "-c", str(NATS_CONF), "-a", host, "-p", str(ports["nats"])), ROOT,
                         Health("tcp", host, int(ports["nats"])), ready_timeout_s=15.0)]
     if llm:
-        servers: tuple[Literal[1, 2], ...] = (1, 2)
-        for number in servers:
-            spec = server_spec(number, ports_file)
-            programs.append(Program(f"llama-{number}", tuple(server_command(spec)), ROOT,
+        for node in nodes:
+            spec = server_spec(node, ports_file)
+            programs.append(Program(f"llama-{node}", tuple(server_command(spec)), ROOT,
                                     Health("http", url=f"{spec.url}/health"), ready_timeout_s=240.0))
     programs.append(Program("farm", (python, str(ROOT / "matrix" / "farm_runtime.py"), "--nats", nats_url, "--port",
                                      str(ports["matrix_api"])), ROOT, Health("http", url=f"{matrix_url}/health"),
                             depends_on=("nats",), ready_timeout_s=60.0))
     for node in nodes:
+        dependencies = ("nats", f"llama-{node}") if llm else ("nats",)
         programs.append(Program(node, (python, str(ROOT / "nodes" / node / "runtime.py"), "--nats", nats_url), ROOT,
-                                Health("process"), depends_on=("nats",), ready_timeout_s=30.0))
+                                Health("process"), depends_on=dependencies, ready_timeout_s=30.0))
     gateway_port = int(ports["gateway"])
     programs.append(Program("gateway", (python, str(ROOT / "interface" / "gateway" / "gateway.py"), "--nats", nats_url,
                                         "--matrix", matrix_url, "--port", str(gateway_port)), ROOT,
@@ -447,7 +447,7 @@ def main(argv: list[str] | None = None) -> int:
     """Command-line entry point; returns the process exit code."""
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--stop", action="store_true", help="stop the running supervisor and everything it runs")
-    parser.add_argument("--no-llm", action="store_true", help="leave out the two llama.cpp servers")
+    parser.add_argument("--no-llm", action="store_true", help="leave out every node's llama.cpp server")
     parser.add_argument("--website", action="store_true", help="also run the website (npm run dev)")
     parser.add_argument("--only", type=lambda s: {x.strip() for x in s.split(",") if x.strip()}, default=set(),
                         help="run only these programs, e.g. nats,farm,incubator-1,hvac,gateway")

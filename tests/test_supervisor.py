@@ -166,7 +166,10 @@ def test_the_jarvis_programs_and_their_order() -> None:
     assert nats.argv[nats.argv.index("-a") + 1] == "127.0.0.1" and str(ports["nats"]) in nats.argv
     assert all("127.0.0.1" in " ".join(p.argv) for p in plain[1:])
     full = sv.build_programs(ports, llm=True, website=True)
-    assert [p.name for p in full][:3] == ["nats", "llama-1", "llama-2"] and full[-1].name == "website"
+    assert [p.name for p in full][:5] == ["nats", *(f"llama-{node}" for node in NODE_IDS)]
+    assert full[-1].name == "website"
+    assert {p.name: p.depends_on for p in full if p.name in NODE_IDS} == {
+        node: ("nats", f"llama-{node}") for node in NODE_IDS}
     assert sv.build_programs(ports, llm=False, website=False, nodes=("hvac",))[2].name == "hvac"
 
 

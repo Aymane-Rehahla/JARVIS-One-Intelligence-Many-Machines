@@ -1,4 +1,4 @@
-"""llm/engines.py without a server: the two servers' command lines, and the client against a mock llama-server.
+"""llm/engines.py without a server: the four independent servers' command lines, and a mock client.
 
 No llama.cpp server is started here (the training runs; the live test is tests/llm/test_engines_live.py, deferred D3).
 """
@@ -11,28 +11,30 @@ from typing import Any
 import httpx
 import pytest
 
-from llm.engines import LLAMA_SERVER, MODELS, EngineClient, EngineError, server_command, server_spec
+from contracts import NODE_IDS
+from llm.engines import LLAMA_SERVER, EngineClient, EngineError, server_command, server_spec
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_the_two_servers_listen_locally_with_every_layer_on_the_gpu() -> None:
-    one, two = server_spec(1), server_spec(2)
-    assert (one.port, one.slots, two.port, two.slots) == (8081, 1, 8082, 3)
-    for spec in (one, two):
+def test_each_node_has_its_own_local_server_with_every_layer_on_the_gpu() -> None:
+    specs = {node: server_spec(node) for node in NODE_IDS}
+    assert {node: (spec.port, spec.slots) for node, spec in specs.items()} == {
+        "incubator-1": (8081, 1), "incubator-2": (8082, 1), "hvac": (8083, 1), "animal-protection": (8084, 1)}
+    for node, spec in specs.items():
         argv = server_command(spec)
         flag = {argv[i]: argv[i + 1] for i in range(1, len(argv) - 1) if argv[i].startswith("-")}
-        assert argv[0] == str(LLAMA_SERVER) and flag["-m"] == str(MODELS[spec.number])
+        assert argv[0] == str(LLAMA_SERVER) and flag["-m"] == str(spec.model)
         assert flag["--host"] == "127.0.0.1" and flag["-ngl"] == "99"
         assert int(flag["-c"]) == 8192 * spec.slots and flag["-np"] == str(spec.slots)
-        assert "--jinja" in argv and "--metrics" in argv
-    assert server_spec(1, slots=4).slots == 4                                   # the persona search's extra slots
+        assert "--jinja" in argv and "--metrics" in argv and flag["-a"] == f"jarvis-{node}"
+    assert server_spec("incubator-1", slots=4).slots == 4                       # the persona search's extra slots
 
 
 def test_the_models_and_the_server_are_where_the_commands_say() -> None:
     if not LLAMA_SERVER.exists():
         pytest.skip("llama.cpp is not installed on this machine")
-    assert all(path.is_file() for path in MODELS.values())
+    assert all(server_spec(node).model.is_file() for node in NODE_IDS)
 
 
 def mock(seen: list[dict[str, Any]], *, status: int = 200, body: object = None) -> httpx.MockTransport:

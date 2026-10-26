@@ -1,8 +1,8 @@
-"""The language-model engines (S2, S15): the two llama.cpp servers, and a node's connection to its own one.
+"""The language-model engines (S2, S15): one llama.cpp server per node, and a node's connection to its own one.
 
-Two servers on the RX 580 (Vulkan), every layer on the GPU (plan section 4.1, decision 0002):
-    server 1   Qwen 3.5 2B roleplay, 1 slot     incubator-1 speaks through it
-    server 2   Qwen3-0.6B, 3 slots              incubator-2, hvac and animal-protection, one slot each
+Four independent servers on the RX 580 (Vulkan), every layer on the GPU (plan section 4.1, decision 0013):
+    incubator-1        Qwen 3.5 2B roleplay, 1 slot
+    incubator-2, hvac, animal-protection     Qwen3-0.6B, 1 slot each
 `server_spec()` and `server_command()` give each server's command line (the launcher's supervisor starts them),
 `EngineClient.health()` asks a server whether its model is loaded, and `EngineClient.chat()` sends one chat
 completion to the node's own server and slot, with a deadline (Q4). Pinning the slot (`id_slot`) and starting every
@@ -14,18 +14,16 @@ import time
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field
 
+from contracts import NodeId, load_node_config
+
 NODE_DIR = Path(__file__).resolve().parents[1]
 ROOT = NODE_DIR.parents[1]
 LLAMA_SERVER = ROOT / "third_party" / "llama.cpp" / "bin" / "llama-server.exe"
-MODELS = {1: ROOT / "models" / "llm" / "Qwen-3.5-2b-roleplay-tuned.Q8_0.gguf",
-          2: ROOT / "models" / "llm" / "Qwen3-0.6B-Q8_0.gguf"}
-ALIASES = {1: "jarvis-speaker", 2: "jarvis-peer"}
-SLOTS = {1: 1, 2: 3}
 CTX_PER_SLOT = 8192                     # the persona spec's context size (docs/persona-spec.md, section 4)
 CHAT_PATH = "/v1/chat/completions"
 
@@ -34,7 +32,7 @@ CHAT_PATH = "/v1/chat/completions"
 class ServerSpec:
     """One llama.cpp server: its model, address, slots and context."""
 
-    number: Literal[1, 2]
+    node: NodeId
     model: Path
     host: str
     port: int
@@ -49,13 +47,16 @@ class ServerSpec:
         return f"http://{self.host}:{self.port}"
 
 
-def server_spec(number: Literal[1, 2], ports_file: Path = ROOT / "launcher" / "ports.toml", *,
+def server_spec(node: NodeId, ports_file: Path = ROOT / "launcher" / "ports.toml", *,
                 slots: int | None = None) -> ServerSpec:
-    """The spec of server 1 or 2, with its port from launcher/ports.toml. `slots` overrides the slot count (the
-    persona search runs server 1 with more slots to answer prompts in parallel)."""
+    """The spec of one node's server, from that node's `node.toml` and launcher/ports.toml.
+
+    `slots` overrides the normal one slot for the persona search's parallel prompts.
+    """
     ports = tomllib.loads(ports_file.read_text(encoding="utf-8"))
-    return ServerSpec(number=number, model=MODELS[number], host=str(ports["host"]),
-                      port=int(ports[f"llama_server_{number}"]), slots=slots or SLOTS[number], alias=ALIASES[number])
+    config = load_node_config(ROOT / "nodes" / node / "node.toml")
+    return ServerSpec(node=node, model=ROOT / config.llm.model, host=str(ports["host"]),
+                      port=int(ports["llm"][node]), slots=slots or 1, alias=f"jarvis-{node}")
 
 
 def server_command(spec: ServerSpec, exe: Path = LLAMA_SERVER) -> list[str]:
@@ -63,7 +64,7 @@ def server_command(spec: ServerSpec, exe: Path = LLAMA_SERVER) -> list[str]:
     Jinja chat templates (for tool calls), Prometheus metrics, listening on 127.0.0.1 only (Q7)."""
     return [str(exe), "-m", str(spec.model), "--host", spec.host, "--port", str(spec.port),
             "-ngl", str(spec.gpu_layers), "-c", str(spec.ctx_per_slot * spec.slots), "-np", str(spec.slots),
-            "-t", str(spec.threads), "--jinja", "--metrics", "-a", spec.alias or ALIASES[spec.number]]
+            "-t", str(spec.threads), "--jinja", "--metrics", "-a", spec.alias]
 
 
 class EngineHealth(BaseModel):

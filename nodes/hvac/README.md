@@ -7,7 +7,7 @@ One node of JARVIS: the local AI that lives with the hvac and joins the others t
 | Machine | hvac |
 | Talks to the owner | no (answers through incubator-1) |
 | Voice | installed, off |
-| Language model | Qwen3-0.6B (Q8_0), llama-server 2, slot 1 |
+| Language model | Qwen3-0.6B (Q8_0), its own llama-server, slot 0 |
 | Document search | bge-small-en-v1.5 + keyword search, its own index of approved documents |
 | Reasoning brain | CTM HVAC brain; rule brain as fallback |
 | Knowledge (`memory/rom/`) | `hvac_manual.md`, poultry-house ventilation and troubleshooting guide (after source approval), and the shared owner rules, safety list, farm layout and contacts |

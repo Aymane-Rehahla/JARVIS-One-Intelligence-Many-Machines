@@ -49,11 +49,15 @@ def require_free_ram() -> None:
 def write_ports(path: Path, new_port: Callable[[], int]) -> dict[str, int]:
     """A complete temporary ports file; the gateway's existing website-origin contract keeps its configured port."""
     configured = tomllib.loads((ROOT / "launcher" / "ports.toml").read_text(encoding="utf-8"))
-    ports = {name: new_port() for name in ("nats", "llama_server_1", "llama_server_2", "matrix_api", "gateway",
-                                            "incubator_1", "incubator_2", "hvac", "animal_protection")}
+    ports = {name: new_port() for name in ("nats", "matrix_api", "gateway", "llm_incubator_1", "llm_incubator_2",
+                                            "llm_hvac", "llm_animal_protection", "incubator_1", "incubator_2",
+                                            "hvac", "animal_protection")}
     ports["website"] = int(configured["website"])
     path.write_text("\n".join(("schema_version = 1", 'host = "127.0.0.1"', *(f"{name} = {port}" for name, port in ports.items()),
-                                "", "[mcp]", f"incubator-1 = {ports['incubator_1']}",
+                                "", "[llm]", f"incubator-1 = {ports['llm_incubator_1']}",
+                                f"incubator-2 = {ports['llm_incubator_2']}", f"hvac = {ports['llm_hvac']}",
+                                f"animal-protection = {ports['llm_animal_protection']}", "", "[mcp]",
+                                f"incubator-1 = {ports['incubator_1']}",
                                 f"incubator-2 = {ports['incubator_2']}", f"hvac = {ports['hvac']}",
                                 f"animal-protection = {ports['animal_protection']}", "")), encoding="utf-8")
     return ports

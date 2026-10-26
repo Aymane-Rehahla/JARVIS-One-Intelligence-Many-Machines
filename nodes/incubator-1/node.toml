@@ -8,7 +8,7 @@ voice = true
 
 [llm]
 model = "models/llm/Qwen-3.5-2b-roleplay-tuned.Q8_0.gguf"
-server = 1
+server = "incubator-1"
 slot = 0
 
 [embeddings]

@@ -8,7 +8,7 @@ voice = false
 
 [llm]
 model = "models/llm/Qwen3-0.6B-Q8_0.gguf"
-server = 2
+server = "incubator-2"
 slot = 0
 
 [embeddings]

@@ -38,6 +38,7 @@ AskError = Literal["timeout", "link_cut", "unavailable", "no_data", "bad_request
 FARM_TIME = r"^([01][0-9]|2[0-3]):[0-5][0-9]$"
 REQUEST_ID = r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$"
 MAX_DEADLINE_MS = 30_000
+SPEAKER_MODEL = "Qwen-3.5-2b-roleplay-tuned.Q8_0.gguf"
 
 
 class ContractError(ValueError):
@@ -89,8 +90,8 @@ class LlmSlot(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
     model: str = Field(min_length=1)
-    server: Literal[1, 2]
-    slot: int = Field(ge=0, le=7)
+    server: NodeId
+    slot: Literal[0]
 
 
 class EmbeddingsConfig(BaseModel):
@@ -116,8 +117,12 @@ class NodeConfig(BaseModel):
     def _consistent(self) -> NodeConfig:
         if MACHINES[self.id] != self.machine:
             raise ValueError(f"{self.id} is a {MACHINES[self.id]}, not a {self.machine}")
-        if self.speaks != (self.llm.server == 1):
-            raise ValueError("the speaking node uses server 1 and the silent nodes server 2")
+        if self.llm.server != self.id:
+            raise ValueError("each node uses its own LLM server")
+        if self.speaks != (Path(self.llm.model).name == SPEAKER_MODEL):
+            raise ValueError("the speaking node uses the 2B roleplay model and the silent nodes use Qwen3-0.6B")
+        if self.speaks != (self.id == "incubator-1"):
+            raise ValueError("only incubator-1 speaks")
         return self
 
 
