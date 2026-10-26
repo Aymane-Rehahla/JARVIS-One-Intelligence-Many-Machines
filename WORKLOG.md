@@ -53,6 +53,18 @@ process was changed, no llama.cpp server was started, and the full suite was not
 | Independent LLM server topology | `6b0811a` | decision 0013: one localhost server and slot per node; four distinct ports and per-node supervisor dependency |
 | Deferred D3 measurements and test-port helper | `5e2ca72` | a deferred live-engine test, guard registration, resource capture plan and one helper derived from `ports.toml` |
 | Runtime-boundary documentation | `af2b2b1` | launcher, interface, contracts, gateway and node communications inputs, outputs and tests |
+| Final supervisor and D5 review fixes | `7b706cf` | dependency-closed `--only`, logged selection errors, D3 tool-call capability recording and the D5 owned-node restart check |
+
+### "Done when" checks (plan section 9, step 6A)
+
+| Check | Evidence |
+|---|---|
+| Node programs see each other's heartbeats | `tests/test_system.py::test_system_hot_join_questions_and_cut_links` checks three supervised nodes and the hot-joined fourth; `tests/test_node.py` has 9 passing checks. The last D5 run measured all four known 0.203 s after `animal.start()`. |
+| A question from incubator-1 reaches HVAC with ZigBee delay | `tests/test_farm_runtime.py::test_a_node_answers_from_the_live_feed` covers this route (8 passing checks in 5.84 s). D5's live question is intentionally from animal-protection to HVAC. |
+| Cutting HVAC's link times out cleanly | D5 checks the `timeout` reply and cut-link detail; `tests/test_comms.py` has 8 passing checks in 8.89 s. |
+| Killing a node gets it restarted by the supervisor | D5 now terminates only its recorded HVAC launcher, proves that the Windows job ends its direct interpreter child, waits for `restarting`, then requires `ready`, `restarts == 1`, and gateway/peer rediscovery. A fresh D5 runtime measurement is pending the test's 3 GiB free-RAM requirement. |
+| Gateway streams zod-checked snapshots | `tests/test_gateway.py` has 8 passing checks in 3.01 s; `tests/test_contracts_zod.py` has 2 passing checks in 3.12 s. |
+| Hot-join completes within seconds | D5 measured 0.203 s from `animal.start()` to a snapshot where all four are known (bound: under 10 s). |
 
 ### Measured checks
 
@@ -63,13 +75,17 @@ Each command below ran alone with `-p no:cacheprovider -o faulthandler_timeout=6
 |---|---|
 | `tests/test_contracts.py` | 21 passed in 2.18 s |
 | `tests/llm/test_engines.py` | 6 passed in 0.86 s |
-| `tests/test_supervisor.py` | 10 passed in 17.93 s |
+| `tests/test_supervisor.py` | 10 passed in 17.93 s; after the final selection/error-path fix, 11 passed in 19.90 s |
 | `tests/test_launcher_scripts.py` | 1 passed in 13.79 s |
 | `tests/test_nodes_in_sync.py` | 3 passed in 0.65 s |
 | `tests/test_contracts_zod.py` | 2 passed in 3.12 s |
 | `tests/test_tree.py` | 58 passed in 18.94 s |
 | `tests/test_system.py` | 1 passed in 45.92 s; the fourth node was known by all four **0.203 s** after `animal.start()` |
-| `tests/llm/test_engines_live.py` | 1 test collected in 0.96 s; deferred test was not run |
+| `tests/test_comms.py` | 8 passed in 8.89 s |
+| `tests/test_node.py` | 9 passed in 6.86 s |
+| `tests/test_farm_runtime.py` | 8 passed in 5.84 s |
+| `tests/test_gateway.py` | 8 passed in 3.01 s |
+| `tests/llm/test_engines_live.py` | 1 test collected in 0.96 s, then 0.93 s after capability recording; deferred test was not run |
 
 Pyright on the changed launcher, node, test and deferred-engine files reported **0 errors, 0 warnings**. The staged and
 history name guards were clean for each 6A commit.
@@ -84,9 +100,12 @@ history name guards were clean for each 6A commit.
 - **D2** remains deferred because persona search loads the 2B server. **D3** remains deferred because it starts all
   four servers and measures their VRAM, RAM, load time and token rates. **D4** remains deferred because the owner has
   prohibited the full suite until training ends. Their exact commands are in `tests/DEFERRED.md`.
-- The plan originally described two model servers; the owner replaced that topology with four independent servers.
-  D5 is deliberately a no-LLM system test while training runs. The temporary-port test helper copies the current
-  `ports.toml` structure rather than preserving a second hand-written port layout.
+- The plan originally described two model servers; the owner replaced that topology with four independent servers
+  (decision 0013). D5 is deliberately a no-LLM system test while training runs. The temporary-port test helper copies
+  the current `ports.toml` structure rather than preserving a second hand-written port layout.
+- The roleplay chat-template tool-call check moved from the 6A runtime checklist into D3. It records `/props`
+  capabilities, or a template-text `tools` indication when llama.cpp does not report explicit capabilities; it does
+  not claim support before the deferred live measurement.
 
 ### Monitor continuity
 
