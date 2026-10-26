@@ -7,12 +7,14 @@ starting anything when the Phase 5 training leaves less than 3 GiB free RAM.
 from __future__ import annotations
 
 import asyncio
+import ctypes
 import json
 import logging
 import subprocess
 import sys
 import time
 from collections.abc import Awaitable, Callable
+from ctypes import wintypes
 from pathlib import Path
 
 import httpx
@@ -101,6 +103,69 @@ def program_pids(status: dict[str, object]) -> list[int]:
     return [int(item["pid"]) for item in programs.values() if isinstance(item, dict) and item.get("pid")]
 
 
+def program_status(status: dict[str, object], name: str) -> dict[str, object] | None:
+    """One validated program record from the supervisor's untyped JSON status document."""
+    programs = status.get("programs")
+    if not isinstance(programs, dict):
+        return None
+    record = programs.get(name)
+    return record if isinstance(record, dict) else None
+
+
+class ProcessEntry(ctypes.Structure):
+    """The Windows process-snapshot record used to prove a supervised launcher takes its interpreter child with it."""
+
+    _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD), ("th32ProcessID", wintypes.DWORD),
+                ("th32DefaultHeapID", ctypes.c_size_t), ("th32ModuleID", wintypes.DWORD),
+                ("cntThreads", wintypes.DWORD), ("th32ParentProcessID", wintypes.DWORD),
+                ("pcPriClassBase", wintypes.LONG), ("dwFlags", wintypes.DWORD), ("szExeFile", ctypes.c_wchar * 260)]
+
+
+def child_pids(parent_pid: int) -> list[int]:
+    """The direct child PIDs of this test's owned process, read from one Windows process snapshot."""
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    kernel32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+    kernel32.Process32FirstW.restype = wintypes.BOOL
+    kernel32.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.POINTER(ProcessEntry)]
+    kernel32.Process32NextW.restype = wintypes.BOOL
+    kernel32.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(ProcessEntry)]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    snapshot = kernel32.CreateToolhelp32Snapshot(0x00000002, 0)  # TH32CS_SNAPPROCESS
+    if not snapshot or snapshot == wintypes.HANDLE(-1).value:
+        raise OSError(ctypes.get_last_error(), "could not snapshot processes")
+    try:
+        entry = ProcessEntry()
+        entry.dwSize = ctypes.sizeof(entry)
+        found: list[int] = []
+        more = kernel32.Process32FirstW(snapshot, ctypes.byref(entry))
+        while more:
+            if entry.th32ParentProcessID == parent_pid:
+                found.append(int(entry.th32ProcessID))
+            more = kernel32.Process32NextW(snapshot, ctypes.byref(entry))
+        return found
+    finally:
+        kernel32.CloseHandle(snapshot)
+
+
+def terminate_owned_process(pid: int) -> None:
+    """End exactly this test's supervised launcher process; its Windows job must end the interpreter child too."""
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.TerminateProcess.restype = wintypes.BOOL
+    kernel32.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    handle = kernel32.OpenProcess(0x0001 | 0x00100000, False, pid)  # PROCESS_TERMINATE | PROCESS_SYNCHRONIZE
+    if not handle:
+        raise OSError(ctypes.get_last_error(), f"could not open test-owned PID {pid}")
+    try:
+        if not kernel32.TerminateProcess(handle, 1):
+            raise OSError(ctypes.get_last_error(), f"could not end test-owned PID {pid}")
+    finally:
+        kernel32.CloseHandle(handle)
+
+
 async def stop_supervisor(logs: Path, supervisor: subprocess.Popen[bytes]) -> None:
     """Use the supervisor's stop path; only terminate this test's own handle as a last-resort cleanup."""
     stopped = await asyncio.to_thread(subprocess.run, [str(PYTHON), str(SUPERVISOR), "--stop", "--logs", str(logs)],
@@ -175,6 +240,38 @@ async def test_system_hot_join_questions_and_cut_links(tmp_path: Path, new_port:
                             "the in-process node did not receive the restored HVAC link")
             answer_after_restore = await animal.radio.ask("hvac", "readings", deadline_s=3.0)
             assert answer_after_restore.ok and answer_after_restore.farm_time
+
+            status = read_status(status_path)
+            assert status is not None
+            old_hvac = program_status(status, "hvac")
+            assert old_hvac is not None and isinstance(old_hvac["pid"], int)
+            old_hvac_pid = old_hvac["pid"]
+            await until(lambda: bool(child_pids(old_hvac_pid)), "the test-owned HVAC launcher had no interpreter child")
+            old_hvac_children = child_pids(old_hvac_pid)
+            terminate_owned_process(old_hvac_pid)
+
+            def hvac_is_restarting() -> bool:
+                status = read_status(status_path)
+                hvac = program_status(status, "hvac") if status is not None else None
+                return hvac is not None and hvac["state"] == "restarting"
+
+            await until(hvac_is_restarting, "the supervisor did not mark the killed HVAC node restarting")
+
+            def hvac_is_ready_again() -> bool:
+                status = read_status(status_path)
+                hvac = program_status(status, "hvac") if status is not None else None
+                return hvac is not None and hvac["state"] == "ready" and hvac["restarts"] == 1 and \
+                    isinstance(hvac["pid"], int) and hvac["pid"] != old_hvac_pid
+
+            await until(hvac_is_ready_again, "the supervisor did not restart HVAC once")
+            await until(lambda: not pid_alive(old_hvac_pid) and not any(pid_alive(pid) for pid in old_hvac_children),
+                        "the old HVAC launcher or interpreter child remained alive")
+            restarted = await next_snapshot(
+                socket,
+                lambda snapshot: snapshot.nodes["hvac"].alive and "hvac" in snapshot.nodes["incubator-1"].known and
+                animal is not None and "hvac" in animal.known(),
+                "the gateway did not show the restarted HVAC node alive and known by its peers")
+            assert restarted.nodes["hvac"].alive
         stopped_status = read_status(status_path)
         assert stopped_status is not None
         await animal.stop()

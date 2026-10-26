@@ -85,6 +85,18 @@ def adapter_reading(probe: Probe) -> list[dict[str, int | str | None]]:
             for gpu in probe.sample().gpus]
 
 
+def tool_call_capability(props: dict[str, Any]) -> dict[str, Any]:
+    """What `/props` says about chat-template tool calls, preserving an absent explicit capability honestly."""
+    for key in ("chat_template_capabilities", "chat_template_caps"):
+        if key in props:
+            return {"source": f"/props.{key}", "value": props[key]}
+    template = props.get("chat_template")
+    if not isinstance(template, str):
+        settings = props.get("default_generation_settings")
+        template = settings.get("chat_template") if isinstance(settings, dict) else ""
+    return {"source": "template text", "handles_tools": "tools" in template.lower() if isinstance(template, str) else False}
+
+
 def start_server(spec: ServerSpec) -> tuple[subprocess.Popen[bytes], Job, IO[bytes]]:
     """Start one server in a kill-on-close job and place its native process under the RAM guard."""
     D3_LOG.parent.mkdir(parents=True, exist_ok=True)
@@ -156,6 +168,7 @@ async def test_each_node_llm_server_loads_chats_and_records_resources() -> None:
                                  "load_s": load_s, "server_working_set_bytes": working_set_bytes(process.pid),
                                  "prompt_tokens_per_s": result.prompt_tokens / (result.prompt_ms / 1_000),
                                  "generation_tokens_per_s": result.tokens_per_s,
+                                 "tool_call_capability": tool_call_capability(props),
                                  "vram_after_load": adapter_reading(probe)})
         D3_LOG.write_text(json.dumps({"servers": measurements}, indent=2) + "\n", encoding="utf-8")
     finally:

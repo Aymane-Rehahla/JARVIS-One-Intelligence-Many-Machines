@@ -11,6 +11,7 @@ import json
 import logging
 import sys
 import time
+from argparse import Namespace
 from pathlib import Path
 
 import pytest
@@ -171,6 +172,25 @@ def test_the_jarvis_programs_and_their_order() -> None:
     assert {p.name: p.depends_on for p in full if p.name in NODE_IDS} == {
         node: ("nats", f"llama-{node}") for node in NODE_IDS}
     assert sv.build_programs(ports, llm=False, website=False, nodes=("hvac",))[2].name == "hvac"
+    only_hvac = sv.select_programs(sv.build_programs(ports, llm=True, website=False, nodes=("hvac",)),
+                                   {"nats", "hvac"})
+    assert [program.name for program in only_hvac] == ["nats", "llama-hvac", "hvac"]
+
+
+@pytest.mark.asyncio
+async def test_bad_dependencies_exit_two_with_a_logged_reason(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+                                                              capsys: pytest.CaptureFixture[str]) -> None:
+    """A selection/configuration error is visible even when the supervisor runs through pythonw."""
+    monkeypatch.setattr(sv, "build_programs", lambda *args, **kwargs: [program("bad", "pass", depends_on=("missing",))])
+    import resource_monitor
+    monkeypatch.setattr(resource_monitor, "register_guarded", lambda *args, **kwargs: None)
+    monkeypatch.setattr(resource_monitor, "unregister_guarded", lambda *args, **kwargs: None)
+    args = Namespace(no_llm=True, website=False, only=set(), ports=ROOT / "launcher" / "ports.toml", logs=tmp_path,
+                     normal_priority=False, echo=False)
+    assert await sv.amain(args) == 2
+    assert "depends on unknown programs" in capsys.readouterr().out
+    records = (tmp_path / "supervisor.jsonl").read_text(encoding="utf-8")
+    assert "invalid program selection" in records and "depends on unknown programs" in records
 
 
 def test_only_one_supervisor_and_stop_without_one(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

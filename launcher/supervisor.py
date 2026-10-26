@@ -153,6 +153,25 @@ def build_programs(ports: dict[str, Any], *, llm: bool, website: bool, nodes: tu
     return programs
 
 
+def select_programs(programs: list[Program], only: set[str]) -> list[Program]:
+    """Keep named programs and every dependency they need, in the supervisor's start order."""
+    if not only:
+        return programs
+    available = {program.name: program for program in programs}
+    unknown = sorted(only - set(available))
+    if unknown:
+        raise ValueError(f"--only names unknown programs {unknown}")
+    selected = set(only)
+    pending = list(only)
+    while pending:
+        name = pending.pop()
+        for dependency in available[name].depends_on:
+            if dependency not in selected:
+                selected.add(dependency)
+                pending.append(dependency)
+    return [program for program in programs if program.name in selected]
+
+
 class Supervisor:
     """Runs a list of programs (see the module docstring)."""
 
@@ -420,11 +439,19 @@ async def amain(args: argparse.Namespace) -> int:
         with contextlib.suppress(OSError, PermissionError):
             register_guarded(os.getpid(), "supervisor")
         ports = read_ports(args.ports)
-        nodes: tuple[NodeId, ...] = tuple(node for node in NODE_IDS if not args.only or node in args.only)
-        programs = [p for p in build_programs(ports, llm=not args.no_llm, website=args.website, nodes=nodes,
-                                              ports_file=args.ports)
-                    if not args.only or p.name in args.only]
-        supervisor = Supervisor(programs, logs=logs, logger=logger, below_normal=not args.normal_priority)
+        nodes: tuple[NodeId, ...] = tuple(node for node in NODE_IDS if not args.only or node in args.only
+                                          or f"llama-{node}" in args.only)
+        programs = build_programs(ports, llm=not args.no_llm, website=args.website, nodes=nodes, ports_file=args.ports)
+        try:
+            supervisor = Supervisor(select_programs(programs, args.only), logs=logs, logger=logger,
+                                    below_normal=not args.normal_priority)
+        except ValueError as error:
+            log(logger, logging.ERROR, "invalid program selection", error=str(error))
+            print(f"error: {error}")
+            with contextlib.suppress(OSError):
+                unregister_guarded(os.getpid())
+            return 2
+        programs = [running.program for running in supervisor.programs.values()]
         log(logger, logging.INFO, "supervisor started", programs=[p.name for p in programs])
         code = 0
         try:
