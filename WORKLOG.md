@@ -35,6 +35,65 @@ restarted, with the second review's guard code, at 04:33:39.** Nothing of ours r
 and it stopped nothing, because nothing of ours was registered (it rewrote an empty `logs/guarded.json` at 05:12).
 Since 06:00 the commit headroom has stayed at 5.0 GiB or more. Lesson: start nothing while the training changes phase.
 
+## Step 6A: guarded multi-process runtime (26 Oct 2026)
+
+Status: implemented and awaiting the final 6A review. The training remained outside this work: no training file or
+process was changed, no llama.cpp server was started, and the full suite was not run.
+
+### What was built
+
+| Piece | Commit | Evidence |
+|---|---|---|
+| Wire contracts, validated NATS boundary, ZigBee request rules and gateway skeleton | `694a100` | typed public telemetry, bounded request-reply and generated website schemas |
+| Node runtime | `1d88781` | capabilities, heartbeats, hot-join and farm-time answers |
+| Rule-brain test feed and Matrix API | `03f6362` | isolated farm process for 6A; decision 0012 records the CTM stub boundary |
+| Supervisor, Windows job cleanup and LLM engine client | `5d5a299` | dependency order, health checks, restart policy and local-only engine commands |
+| Launcher lifecycle and ownership fixes | `919d2ee`, `8281f66` | start/stop scripts, temporary ports/logs, monitor ownership record and fast failure reporting |
+| D5 system test | `62ae988` | no-LLM supervisor run, gateway farm stream, hot-join, radio question and cut-link recovery |
+| Independent LLM server topology | `6b0811a` | decision 0013: one localhost server and slot per node; four distinct ports and per-node supervisor dependency |
+| Deferred D3 measurements and test-port helper | `5e2ca72` | a deferred live-engine test, guard registration, resource capture plan and one helper derived from `ports.toml` |
+| Runtime-boundary documentation | `af2b2b1` | launcher, interface, contracts, gateway and node communications inputs, outputs and tests |
+
+### Measured checks
+
+Free RAM was **4.00 GiB** at the pre-rerun monitor sample (22:37:15 UTC), above the 2 GiB build stop condition.
+Each command below ran alone with `-p no:cacheprovider -o faulthandler_timeout=60`.
+
+| Test file | Result |
+|---|---|
+| `tests/test_contracts.py` | 21 passed in 2.18 s |
+| `tests/llm/test_engines.py` | 6 passed in 0.86 s |
+| `tests/test_supervisor.py` | 10 passed in 17.93 s |
+| `tests/test_launcher_scripts.py` | 1 passed in 13.79 s |
+| `tests/test_nodes_in_sync.py` | 3 passed in 0.65 s |
+| `tests/test_contracts_zod.py` | 2 passed in 3.12 s |
+| `tests/test_tree.py` | 58 passed in 18.94 s |
+| `tests/test_system.py` | 1 passed in 45.92 s; the fourth node was known by all four **0.203 s** after `animal.start()` |
+| `tests/llm/test_engines_live.py` | 1 test collected in 0.96 s; deferred test was not run |
+
+Pyright on the changed launcher, node, test and deferred-engine files reported **0 errors, 0 warnings**. The staged and
+history name guards were clean for each 6A commit.
+
+### Decisions, deferred work and plan differences
+
+- **Decision 0012:** the 6A farm feed stubs only the snapshot CTM module and runs rule brains; it is an explicit,
+  read-only boundary until trained brains arrive in 6D.
+- **Decision 0013 (owner, 26 Oct):** each node owns one independent localhost llama.cpp server. The model weights are
+  2.08 GB plus three 0.64 GB instances (4.0 GB total), rather than the prior 2.7 GB shared topology. D3 decides any
+  KV-cache or small-node context change from measurements only.
+- **D2** remains deferred because persona search loads the 2B server. **D3** remains deferred because it starts all
+  four servers and measures their VRAM, RAM, load time and token rates. **D4** remains deferred because the owner has
+  prohibited the full suite until training ends. Their exact commands are in `tests/DEFERRED.md`.
+- The plan originally described two model servers; the owner replaced that topology with four independent servers.
+  D5 is deliberately a no-LLM system test while training runs. The temporary-port test helper copies the current
+  `ports.toml` structure rather than preserving a second hand-written port layout.
+
+### Monitor continuity
+
+The resource monitor was down from **25 Oct 00:28 to 26 Oct**, then restarted as PID **17416**. During that gap the
+training program changed to `ctm_training.life_loop train`, started **25 Oct 08:05**. The monitor now samples that
+training without registering or controlling it.
+
 ## Step 6.0: set up, with the v3 changes (23 Oct 2026)
 
 Status: the "done when" checks pass, the v3 changes are applied and both independent reviews' findings are fixed
