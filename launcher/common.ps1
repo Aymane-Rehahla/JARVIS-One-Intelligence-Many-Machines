@@ -1,6 +1,7 @@
 <#
 .SYNOPSIS
 Shared launcher helpers for reading PID records and proving the process identity recorded by the resource monitor.
+Dot-source this file from a launcher that defines `$root` and `$python`; Test-SameProcess uses those caller variables.
 #>
 
 function Get-PidRecord([string]$path) {

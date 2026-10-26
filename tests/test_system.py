@@ -12,7 +12,6 @@ import logging
 import subprocess
 import sys
 import time
-import tomllib
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
@@ -23,6 +22,7 @@ from websockets.typing import Origin
 
 import gateway as gw
 from comms.nats_link import NatsLink
+from conftest import write_test_ports
 from contracts import NODE_IDS, load_node_config
 from node import Node
 from resource_monitor import GIB, Probe, pid_alive
@@ -44,23 +44,6 @@ def require_free_ram() -> None:
         probe.close()
     if free_bytes < 3 * GIB:
         pytest.skip(f"D5 needs at least 3 GiB free RAM; only {free_bytes / GIB:.2f} GiB is free")
-
-
-def write_ports(path: Path, new_port: Callable[[], int]) -> dict[str, int]:
-    """A complete temporary ports file; the gateway's existing website-origin contract keeps its configured port."""
-    configured = tomllib.loads((ROOT / "launcher" / "ports.toml").read_text(encoding="utf-8"))
-    ports = {name: new_port() for name in ("nats", "matrix_api", "gateway", "llm_incubator_1", "llm_incubator_2",
-                                            "llm_hvac", "llm_animal_protection", "incubator_1", "incubator_2",
-                                            "hvac", "animal_protection")}
-    ports["website"] = int(configured["website"])
-    path.write_text("\n".join(("schema_version = 1", 'host = "127.0.0.1"', *(f"{name} = {port}" for name, port in ports.items()),
-                                "", "[llm]", f"incubator-1 = {ports['llm_incubator_1']}",
-                                f"incubator-2 = {ports['llm_incubator_2']}", f"hvac = {ports['llm_hvac']}",
-                                f"animal-protection = {ports['llm_animal_protection']}", "", "[mcp]",
-                                f"incubator-1 = {ports['incubator_1']}",
-                                f"incubator-2 = {ports['incubator_2']}", f"hvac = {ports['hvac']}",
-                                f"animal-protection = {ports['animal_protection']}", "")), encoding="utf-8")
-    return ports
 
 
 def read_status(path: Path) -> dict[str, object] | None:
@@ -132,7 +115,7 @@ async def stop_supervisor(logs: Path, supervisor: subprocess.Popen[bytes]) -> No
 async def test_system_hot_join_questions_and_cut_links(tmp_path: Path, new_port: Callable[[], int]) -> None:
     """D5: three nodes become four live, a question answers with farm time, and an HVAC cut times out then restores."""
     require_free_ram()
-    ports = write_ports(tmp_path / "ports.toml", new_port)
+    ports = write_test_ports(tmp_path / "ports.toml", new_port)
     logs, status_path = tmp_path / "logs", tmp_path / "logs" / "supervisor.status.json"
     nats_url = f"nats://127.0.0.1:{ports['nats']}"
     supervisor = subprocess.Popen([str(PYTHON), str(SUPERVISOR), "--no-llm", "--only", ",".join(SYSTEM_PROGRAMS),
@@ -154,12 +137,16 @@ async def test_system_hot_join_questions_and_cut_links(tmp_path: Path, new_port:
             animal_link = NatsLink("system-animal-protection", nats_url, logger=LOG)
             await animal_link.connect(attempts=20)
             animal = Node(load_node_config(ROOT / "nodes" / "animal-protection" / "node.toml"), animal_link, logger=LOG)
+            hot_join_started = time.monotonic()
             await animal.start()
             four = await next_snapshot(
                 socket,
                 lambda snapshot: all(snapshot.nodes[node].alive and snapshot.nodes[node].known == list(NODE_IDS)
                                      for node in NODE_IDS),
                 "the gateway never showed the hot-joined node known by all four")
+            hot_join_s = time.monotonic() - hot_join_started
+            print(f"hot join: {hot_join_s:.3f} s")
+            assert hot_join_s < 10.0
             status = read_status(status_path)
             assert status is not None
             programs = status["programs"]

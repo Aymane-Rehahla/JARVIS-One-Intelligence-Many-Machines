@@ -11,6 +11,7 @@ from urllib.request import urlopen
 
 import pytest
 
+from conftest import write_test_ports
 from resource_monitor import pid_alive, same_process
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -20,21 +21,6 @@ MONITOR_PID = ROOT / "logs" / "resource_monitor.pid"
 POWERSHELL = "powershell.exe"
 
 pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="the launchers use Windows PowerShell and WMI")
-
-
-def write_ports(path: Path, new_port: Callable[[], int]) -> int:
-    """A complete temporary launcher ports file; return its gateway port."""
-    ports = {name: new_port() for name in ("nats", "matrix_api", "gateway", "website", "llm_incubator_1",
-                                            "llm_incubator_2", "llm_hvac", "llm_animal_protection", "incubator_1",
-                                            "incubator_2", "hvac", "animal_protection")}
-    path.write_text("\n".join(("schema_version = 1", 'host = "127.0.0.1"', *(f"{name} = {port}" for name, port in ports.items()),
-                                "", "[llm]", f"incubator-1 = {ports['llm_incubator_1']}",
-                                f"incubator-2 = {ports['llm_incubator_2']}", f"hvac = {ports['llm_hvac']}",
-                                f"animal-protection = {ports['llm_animal_protection']}", "", "[mcp]",
-                                f"incubator-1 = {ports['incubator_1']}",
-                                f"incubator-2 = {ports['incubator_2']}", f"hvac = {ports['hvac']}",
-                                f"animal-protection = {ports['animal_protection']}", "")), encoding="utf-8")
-    return ports["gateway"]
 
 
 def pid_record(path: Path) -> tuple[int, int]:
@@ -66,7 +52,8 @@ def test_start_and_stop_with_temporary_ports_leaves_the_monitor_running(tmp_path
     before_identity = pid_record(MONITOR_PID) if before is not None else None
     before_alive = before_identity is not None and same_process(*before_identity)
     ports, logs = tmp_path / "ports.toml", tmp_path / "logs"
-    gateway = write_ports(ports, new_port)
+    configured = write_test_ports(ports, new_port)
+    gateway = int(configured["gateway"])
     start = powershell(START, "-NoLlm", "-NoWebsite", "-NoMonitor", "-Only", "nats,farm,gateway", "-Ports",
                        str(ports), "-Logs", str(logs))
     try:

@@ -12,13 +12,16 @@ import os
 import socket
 import subprocess
 import time
+import tomllib
 from collections.abc import Callable, Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 NATS_SERVER = ROOT / "third_party" / "nats-server" / "bin" / "nats-server.exe"
+PORTS = ROOT / "launcher" / "ports.toml"
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
@@ -35,6 +38,28 @@ def free_port() -> int:
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
         return int(probe.getsockname()[1])
+
+
+def write_test_ports(path: Path, new_port: Callable[[], int]) -> dict[str, Any]:
+    """Copy launcher/ports.toml with fresh service ports, retaining website as the allowed gateway origin."""
+    configured: dict[str, Any] = tomllib.loads(PORTS.read_text(encoding="utf-8"))
+    ports: dict[str, Any] = {}
+    for name, value in configured.items():
+        if isinstance(value, dict):
+            ports[name] = {nested: new_port() if isinstance(port, int) else port
+                           for nested, port in value.items()}
+        elif isinstance(value, int) and name not in ("schema_version", "website"):
+            ports[name] = new_port()
+        else:
+            ports[name] = value
+    lines = [f'{name} = {value!r}' if isinstance(value, str) else f"{name} = {value}"
+             for name, value in ports.items() if not isinstance(value, dict)]
+    for table, values in ports.items():
+        if not isinstance(values, dict):
+            continue
+        lines.extend(("", f"[{table}]", *(f"{name} = {value}" for name, value in values.items())))
+    path.write_text("\n".join((*lines, "")), encoding="utf-8")
+    return ports
 
 
 def wait_for_port(port: int, timeout_s: float = 10.0) -> None:
