@@ -1,14 +1,17 @@
-# interface/gateway/: the only door (steps 6A and 6W)
+# interface/gateway/: the website's only system door
 
-FastAPI on 127.0.0.1:8010. It subscribes to NATS and sends the website throttled snapshots (at most 5 per second) shaped
-for the website's `FarmState`, and it forwards only these actions:
+The FastAPI gateway listens on `127.0.0.1` at the `gateway` port in `launcher/ports.toml`. It takes validated public
+farm messages and node heartbeats from NATS, reads permitted simulation responses from the Matrix API, and writes a
+bounded stream of website-shaped snapshots. It never puts mentor fault clicks on NATS.
 
-| Website action | Route | Goes to |
+| Route | Input | Output |
 |---|---|---|
-| start, pause, reset, speed | `POST /sim/{action}` | Matrix API |
-| inject a demo fault | `POST /faults/{scenario_id}` | Matrix API, never NATS (ground rule 4) |
-| chat message | WebSocket `/ws/chat` | `jarvis.incubator-1.chat` |
-| acknowledge an alert | `POST /alerts/{id}/ack` + confirm token | the Matrix's owner-acknowledgement signal |
-| LLM failure switches | `POST /mentor/llm-failures` | `mentor.llm_failures` |
+| `GET /health` | none | NATS connection, Matrix health, live-node list and dropped-message count |
+| `POST /sim/{action}` | `start`, `pause`, `reset`, or `speed` with an allowed speed | validated `SimState` from Matrix |
+| `WS /ws/farm` | configured website origin | changed `FarmSnapshot` messages, at most five per second |
 
-Streams: `/ws/farm`, `/ws/chat`, `/ws/audit`, `/ws/voice`. **Tests:** contract test (pydantic and zod), 6A and 6W "done when".
+`FarmSnapshot` is the public contract: it contains simulation state, link state, recent events and all four nodes'
+liveness, known peers, capabilities, status and assessment. The website zod-checks the stream before use.
+
+**Tests:** `tests/test_gateway.py` covers route validation and snapshots; `tests/test_contracts_zod.py` checks its zod
+contract; `tests/test_system.py` proves that the live no-LLM gateway reports hot-join state.

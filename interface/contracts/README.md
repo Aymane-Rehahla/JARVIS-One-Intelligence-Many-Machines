@@ -1,7 +1,16 @@
-# interface/contracts/: message schemas (step 6A)
+# interface/contracts/: generated boundary schemas
 
-JSON Schemas of every NATS, gateway and tool message, exported from the pydantic models (defined once, in Python). Every
-message carries `schema_version`; unknown versions are logged and dropped (Q2). Generated files, never edited by hand.
+These JSON Schema files are generated from the pydantic wire contracts in `nodes/incubator-1/contracts.py` and the
+gateway's `FarmSnapshot`. They are inputs to the website's zod schema definitions; the generated files are outputs and
+must not be edited by hand. `NodeConfig` remains a local node configuration, not a message exported to the website.
 
-- **In:** the pydantic models in Python. **Out:** JSON Schema files the website's zod checks are built from.
-- **Tests:** a contract test runs the same sample messages through pydantic and zod (6A).
+Regenerate after changing an exported pydantic contract:
+
+```powershell
+.venv\Scripts\python tools\export_contracts.py
+.venv\Scripts\python tools\export_contracts.py --check
+```
+
+The first command writes every schema; `--check` reports a missing, stale or retired schema without changing files.
+`tests/test_contracts.py` runs the check. `tests/test_contracts_zod.py` verifies that the website's zod schemas accept
+and reject the same samples as pydantic.

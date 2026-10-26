@@ -1,15 +1,24 @@
-# comms/: how this node talks to the others
+# comms/: a node's bounded peer connection
 
-| File | Step | What it does |
-|---|---|---|
-| `peer_network.py` | 6A | the simulated ZigBee rules (delay, loss, cut-offs), applied to every node-to-node message before NATS |
-| `nats_link.py` | 6A | the NATS connection: subjects, request-reply, reconnect |
-| `events.py` | 6A | the async event bus inside this node |
-| `mcp.py` | 6B | serves `llm/tools.py` over MCP (port in `launcher/ports.toml`) |
+`nats_link.py` is the node's connection to NATS. It takes typed messages on the farm and JARVIS subjects, validates
+them before handlers see them, limits queued work, retries an initial connection, and carries request IDs on asks.
+It publishes typed telemetry, heartbeats, capabilities and replies; invalid or unknown-version messages are logged
+and dropped.
 
-- **Hot-join:** a node started while JARVIS runs announces its capabilities on NATS; incubator-1 can answer about that
-  machine within seconds, with no restart (integration test in 6A/6B, demo step in 6F).
-- The reasoning's own peer messages stay on the reasoning's bus: the brains were trained with its timing.
-- Observability and website messages skip the ZigBee rules; they aren't farm radio.
-- Subjects and their payloads: `docs/phase6-llm-plan.md`, section 4.3.
-- **Tests:** unit tests per module; the 6A "done when" checks (heartbeats, ZigBee delay, a cut link times out, hot-join).
+`peer_network.py` applies the simulated ZigBee rules before a node-to-node question crosses NATS: one-hop delay,
+configured loss and Matrix-published link cuts. A cut target consumes the caller's remaining deadline and returns a
+clear timeout rather than an invented answer. Farm telemetry and website observability are not radio traffic.
+
+## Hot-join and repair
+
+On start, a node publishes its capabilities and then heartbeats every 10 seconds. Existing nodes reply with their own
+capabilities, so all peers learn the new node without restarting. If an announcement is missed, a heartbeat from an
+unknown capability causes a bounded re-announcement request; a heartbeat that says a peer does not know this node
+causes that node to re-announce. Each repair is limited to once per heartbeat period.
+
+## In, out and tests
+
+**In:** NATS farm subjects, peer heartbeats/capabilities/questions, and `farm.links`/`farm.sim`. **Out:** validated NATS
+messages, bounded request replies, heartbeats and capability announcements. `tests/test_comms.py` covers the NATS
+boundary and radio rules; `tests/test_node.py` covers node lifecycle and repair; `tests/test_system.py` checks a live
+hot-join, a cut link and restoration through the gateway.
