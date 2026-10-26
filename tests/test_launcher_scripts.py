@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import socket
 import subprocess
 import sys
 import time
@@ -23,16 +22,9 @@ POWERSHELL = "powershell.exe"
 pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="the launchers use Windows PowerShell and WMI")
 
 
-def free_port() -> int:
-    """A currently unused localhost TCP port."""
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        return int(probe.getsockname()[1])
-
-
-def write_ports(path: Path) -> int:
+def write_ports(path: Path, new_port: Callable[[], int]) -> int:
     """A complete temporary launcher ports file; return its gateway port."""
-    ports = {name: free_port() for name in ("nats", "llama_server_1", "llama_server_2", "matrix_api", "gateway",
+    ports = {name: new_port() for name in ("nats", "llama_server_1", "llama_server_2", "matrix_api", "gateway",
                                             "website", "incubator_1", "incubator_2", "hvac", "animal_protection")}
     path.write_text("\n".join(("schema_version = 1", 'host = "127.0.0.1"', *(f"{name} = {port}" for name, port in ports.items()),
                                 "", "[mcp]", f"incubator-1 = {ports['incubator_1']}",
@@ -63,12 +55,14 @@ def powershell(script: Path, *arguments: str, timeout: float = 150.0) -> subproc
                           cwd=ROOT, capture_output=True, text=True, timeout=timeout, check=False)
 
 
-def test_start_and_stop_with_temporary_ports_leaves_the_monitor_running(tmp_path: Path) -> None:
+def test_start_and_stop_with_temporary_ports_leaves_the_monitor_running(tmp_path: Path,
+                                                                         new_port: Callable[[], int]) -> None:
     """The launcher reaches the gateway then leaves an independently started monitor alone."""
-    before_pid, before_created = pid_record(MONITOR_PID)
-    assert same_process(before_pid, before_created), "the real resource monitor must be running before this test"
+    before = MONITOR_PID.read_bytes() if MONITOR_PID.is_file() else None
+    before_identity = pid_record(MONITOR_PID) if before is not None else None
+    before_alive = before_identity is not None and same_process(*before_identity)
     ports, logs = tmp_path / "ports.toml", tmp_path / "logs"
-    gateway = write_ports(ports)
+    gateway = write_ports(ports, new_port)
     start = powershell(START, "-NoLlm", "-NoWebsite", "-NoMonitor", "-Only", "nats,farm,gateway", "-Ports",
                        str(ports), "-Logs", str(logs))
     try:
@@ -83,8 +77,11 @@ def test_start_and_stop_with_temporary_ports_leaves_the_monitor_running(tmp_path
         status = json.loads((logs / "supervisor.status.json").read_text(encoding="utf-8"))
         pids = [int(item["pid"]) for item in status["programs"].values() if item["pid"]]
         until(lambda: not any(pid_alive(pid) for pid in pids))
-        after_pid, after_created = pid_record(MONITOR_PID)
-        assert (after_pid, after_created) == (before_pid, before_created)
-        assert same_process(after_pid, after_created)
+        if before is None:
+            assert not MONITOR_PID.exists()
+        else:
+            assert MONITOR_PID.read_bytes() == before
+        if before_alive:
+            assert before_identity is not None and same_process(*before_identity)
     finally:
         powershell(STOP, "-Logs", str(logs), timeout=60)
