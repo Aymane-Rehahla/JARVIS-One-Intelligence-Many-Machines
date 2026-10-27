@@ -80,14 +80,31 @@ def load_snapshot() -> tuple[Any, Any]:
     return MatrixEngine, NodeRuntime
 
 
-def _alarm_codes(readings: Mapping[str, Any]) -> set[str]:
-    codes: set[str] = set()
-    for alarm in readings.get("alarms") or []:
-        if isinstance(alarm, str):
-            codes.add(alarm)
-        elif isinstance(alarm, Mapping) and isinstance(alarm.get("code"), str):
-            codes.add(str(alarm["code"]))
-    return codes
+def _event_codes(readings: Mapping[str, Any]) -> dict[str, tuple[Literal["alarm", "fault"],
+                                                                        Literal["info", "warning", "critical"]]]:
+    """Collapse alarm and fault telemetry into one code with its strongest severity and source."""
+    found: dict[str, tuple[Literal["alarm", "fault"], Literal["info", "warning", "critical"]]] = {}
+    sources: tuple[tuple[str, Literal["alarm", "fault"], Literal["warning", "critical"]], ...] = (
+        ("alarms", "alarm", "warning"), ("faults", "fault", "critical"),
+        ("active_alarms", "alarm", "warning"), ("active_faults", "fault", "critical"))
+    for key, source, default_severity in sources:
+        for entry in readings.get(key) or []:
+            if isinstance(entry, str):
+                code, severity = entry, default_severity
+            elif isinstance(entry, Mapping) and isinstance(entry.get("code"), str):
+                code = str(entry["code"])
+                severity_value = entry.get("severity", default_severity)
+                severity: Literal["info", "warning", "critical"] = default_severity
+                if severity_value in ("info", "warning", "critical"):
+                    severity = severity_value
+            else:
+                continue
+            current = found.get(code)
+            order = {"info": 0, "warning": 1, "critical": 2}
+            if current is None or order[severity] > order[current[1]] or (
+                    severity == current[1] and source == "fault"):
+                found[code] = (source, severity)
+    return found
 
 
 def _plain(value: Any) -> Any:
@@ -142,7 +159,7 @@ class FarmRuntime:
         """A fresh farm and fresh brains."""
         self.engine = self._engine_cls(seed=self.seed, config=self.config or None)
         self.runtime = self._runtime_cls(self.engine)
-        self._alarms: dict[str, set[str]] = {node: set() for node in NODE_IDS}
+        self._alarms: dict[str, dict[str, str]] = {node: {} for node in NODE_IDS}
         self._online: dict[str, bool] = {node: True for node in NODE_IDS}
         self._incidents: dict[str, tuple[str | None, str]] = {node: (None, "") for node in NODE_IDS}
         self._event_seq = 0
@@ -225,29 +242,36 @@ class FarmRuntime:
 
     def _events(self, node: NodeId, online: bool, readings: Mapping[str, Any],
                 result: Mapping[str, Any]) -> list[FarmEvent]:
-        found: list[tuple[FarmEventType, dict[str, JsonValue]]] = []
+        found: list[tuple[FarmEventType, Literal["info", "warning", "critical"], dict[str, JsonValue]]] = []
         if online != self._online[node]:
-            found.append(("machine_online" if online else "machine_offline", {}))
+            kind: FarmEventType = "machine_online" if online else "machine_offline"
+            found.append((kind, "info" if online else "critical", {}))
             self._online[node] = online
         if online:
-            codes = _alarm_codes(readings)
-            raised: list[tuple[FarmEventType, dict[str, JsonValue]]] = [
-                ("alarm_raised", {"code": code}) for code in sorted(codes - self._alarms[node])]
-            cleared: list[tuple[FarmEventType, dict[str, JsonValue]]] = [
-                ("alarm_cleared", {"code": code}) for code in sorted(self._alarms[node] - codes)]
+            current = _event_codes(readings)
+            codes = set(current)
+            raised: list[tuple[FarmEventType, Literal["info", "warning", "critical"], dict[str, JsonValue]]] = [
+                ("alarm_raised", current[code][1], {"code": code, "source": current[code][0]})
+                for code in sorted(codes - self._alarms[node].keys())]
+            cleared: list[tuple[FarmEventType, Literal["info", "warning", "critical"], dict[str, JsonValue]]] = [
+                ("alarm_cleared", "info", {"code": code, "source": self._alarms[node][code]})
+                for code in sorted(self._alarms[node].keys() - codes)]
             found += raised + cleared
-            self._alarms[node] = codes
+            self._alarms[node] = {code: source for code, (source, _) in current.items()}
         gate_kinds: tuple[tuple[str, FarmEventType], ...] = (("action", "safety_action"),
                                                              ("communication", "safety_communication"))
         for key, kind in gate_kinds:
             decision = result.get(key)
             if isinstance(decision, Mapping):
-                found.append((kind, {"proposed": str(decision.get(key, "")), "allowed": bool(decision.get("allowed")),
-                                     "reason": str(decision.get("reason", ""))}))
+                allowed = bool(decision.get("allowed"))
+                found.append((kind, "critical" if allowed else "warning",
+                              {"proposed": str(decision.get(key, "")), "allowed": allowed,
+                               "reason": str(decision.get("reason", ""))}))
         events: list[FarmEvent] = []
-        for kind, data in found:
+        for kind, severity, data in found:
             self._event_seq += 1
-            events.append(FarmEvent(**self._common(node), sequence=self._event_seq, type=kind, data=data))
+            events.append(FarmEvent(**self._common(node), sequence=self._event_seq, type=kind, severity=severity,
+                                    data=data))
         return events
 
     @staticmethod

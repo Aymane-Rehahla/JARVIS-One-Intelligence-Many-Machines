@@ -7,7 +7,7 @@
       "properties": {
         "documents": {
           "items": {
-            "type": "string"
+            "$ref": "#/$defs/DocumentInfo"
           },
           "title": "Documents",
           "type": "array"
@@ -80,6 +80,50 @@
         "reason"
       ],
       "title": "Capabilities",
+      "type": "object"
+    },
+    "DocumentInfo": {
+      "additionalProperties": false,
+      "description": "Public metadata for an indexed ROM document announced by a node.",
+      "properties": {
+        "file": {
+          "minLength": 1,
+          "title": "File",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "machine manual",
+            "domain guide",
+            "shared"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-fA-F]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "title": {
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "file",
+        "title",
+        "kind",
+        "version",
+        "sha256"
+      ],
+      "title": "DocumentInfo",
       "type": "object"
     },
     "FarmAssessment": {
@@ -273,6 +317,15 @@
           "title": "Sequence",
           "type": "integer"
         },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "critical"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
         "tick": {
           "minimum": 0,
           "title": "Tick",
@@ -304,6 +357,7 @@
         "label",
         "sequence",
         "type",
+        "severity",
         "data"
       ],
       "title": "FarmEvent",

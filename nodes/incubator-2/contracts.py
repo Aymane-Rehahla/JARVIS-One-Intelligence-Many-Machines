@@ -139,7 +139,7 @@ def load_node_config(path: Path) -> NodeConfig:
 # --- subjects --------------------------------------------------------------------------------------------------------
 
 FarmKind = Literal["status", "events", "assessment", "incident"]
-JarvisKind = Literal["heartbeat", "capabilities", "ask", "probe"]
+JarvisKind = Literal["heartbeat", "capabilities", "ask", "probe", "audit"]
 FARM_LINKS = "farm.links"
 FARM_SIM = "farm.sim"
 
@@ -190,7 +190,19 @@ class FarmEvent(FarmMessage):
 
     sequence: int = Field(ge=0)
     type: FarmEventType
+    severity: Literal["info", "warning", "critical"]
     data: dict[str, JsonValue]
+
+
+class DocumentInfo(BaseModel):
+    """Public metadata for an indexed ROM document announced by a node."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    file: str = Field(min_length=1)
+    title: str = Field(min_length=1)
+    kind: Literal["machine manual", "domain guide", "shared"]
+    version: int = Field(ge=1)
+    sha256: str = Field(pattern=r"^[0-9a-fA-F]{64}$")
 
 
 class GateDecision(BaseModel):
@@ -272,7 +284,7 @@ class Capabilities(Contract):
     machine: Machine
     speaks: bool
     topics: list[Topic]
-    documents: list[str]
+    documents: list[DocumentInfo]
     started_utc: str
     reason: Literal["start", "reply", "change"]
 
@@ -334,6 +346,33 @@ class ProbeRequest(Contract):
         return value
 
 
+class AuditRecord(Contract):
+    """A bounded record of one tool or peer interaction, published on `jarvis.<node>.audit`."""
+
+    request_id: str = Field(pattern=REQUEST_ID)
+    node: NodeId
+    kind: Literal["tool_call", "peer_answer", "peer_question", "refusal", "answer"]
+    tool: str | None
+    ok: bool
+    error: str | None
+    duration_ms: int = Field(ge=0)
+    farm_time: str | None = Field(default=None, pattern=FARM_TIME)
+    tick: int | None = Field(default=None, ge=0)
+    inputs: dict[str, JsonValue]
+    outputs: dict[str, JsonValue]
+    truncated: bool
+    created_utc: str
+
+    @model_validator(mode="after")
+    def _bounded_payloads(self) -> AuditRecord:
+        import json
+
+        for name, value in (("inputs", self.inputs), ("outputs", self.outputs)):
+            if len(json.dumps(value, separators=(",", ":"), ensure_ascii=False).encode("utf-8")) > 4096:
+                raise ValueError(f"{name} exceeds 4 KB")
+        return self
+
+
 #: Every wire message, for the JSON Schema export.
 WIRE_MODELS: tuple[type[Contract], ...] = (FarmStatus, FarmEvent, FarmAssessment, FarmIncident, LinkStatus, SimState,
-                                           Heartbeat, Capabilities, AskRequest, AskReply, ProbeRequest)
+                                           Heartbeat, Capabilities, AskRequest, AskReply, ProbeRequest, AuditRecord)

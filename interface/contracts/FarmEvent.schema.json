@@ -47,6 +47,15 @@
       "title": "Sequence",
       "type": "integer"
     },
+    "severity": {
+      "enum": [
+        "info",
+        "warning",
+        "critical"
+      ],
+      "title": "Severity",
+      "type": "string"
+    },
     "tick": {
       "minimum": 0,
       "title": "Tick",
@@ -78,6 +87,7 @@
     "label",
     "sequence",
     "type",
+    "severity",
     "data"
   ],
   "title": "FarmEvent",

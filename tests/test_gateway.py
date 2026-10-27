@@ -118,7 +118,9 @@ async def test_the_farm_view_follows_nats(nats_url: str) -> None:
         ("farm.hvac.status", FarmStatus(**node, online=True, readings={"supply_air_temperature_c": 14.2})),  # type: ignore[arg-type]
         ("farm.hvac.assessment", FarmAssessment(**node, assessment="NORMAL", diagnosis="NORMAL", confidence=0.9,  # type: ignore[arg-type]
                                                 brain="rule")),
-        ("farm.hvac.events", FarmEvent(**node, sequence=1, type="alarm_raised", data={"code": "X"})),  # type: ignore[arg-type]
+        ("farm.hvac.events", FarmEvent(node="hvac", tick=5, time_s=5.0, farm_time="06:00",
+                                        label="live: simulated brains", sequence=1, type="alarm_raised",
+                                        severity="warning", data={"code": "X", "source": "alarm"})),
         ("farm.sim", SIM),
         ("farm.links", LinkStatus(tick=5, time_s=5.0, cut=["hvac"], offline=[])),
         ("jarvis.hvac.heartbeat", Heartbeat(node="hvac", seq=1, sent_utc=utc_now(), started_utc=utc_now(),

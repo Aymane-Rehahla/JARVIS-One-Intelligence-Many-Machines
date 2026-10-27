@@ -84,14 +84,20 @@ def test_the_nodes_answer_keys_exist_in_their_machines_telemetry() -> None:
 
 def test_alarms_offline_and_gate_decisions_become_events() -> None:
     runtime, _ = farm()
-    raised = runtime._events("hvac", True, {"alarms": [{"code": "SUPPLY_FAN_FAILURE"}, "FILTER_DIRTY"]}, {})
+    raised = runtime._events("hvac", True, {"alarms": [{"code": "SUPPLY_FAN_FAILURE"}, "FILTER_DIRTY"],
+                                             "faults": [{"code": "SUPPLY_FAN_FAILURE"}, "COMPRESSOR"]}, {})
     cleared = runtime._events("hvac", True, {"alarms": ["FILTER_DIRTY"]}, {})
     offline = runtime._events("hvac", False, {}, {"action": {"action": "SHUTDOWN", "allowed": False,
                                                               "reason": "not allowed"}})
-    assert [(e.type, e.data) for e in raised] == [("alarm_raised", {"code": "FILTER_DIRTY"}),
-                                                  ("alarm_raised", {"code": "SUPPLY_FAN_FAILURE"})]
-    assert [(e.type, e.data) for e in cleared] == [("alarm_cleared", {"code": "SUPPLY_FAN_FAILURE"})]
+    assert [(e.type, e.data, e.severity) for e in raised] == [
+        ("alarm_raised", {"code": "COMPRESSOR", "source": "fault"}, "critical"),
+        ("alarm_raised", {"code": "FILTER_DIRTY", "source": "alarm"}, "warning"),
+        ("alarm_raised", {"code": "SUPPLY_FAN_FAILURE", "source": "fault"}, "critical")]
+    assert [(e.type, e.data, e.severity) for e in cleared] == [
+        ("alarm_cleared", {"code": "COMPRESSOR", "source": "fault"}, "info"),
+        ("alarm_cleared", {"code": "SUPPLY_FAN_FAILURE", "source": "fault"}, "info")]
     assert [e.type for e in offline] == ["machine_offline", "safety_action"]
+    assert [e.severity for e in offline] == ["critical", "warning"]
     assert offline[1].data == {"proposed": "SHUTDOWN", "allowed": False, "reason": "not allowed"}
     sequences = [e.sequence for e in raised + cleared + offline]
     assert sequences == sorted(sequences) and len(set(sequences)) == len(sequences)

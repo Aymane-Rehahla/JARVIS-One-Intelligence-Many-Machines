@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 
 import export_contracts
-from contracts import (NODE_IDS, AskReply, AskRequest, Capabilities, ContractError, FarmAssessment, FarmEvent,
+from contracts import (NODE_IDS, AskReply, AskRequest, Capabilities, ContractError, DocumentInfo, FarmAssessment, FarmEvent,
                        FarmIncident, FarmStatus, Heartbeat, LinkStatus, ProbeRequest, SimState, decode, encode,
                        farm_subject, jarvis_subject, load_node_config, node_of_subject, utc_now)
 
@@ -17,7 +17,9 @@ FARM: dict[str, Any] = dict(node="hvac", tick=12, time_s=12.0, farm_time="06:00"
 
 SAMPLES = [
     FarmStatus(**FARM, online=True, readings={"supply_air_temperature_c": 14.2, "alarms": []}),
-    FarmEvent(**FARM, sequence=3, type="alarm_raised", data={"code": "SUPPLY_FAN_FAILURE"}),
+    FarmEvent(**FARM, sequence=3, type="alarm_raised", severity="warning",
+              data={"code": "SUPPLY_FAN_FAILURE", "source": "alarm"}),
+    DocumentInfo(file="hvac_manual.md", title="HVAC manual", kind="machine manual", version=1, sha256="a" * 64),
     FarmAssessment(**FARM, assessment="WATCHING", diagnosis="SUPPLY_FAN_FAULT", confidence=0.7, brain="rule"),
     FarmIncident(**FARM, incident_id="hvac-equipment-0001", state="opened", kind="equipment", summary={"x": 1}),
     LinkStatus(tick=12, time_s=12.0, cut=["hvac"], offline=[]),
@@ -25,7 +27,8 @@ SAMPLES = [
              label="live: simulated brains", episode_id="e1"),
     Heartbeat(node="hvac", seq=1, sent_utc=utc_now(), started_utc=utc_now(), uptime_s=1.5, known=["hvac"],
               alive=["hvac"]),
-    Capabilities(node="hvac", machine="hvac", speaks=False, topics=["status", "readings"], documents=[],
+    Capabilities(node="hvac", machine="hvac", speaks=False, topics=["status", "readings"], documents=[
+        DocumentInfo(file="hvac_manual.md", title="HVAC manual", kind="machine manual", version=1, sha256="a" * 64)],
                  started_utc=utc_now(), reason="start"),
     AskRequest(request_id="q-1", sender="incubator-1", target="hvac", topic="readings", sent_utc=utc_now(),
                deadline_ms=3000),

@@ -60,7 +60,16 @@ export const FarmEvent = z.strictObject({
   ...farmMessage,
   sequence: z.number().int().min(0),
   type: FarmEventType,
+  severity: z.enum(["info", "warning", "critical"]),
   data: JsonRecord,
+})
+
+export const DocumentInfo = z.strictObject({
+  file: z.string().min(1),
+  title: z.string().min(1),
+  kind: z.enum(["machine manual", "domain guide", "shared"]),
+  version: z.number().int().min(1),
+  sha256: z.string().regex(/^[0-9a-fA-F]{64}$/),
 })
 
 export const LinkStatus = z.strictObject({
@@ -90,7 +99,7 @@ export const Capabilities = z.strictObject({
   machine: Machine,
   speaks: z.boolean(),
   topics: z.array(Topic),
-  documents: z.array(z.string()),
+  documents: z.array(DocumentInfo),
   started_utc: z.string(),
   reason: z.enum(["start", "reply", "change"]),
 })
@@ -131,6 +140,7 @@ export const SCHEMAS = {
   LinkStatus,
   SimState,
   Capabilities,
+  DocumentInfo,
   NodeView,
   GateDecision,
 } as const
