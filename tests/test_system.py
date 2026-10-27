@@ -198,7 +198,7 @@ async def test_system_hot_join_questions_and_cut_links(tmp_path: Path, new_port:
             three = await next_snapshot(
                 socket,
                 lambda snapshot: all(snapshot.nodes[node].alive and snapshot.nodes[node].known == list(THREE_NODES)
-                                     for node in THREE_NODES),
+                                         for node in THREE_NODES) and snapshot.sim is not None,
                 "the gateway never showed all three supervised nodes alive and mutually known")
             assert three.sim is not None and three.sim.label == "live: simulated brains"
 

@@ -14,6 +14,7 @@ machine** (ground rule 3).
 | `documents.py` | 6B | hybrid search over the approved `memory/rom/` documents: keywords (SQLite FTS5) + bge-small vectors |
 | `conversation.py` | 6B | conversation state; summaries of long chats |
 | `audit.py` | 6B | tools used, evidence and timings, per request id |
+| `../comms/mcp.py` | 6B | the six read-only tools over localhost Streamable HTTP; every call uses `ToolRegistry` and the audit |
 | `jarvis_speaker.py` | 6C | the talking mind of JARVIS (used where `speaks = true`) |
 | `peer_minds.py` | 6C | the narrow mind: `/no_think`, forced JSON (used where `speaks = false`) |
 | `agent.py` | 6C | request → context first → tools/peers → verify → reply |
@@ -25,3 +26,8 @@ machine** (ground rule 3).
 - **Out:** streamed answers, JSON answers to peers, audit records.
 - **Never:** machine commands, emergency calls, the CMM, hidden simulation data, mentor actions, another node's tools.
 - **Tests:** `tests/llm/` (verify, golden, retrieval, integration, failures, safety, eval).
+
+Step 6B inputs are public farm messages, owner-approved unchanged files in `memory/rom/`, and node-local peer
+capabilities. Outputs are bounded `llm.sqlite` records, the node's separate `docs_index.sqlite`, audited JSON tool
+results, and capability announcements. Tests: `tests/llm/test_conversation.py`, `test_audit.py`, `test_documents.py`,
+`test_tools.py`, `test_context_first.py`, `tests/test_mcp.py` and the integration, retrieval and safety folders.

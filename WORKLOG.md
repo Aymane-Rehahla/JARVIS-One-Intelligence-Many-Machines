@@ -35,6 +35,87 @@ restarted, with the second review's guard code, at 04:33:39.** Nothing of ours r
 and it stopped nothing, because nothing of ours was registered (it rewrote an empty `logs/guarded.json` at 05:12).
 Since 06:00 the commit headroom has stayed at 5.0 GiB or more. Lesson: start nothing while the training changes phase.
 
+## Step 6B: tools, documents and memory (27 Oct 2026)
+
+Status: implementation and evidence complete; awaiting the senior review. The owner reported the training finished on
+27 Oct. 6B did not start any LLM server or begin 6D. ROM approvals remain the owner's decision.
+
+### What was built
+
+| Piece | Commit | Evidence |
+|---|---|---|
+| Severity-aware farm events, document metadata and audit wire contract | `655e700` | exported strict Pydantic and zod contracts; event codes deduplicated at strongest severity |
+| Bounded node-local conversation and event store | `c059671` | ordered migrations, WAL, bounded rows and escaped FTS5 query tests |
+| Request-scoped audit writer | `699c642` | persistent records, optional NATS publication and bounded payload tests |
+| Approved ROM indexing and hybrid search | `47165d9` | FTS5, bge-small vectors, incremental rebuild and real retrieval run |
+| Read-only tool registry, topic classifier and context cache | `57b9df5` | nine typed tools, deadlines, permission checks, one audit record per call |
+| Node-local stores, fixed peer tool sets and capability discovery | `19ebef4` | farm events/incidents persisted; documents announced only when indexed; data stays under tmp paths in tests |
+| Localhost MCP server and read-only decision | `3798f3b` | exactly tools 1–6; audited calls; `--no-mcp`; occupied ports leave nodes running |
+| H1 tool-level hot-join integration | `8bb3943` | real rule-brain feed, copied fixture-approved manuals, paired peer audit IDs |
+| Readmes and final evidence | this commit | synced node documentation, full suite and coverage below |
+
+### Step 6B "Done when" checks (plan section 9)
+
+| Check | Evidence |
+|---|---|
+| Every tool passes its unit tests | `tests/llm/test_tools.py`: 51 passed; `tests/test_mcp.py`: six exposed MCP tools tested |
+| “The HVAC is struggling” retrieves the passage that says “compressor” | `tests/llm/retrieval/test_documents_bge.py`: 1 passed; keyword rank 3, vector rank 1, hybrid rank 2; build 0.505 s, query 0.00594 s. The returned passage contains “compressor” and not “struggling”. |
+| Every answer writes an audit row with its request id | `tests/llm/test_audit.py`: 5 passed; `tests/llm/integration/test_hot_join_tools.py` confirms matching `peer_question` and `peer_answer` IDs |
+| H1 hot-join: three nodes, then the fourth answers through its tools without restart | `tests/llm/integration/test_hot_join_tools.py`: 1 passed; measured hot-join 0.938 s and peer ask 0.188 s; Node object identities stayed unchanged |
+
+### Test files
+
+Each file was run on its own during its implementation slice. The full suite was run once after the final code and README
+changes:
+
+| Test file | Result |
+|---|---|
+| `tests/test_contracts.py` | 22 passed |
+| `tests/test_contracts_zod.py` | 2 passed |
+| `tests/test_farm_runtime.py` | 8 passed |
+| `tests/test_gateway.py` | 8 passed |
+| `tests/test_node.py` | 10 passed |
+| `tests/test_nodes_in_sync.py` | 3 passed |
+| `tests/test_system.py` | 1 passed in 27.09 s |
+| `tests/llm/test_conversation.py` | 11 passed |
+| `tests/llm/test_audit.py` | 5 passed |
+| `tests/llm/test_documents.py` | 15 passed |
+| `tests/llm/retrieval/test_documents_bge.py` | 1 passed |
+| `tests/llm/test_tools.py` | 51 passed |
+| `tests/llm/test_context_first.py` | 3 passed |
+| `tests/llm/safety/test_static_boundaries.py` | 1 passed |
+| `tests/test_mcp.py` | 4 passed |
+| `tests/llm/integration/test_hot_join_tools.py` | 1 passed; hot-join 0.938 s, peer ask 0.188 s |
+| Full suite: `.venv\Scripts\python -m pytest -p no:cacheprovider --cov` | **714 passed, 5 skipped in 137.13 s** |
+
+Coverage was **90% overall**. The `nodes/incubator-1/llm` files together covered **93%** (1,489/1,595 statements);
+`nodes/incubator-1/comms` covered **87%** (366/420). The five skips were the deferred live-engine test and four voice
+model-load cases. The live-engine test was not run by the full-suite command.
+
+### Retrieval measurements
+
+The real BGE retrieval test wrote its measurements to `logs/retrieval_hvac.json`: query “the HVAC is struggling”;
+build **0.5049489 s**; query **0.0059355 s**; keyword rank **3**, vector rank **1**, hybrid rank **2**. The selected
+passage contains “compressor” and not “struggling”. This test used a temporary copy and a fixture approval; no real ROM
+document was approved or changed.
+
+### Decisions, differences and owner actions
+
+- **Decision 0014:** each node exposes only the six local read tools over Streamable HTTP on `127.0.0.1`; peer asking,
+  conversation recall and alert acknowledgement are not reachable through MCP. All MCP calls pass through
+  `ToolRegistry` and the audit.
+- The MCP adapter uses the installed MCP 2.3.0 `MCPServer` API. An occupied port is logged and does not stop the node;
+  `--no-mcp` disables the listener.
+- The retrieval test was run with the real BGE CPU embedder. The 6B tests use rule brains and do not start llama.cpp.
+  The H1 test approves only fixture copies under `tmp_path`; the 20 real ROM documents remain draft.
+- D5's snapshot predicate now waits for both the three-node view and `farm.sim` before checking its label. A previous
+  run received the valid node view before the first simulation-clock publication; the check was made robust without
+  removing either assertion.
+- D2 persona search remains for a later step that intentionally loads an LLM. D3's live server measurements are
+  recorded in Step 6A; the live-engine test stays skipped in this default suite. The full-suite D4 run is now complete.
+  Step 6D was not started.
+- **Owner actions:** review and approve the 20 ROM documents and the public source list. No approvals were made here.
+
 ## Step 6A: guarded multi-process runtime (26 Oct 2026)
 
 Status: **done and tagged `step-6A` (27 Oct)**, after the closing checks below. While the training ran, no training
