@@ -15,3 +15,9 @@ When the owner approves emotion2vec+ (1.12 GB), its load test joins D1.
 
 The owner paused the training on 24 Oct from 01:15:49 to 04:55:20 (`WORKLOG.md`). In that pause the full suite ran
 (495 passed) and the 6A work began; D1-D3 did not run, and they wait again for the end of the training.
+
+**The training ended (owner, 27 Oct). Status on 27 Oct:**
+- **D3 ran: 1 passed, 11.9 s.** The measurements are in `logs/d3_engines.json` and `WORKLOG.md`, step 6A.
+- **D4 ran: 620 passed, 5 skipped (D1 and D3, deferred), 8 min 4 s, full old-name scan, 90 % coverage.**
+- **D1 runs in 6E and D2 after 6A.** The deferral mechanism stays: `JARVIS_RUN_DEFERRED=1` runs the heavy tests on
+  purpose, one at a time.

@@ -37,8 +37,43 @@ Since 06:00 the commit headroom has stayed at 5.0 GiB or more. Lesson: start not
 
 ## Step 6A: guarded multi-process runtime (26 Oct 2026)
 
-Status: implemented and awaiting the final 6A review. The training remained outside this work: no training file or
-process was changed, no llama.cpp server was started, and the full suite was not run.
+Status: **done and tagged `step-6A` (27 Oct)**, after the closing checks below. While the training ran, no training
+file or process was changed, no llama.cpp server was started, and the full suite was not run.
+
+### Closing checks after the training ended (27 Oct, reviewer)
+
+The owner reported the training finished (release v3.1, in the training's run folder on F:, untouched). The machine was
+idle: no training process; 7.9 GiB free before D4 and 9.7 GiB before D3; the resource monitor was sampling.
+
+- **Review of `7b706cf` and `d1e4089`:** accepted, with one fix. D5's restart check accepted "hvac alive and known"
+  after the kill. Both are true for the *old* process (the gateway's 30 s silence limit; peers never forget a known
+  node). The check now requires the new process's announcement, a `started_utc` different from before the kill, seen
+  by the gateway and by a peer, and a question answered by the new process.
+- **D5** (`tests/test_system.py`): **1 passed, 37.5 s.** Hot-join 0.188 s. HVAC was killed by its PID, restarted
+  once, and its launcher and interpreter child are both gone.
+- **D4** (the full suite, `JARVIS_FULL_NAME_SCAN=1`, `--cov`): **620 passed, 5 skipped** (D1 voice, D3), 8 min 4 s.
+  Coverage: **90 %** overall; `interface/gateway` 83 %; `comms/` 85–91 %; the lowest file is `runtime.py`, 67 %.
+- **D3** (`tests/llm/test_engines_live.py`, `JARVIS_RUN_DEFERRED=1`): **1 passed, 11.9 s.** The four servers were
+  loaded one after the other and all were kept loaded; each answered one chat, then all were stopped.
+
+| Node | Model | Load | Server RAM (working set) | Generation | VRAM used after it loaded |
+|---|---|---|---|---|---|
+| incubator-1 | Qwen 3.5 2B roleplay Q8_0 | 4.88 s | 2.65 GiB | 21.7 tok/s | 2.94 GiB |
+| incubator-2 | Qwen3-0.6B Q8_0 | 1.75 s | 0.88 GiB | 32.2 tok/s | 4.45 GiB |
+| hvac | Qwen3-0.6B Q8_0 | 1.22 s | 0.90 GiB | 30.2 tok/s | 5.94 GiB |
+| animal-protection | Qwen3-0.6B Q8_0 | 1.22 s | 0.90 GiB | 32.6 tok/s | **7.44 of 7.94 GiB** |
+
+  - **Tool calls:** all four chat templates report `supports_tool_calls: true` and `supports_tools: true`
+    (`/props.chat_template_caps`), so the plan's 6A check for `--jinja` tool calling holds; no grammar fallback is
+    needed.
+  - **VRAM (decision 0013):** the four servers fit, with **0.5 GiB to spare**. Each 0.6B server adds about 1.5 GiB
+    (0.64 GB of weights plus an 8,192-token KV cache). That margin is too thin for the website's browser and the
+    desktop. Decision 0013's first fallback, an 8-bit KV cache for the three small servers, is to be measured
+    before 6C.
+  - **The prompt speeds are not meaningful:** each was measured on a prompt of about 24 tokens. Real prompt
+    throughput is measured with the persona prompt in 6C.
+  - **RAM:** a server's working set includes its memory-mapped model file, and the three 0.6B servers map the same
+    file, so their pages are shared. The sum of the four (5.3 GiB) overstates the physical RAM they use.
 
 ### What was built
 

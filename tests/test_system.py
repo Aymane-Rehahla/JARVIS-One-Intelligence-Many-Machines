@@ -246,6 +246,9 @@ async def test_system_hot_join_questions_and_cut_links(tmp_path: Path, new_port:
             old_hvac = program_status(status, "hvac")
             assert old_hvac is not None and isinstance(old_hvac["pid"], int)
             old_hvac_pid = old_hvac["pid"]
+            old_caps = animal.peers["hvac"].capabilities
+            assert old_caps is not None
+            old_started = old_caps.started_utc                  # a restarted node announces a new start time
             await until(lambda: bool(child_pids(old_hvac_pid)), "the test-owned HVAC launcher had no interpreter child")
             old_hvac_children = child_pids(old_hvac_pid)
             terminate_owned_process(old_hvac_pid)
@@ -266,12 +269,19 @@ async def test_system_hot_join_questions_and_cut_links(tmp_path: Path, new_port:
             await until(hvac_is_ready_again, "the supervisor did not restart HVAC once")
             await until(lambda: not pid_alive(old_hvac_pid) and not any(pid_alive(pid) for pid in old_hvac_children),
                         "the old HVAC launcher or interpreter child remained alive")
-            restarted = await next_snapshot(
-                socket,
-                lambda snapshot: snapshot.nodes["hvac"].alive and "hvac" in snapshot.nodes["incubator-1"].known and
-                animal is not None and "hvac" in animal.known(),
-                "the gateway did not show the restarted HVAC node alive and known by its peers")
+            # "alive" and "known" alone would pass on the old process's state (30 s silence limit, peers never forget),
+            # so require the NEW process's announcement: a different start time, seen by the gateway and by a peer.
+            def new_hvac(snapshot: gw.FarmSnapshot) -> bool:
+                caps = snapshot.nodes["hvac"].capabilities
+                peer = animal.peers["hvac"].capabilities if animal is not None else None
+                return (snapshot.nodes["hvac"].alive and caps is not None and caps.started_utc != old_started
+                        and peer is not None and peer.started_utc == caps.started_utc)
+
+            restarted = await next_snapshot(socket, new_hvac,
+                                            "the restarted HVAC node never announced itself to the gateway and its peer")
             assert restarted.nodes["hvac"].alive
+            after = await animal.radio.ask("hvac", "readings", deadline_s=3.0)
+            assert after.ok and after.farm_time                  # the new process answers questions
         stopped_status = read_status(status_path)
         assert stopped_status is not None
         await animal.stop()
