@@ -120,7 +120,7 @@ class Node:
                  heartbeat_s: float = HEARTBEAT_S, silent_after_s: float = SILENT_AFTER_S, probe: bool = False,
                  data_dir: Path | None = None,
                  deliver: Callable[[str], Awaitable[None]] | None = None,
-                 mcp_enabled: bool = False, mcp_port: int | None = None) -> None:
+                 mcp_enabled: bool = False, mcp_port: int | None = None, rom_dir: Path | None = None) -> None:
         if heartbeat_s <= 0 or silent_after_s <= heartbeat_s:
             raise ValueError("the silence limit must be longer than the heartbeat period")
         self.config = config
@@ -135,6 +135,7 @@ class Node:
         self.probe_enabled = probe
         self.node_dir = Path(__file__).resolve().parents[1] / self.id
         self.data_dir = data_dir or self.node_dir / "data"
+        self.rom_dir = rom_dir or self.node_dir / "memory" / "rom"
         self.deliver = deliver
         self.mcp_enabled = mcp_enabled
         self.mcp_port = mcp_port
@@ -168,8 +169,8 @@ class Node:
         me = self.id
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.store = LlmStore(self.data_dir / "llm.sqlite", node=me, owner_conversations=self.config.speaks)
-        self.documents = Documents(self.node_dir / "memory" / "rom",
-                                   self.data_dir / "docs_index.sqlite", BgeEmbedder(), logger=self.logger)
+        self.documents = Documents(self.rom_dir, self.data_dir / "docs_index.sqlite", BgeEmbedder(),
+                                   logger=self.logger)
         async with asyncio.timeout(30.0):
             await asyncio.to_thread(self.documents.rebuild)
         self.auditor = Auditor(self.store, self.link, me, logger=self.logger)
