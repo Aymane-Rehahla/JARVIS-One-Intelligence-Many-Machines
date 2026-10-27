@@ -17,3 +17,4 @@ One short record per big decision (Q9): context, decision, alternatives, consequ
 | 0011 | The RAM guard while the training runs |
 | 0012 | The 6A test feed stubs the snapshot's CTM module and runs rule brains |
 | 0013 | One independent llama.cpp server per node |
+| 0014 | MCP exposes only node-local read tools |

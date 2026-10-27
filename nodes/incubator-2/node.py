@@ -30,6 +30,7 @@ from pydantic import JsonValue
 
 from comms.events import EventBus
 from comms.jsonlog import log
+from comms.mcp import NodeMCP
 from comms.nats_link import NatsLink
 from comms.peer_network import PeerNetwork, RadioRules
 from contracts import (FARM_LINKS, FARM_SIM, NODE_IDS, AskError, AskReply, AskRequest, Capabilities, FarmAssessment, FarmEvent,
@@ -118,7 +119,8 @@ class Node:
     def __init__(self, config: NodeConfig, link: NatsLink, *, logger: logging.Logger, rules: RadioRules | None = None,
                  heartbeat_s: float = HEARTBEAT_S, silent_after_s: float = SILENT_AFTER_S, probe: bool = False,
                  data_dir: Path | None = None,
-                 deliver: Callable[[str], Awaitable[None]] | None = None) -> None:
+                 deliver: Callable[[str], Awaitable[None]] | None = None,
+                 mcp_enabled: bool = False, mcp_port: int | None = None) -> None:
         if heartbeat_s <= 0 or silent_after_s <= heartbeat_s:
             raise ValueError("the silence limit must be longer than the heartbeat period")
         self.config = config
@@ -134,6 +136,9 @@ class Node:
         self.node_dir = Path(__file__).resolve().parents[1] / self.id
         self.data_dir = data_dir or self.node_dir / "data"
         self.deliver = deliver
+        self.mcp_enabled = mcp_enabled
+        self.mcp_port = mcp_port
+        self.mcp: NodeMCP | None = None
         self.started_utc = utc_now()
         self._started = time.monotonic()
         self._seq = 0
@@ -170,6 +175,8 @@ class Node:
         self.auditor = Auditor(self.store, self.link, me, logger=self.logger)
         self.tools = ToolRegistry(self.config, self, self.store, self.documents, self.capability_registry,
                                   self.auditor, self.confirm_tokens, self.deliver, logger=self.logger)
+        if self.mcp_enabled and self.mcp_port is not None:
+            self.mcp = NodeMCP(me, self.tools, self.mcp_port, logger=self.logger)
         self.peers[me].capabilities = self.capabilities("start")
         self.peers[me].last_heard = time.monotonic()
         await self.link.subscribe(farm_subject(me, "status"), FarmStatus, self._on_status)
@@ -184,12 +191,17 @@ class Node:
         if self.probe_enabled:
             await self.link.serve(jarvis_subject(me, "probe"), ProbeRequest, self._on_probe)
         await self.link.publish(jarvis_subject(me, "capabilities"), self.capabilities("start"))
+        if self.mcp is not None:
+            await self.mcp.start()
         self._tasks = [asyncio.create_task(self._heartbeat_loop()), asyncio.create_task(self._silence_loop()),
                        asyncio.create_task(self._document_refresh_loop())]
         log(self.logger, logging.INFO, "node started", node=me, speaks=self.config.speaks, probe=self.probe_enabled)
 
     async def stop(self) -> None:
         """Stop the loops and close the connection."""
+        if self.mcp is not None:
+            await self.mcp.stop()
+            self.mcp = None
         for task in self._tasks:
             task.cancel()
         await asyncio.gather(*self._tasks, return_exceptions=True)

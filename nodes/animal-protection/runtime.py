@@ -2,11 +2,12 @@
 
 Usage (from the project folder; the launcher's supervisor normally starts it):
     python nodes/<node>/runtime.py [--nats URL] [--heartbeat-s S] [--latency-ticks N] [--loss P] [--probe]
-                                   [--connect-attempts N] [--logs DIR | --no-logs] [--echo]
+                                   [--connect-attempts N] [--data-dir DIR] [--no-mcp] [--logs DIR | --no-logs] [--echo]
 
 The node reads its own `node.toml` (next to this file), connects to NATS (the URL from launcher/ports.toml unless
 --nats is given) and runs until it is stopped (Ctrl+C, Ctrl+Break, or the process is ended). Logs go to
-logs/<node>.jsonl. --probe lets tests and diagnostics make this node ask a peer (`jarvis.<node>.probe`).
+logs/<node>.jsonl. The node serves its six read-only tools over localhost MCP unless --no-mcp is given. --probe lets
+tests and diagnostics make this node ask a peer (`jarvis.<node>.probe`).
 Exit codes: 0 stopped, 2 bad configuration or NATS unreachable.
 """
 from __future__ import annotations
@@ -49,6 +50,7 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--probe", action="store_true", help="answer jarvis.<node>.probe (tests, diagnostics)")
     parser.add_argument("--connect-attempts", type=int, default=CONNECT_ATTEMPTS,
                         help=f"tries to reach NATS before giving up (default {CONNECT_ATTEMPTS})")
+    parser.add_argument("--no-mcp", action="store_true", help="do not serve the six read-only tools over MCP")
     data_root = os.environ.get("JARVIS_DATA_ROOT")
     default_data_dir = Path(data_root) / NODE_DIR.name if data_root else NODE_DIR / "data"
     parser.add_argument("--data-dir", type=Path, default=default_data_dir, help="node data folder (default: data/)")
@@ -61,6 +63,8 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
 
 async def run(args: argparse.Namespace) -> int:
     config = load_node_config(NODE_DIR / "node.toml")
+    ports = tomllib.loads((ROOT / "launcher" / "ports.toml").read_text(encoding="utf-8"))
+    mcp_port = int(ports["mcp"][config.id])
     logger = program_logger(config.id, None if args.no_logs else args.logs, echo=args.echo)
     link = NatsLink(config.id, args.nats or nats_url(), logger=logger)
     try:
@@ -68,7 +72,8 @@ async def run(args: argparse.Namespace) -> int:
     except NoServersError:
         return 2
     node = Node(config, link, logger=logger, heartbeat_s=args.heartbeat_s, probe=args.probe,
-                rules=RadioRules(latency_ticks=args.latency_ticks, loss=args.loss), data_dir=args.data_dir)
+                rules=RadioRules(latency_ticks=args.latency_ticks, loss=args.loss), data_dir=args.data_dir,
+                mcp_enabled=not args.no_mcp, mcp_port=mcp_port)
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
     for name in ("SIGINT", "SIGTERM", "SIGBREAK"):
