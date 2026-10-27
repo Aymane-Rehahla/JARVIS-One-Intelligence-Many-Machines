@@ -103,6 +103,9 @@ class NodeMCP:
                 if not server.started:
                     raise RuntimeError("MCP server did not become ready")
         except (OSError, RuntimeError, TimeoutError, SystemExit) as error:
+            server.should_exit = True                      # a server that never started must not keep running
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
             listener.close()
             self.logger.error("MCP server failed to start; node continues", extra={"fields": {
                 "node": self.node, "port": self.port, "error": str(error)}})

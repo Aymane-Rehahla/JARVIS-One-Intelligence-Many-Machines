@@ -7,7 +7,7 @@ from llm.context_first import AnswerCache, ContextSnapshot
 
 def snapshot(tick: int, farm_time: str = "06:00") -> ContextSnapshot:
     return ContextSnapshot(FarmStatus(node="hvac", tick=tick, time_s=float(tick), farm_time=farm_time,
-                                      label="live: simulated brains", online=True, readings={}), None, None, farm_time)
+                                      label="live: simulated brains", feed_id="0000000000a1", online=True, readings={}), None, None, farm_time)
 
 
 def test_cache_reuses_only_same_question_and_data_key() -> None:

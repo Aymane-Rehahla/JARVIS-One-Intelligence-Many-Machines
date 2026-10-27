@@ -22,6 +22,11 @@
       "title": "Farm Time",
       "type": "string"
     },
+    "feed_id": {
+      "pattern": "^[0-9a-f]{12}$",
+      "title": "Feed Id",
+      "type": "string"
+    },
     "label": {
       "enum": [
         "live: simulated brains",
@@ -66,7 +71,8 @@
     "target_speed",
     "actual_speed",
     "label",
-    "episode_id"
+    "episode_id",
+    "feed_id"
   ],
   "title": "SimState",
   "type": "object"

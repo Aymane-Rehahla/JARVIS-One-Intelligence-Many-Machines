@@ -9,6 +9,7 @@ import asyncio
 import json
 import logging
 import time
+from datetime import datetime
 
 import httpx
 import pytest
@@ -21,7 +22,7 @@ from contracts import (Capabilities, FarmAssessment, FarmEvent, FarmStatus, Hear
                        utc_now)
 
 LOG = logging.getLogger("test-gateway")
-FARM = dict(tick=5, time_s=5.0, farm_time="06:00", label="live: simulated brains")
+FARM = dict(tick=5, time_s=5.0, farm_time="06:00", label="live: simulated brains", feed_id="0000000000a1")
 SIM = SimState(**FARM, day=1, running=True, target_speed=10.0, actual_speed=9.8, episode_id="e1")  # type: ignore[arg-type]
 
 
@@ -84,14 +85,16 @@ def test_the_farm_stream_sends_valid_snapshots_at_most_five_a_second() -> None:
     with TestClient(gw.create_app(gateway)) as client, client.websocket_connect(
             "/ws/farm", headers={"origin": "http://127.0.0.1:5173"}) as socket:
         first = gw.FarmSnapshot.model_validate_json(socket.receive_text())
-        times = [time.monotonic()]
+        sent = [first.sent_utc]
         for _ in range(3):
             gateway.view.changed()                       # the farm keeps changing; the stream keeps its pace
-            gw.FarmSnapshot.model_validate_json(socket.receive_text())
-            times.append(time.monotonic())
+            sent.append(gw.FarmSnapshot.model_validate_json(socket.receive_text()).sent_utc)
     assert first.sim == SIM and set(first.nodes) == {"incubator-1", "incubator-2", "hvac", "animal-protection"}
     assert not first.nodes["hvac"].alive and first.nodes["hvac"].heartbeat_age_s is None
-    gaps = [b - a for a, b in zip(times, times[1:])]
+    # the limit is on SENDING; gaps measured where the test receives them shrink whenever one receive runs late, which
+    # made this test flaky under load (seen once in the 6B review), so measure the gateway's own send times
+    stamps = [datetime.fromisoformat(text).timestamp() for text in sent]
+    gaps = [b - a for a, b in zip(stamps, stamps[1:])]
     assert min(gaps) >= 0.9 / gw.MAX_SNAPSHOTS_PER_S, gaps
 
 
@@ -119,7 +122,7 @@ async def test_the_farm_view_follows_nats(nats_url: str) -> None:
         ("farm.hvac.assessment", FarmAssessment(**node, assessment="NORMAL", diagnosis="NORMAL", confidence=0.9,  # type: ignore[arg-type]
                                                 brain="rule")),
         ("farm.hvac.events", FarmEvent(node="hvac", tick=5, time_s=5.0, farm_time="06:00",
-                                        label="live: simulated brains", sequence=1, type="alarm_raised",
+                                        label="live: simulated brains", feed_id="0000000000a1", sequence=1, type="alarm_raised",
                                         severity="warning", data={"code": "X", "source": "alarm"})),
         ("farm.sim", SIM),
         ("farm.links", LinkStatus(tick=5, time_s=5.0, cut=["hvac"], offline=[])),

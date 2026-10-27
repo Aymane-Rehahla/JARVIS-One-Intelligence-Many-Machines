@@ -37,8 +37,40 @@ Since 06:00 the commit headroom has stayed at 5.0 GiB or more. Lesson: start not
 
 ## Step 6B: tools, documents and memory (27 Oct 2026)
 
-Status: implementation and evidence complete; awaiting the senior review. The owner reported the training finished on
-27 Oct. 6B did not start any LLM server or begin 6D. ROM approvals remain the owner's decision.
+Status: **done and tagged `step-6B` (27 Oct)**, after the senior review below. The owner reported the training finished
+on 27 Oct. 6B did not start any LLM server or begin 6D. ROM approvals remain the owner's decision.
+
+### Senior review (27 Oct) and what was fixed
+
+The builder's delivery (`655e700`..`987c625`) was reviewed line by line. Four of the bugs below were reproduced
+before fixing: three by a probe script on temporary folders (H2, H3, H4) and one by running the full suite (H7). The
+reviewer fixed every finding; each fix has a test, and the tests for H7, M2, M3 and M4 were also seen to fail on the
+old code.
+
+| # | Finding | Fix | Test |
+|---|---|---|---|
+| H1 | "Recent" events used the wall clock (`received_utc`); at 60x, "last 60 minutes" meant 60 farm hours | events and incidents store farm `time_s`; `list_events` counts back from the node's latest farm time | `test_conversation::test_recent_means_farm_time_not_wall_clock` |
+| H2 | A farm reset restarts event sequences and incident ids: new events were dropped as duplicates (reproduced), and old incidents were overwritten | every farm message and `SimState` carries `feed_id` (one farm run, new at every start and reset); the store keys events and incidents by run (schema 2, migrated from 1); a node starts its view afresh on a new run and drops late messages from a replaced one; zod and the JSON Schemas updated | `test_conversation::test_a_farm_reset_…`, `…schema_1_migrates…`, `test_node::test_a_new_farm_run…`, `test_farm_runtime::test_a_rising_severity…` |
+| H3 | An invalid request id made the audit record invalid: no audit row, and "tool failed: ValidationError" (reproduced) | the registry and the auditor replace an invalid id with a fresh one and keep the given text as `given_request_id` | `test_tools::test_an_invalid_request_id…` (4 cases) |
+| H4 | "No current incident", the normal state, was a failure (reproduced), so every peer `incident_history` question answered "no data". The builder had changed a 6A test's expectation to match this bug | `get_incident("current")` with none is ok with `incident = null`; an unknown id is a failure; the 6A test's intent is restored | `test_tools::test_no_current_incident…`, `test_node::test_an_answer_without_readings…` |
+| H5 | `ask_peer`'s tool deadline equalled the radio's (3.0 s), so the tool's timeout replaced the peer's clear reason | tool deadline = radio deadline + 0.5 s | `test_tools::test_a_peers_own_reason_survives…` |
+| H6 | Node programs read their MCP port from the real `launcher/ports.toml`, so test runs bound 8101-8104 | `runtime.py --ports`; the supervisor passes its ports file | `test_supervisor::test_node_programs_get_the_runs_own_ports_file`; D5 checks each node's MCP on the temp port |
+| H7 | (a 6A bug, the reviewer's own) The radio kept its 1x default until the farm had measured a speed, so hops at 10x took 1 s; this made `test_farm_runtime` flaky (2 of 5 runs) | the asked speed is used until a measured one exists | `test_comms::test_the_radio_uses_the_asked_speed…`; `test_farm_runtime` 5/5 |
+| M1 | A failing audit write could replace a tool's real result or error; values JSON cannot hold failed validation | recording is wrapped (logged and counted in `Auditor.failures`); values pass a JSON round trip first | `test_tools::test_recording_never_changes_the_outcome` |
+| M2 | A peer's documents question over 300 characters failed (SearchArgs limit) | the query is cut to 300 characters | `test_node::test_a_long_document_question_still_searches` |
+| M3 | The document refresh loop ended for good on its first exception | logged and retried at the next period | `test_node::test_the_document_refresh_survives…` |
+| M4 | An MCP server that never started kept its task running | cancelled and awaited | `test_mcp::test_an_mcp_server_that_never_starts…` |
+| M5 | `caller` was any string, and it decides the owner-confirmed permission | `Literal["owner", "llm", "peer", "mcp"]`; unknown callers refused | `test_tools::test_unknown_callers_are_refused` |
+| M6 | The static boundary test missed importlib, `__import__`, f-string subjects, `farm_subject()` and calls to `submit_command` | rebuilt as `violations()`, and each rule is proven on a bad sample | `tests/llm/safety/test_static_boundaries.py` (13) |
+| M7 | The embedding model's inputs were mapped by position | mapped by name, with a clear error on unknown names | `tests/llm/retrieval/test_documents_bge.py` |
+| L1–L6 | dead code in `get_status`; an import inside a validator; a severity rise (warning to critical) not reported; H1's "no restart" check was tautological (object ids captured after the start); one test measured stream gaps on the receiving side (one flaky failure seen); the deferral texts still spoke of the training | all fixed: a rising severity is raised again; H1 compares each node's `started_utc` before and after; the gateway test measures the gateway's own send times | the matching tests |
+
+**Evidence after the fixes:**
+- D5 passed (28.1 s, hot-join 0.203 s). H1 passed (hot-join 0.906 s, peer ask 0.203 s).
+- `test_farm_runtime.py` and `test_gateway.py` each passed 5/5.
+- The full suite ran twice, `pytest -p no:cacheprovider --cov`: **744 passed, 5 skipped** (135.96 s and 137.35 s). Coverage 91 % overall, `llm/` 93.5 %, `comms/` 88.8 %.
+- pyright on the whole project: 0 errors. The website typecheck passes, the JSON Schemas are current, and the four nodes are in sync.
+- **Observation for E3 (6C):** on the one BGE query the hybrid ranked the right passage 2nd, while vector-only ranked it 1st (keyword-only: 3rd). RRF is not changed on one query; E3 measures it on the full retrieval set.
 
 ### What was built
 

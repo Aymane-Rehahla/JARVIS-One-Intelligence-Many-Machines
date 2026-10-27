@@ -3,6 +3,12 @@
 In: validated public feed messages, audit records, settings and (on the speaker only) conversation turns. Out: recent
 events, incidents, audits, settings and FTS5 conversation matches from `<data_dir>/llm.sqlite`. All connection work is
 serialized on one asyncio lock and moved off the event loop with `asyncio.to_thread`. Tests: `tests/llm/test_conversation.py`.
+
+Events and incidents are a local copy of the farm feed, kept per farm run (`feed_id`): a reset or restart of the farm
+starts its event sequences and incident ids again, so they are unique only within one run, and "recent" means recent
+in FARM time (`time_s`), never wall-clock time: at 60x a wall-clock minute is an hour of farm time. Schema 2 added the
+run and the farm time; migrating from schema 1 drops the old copies of events and incidents (the farm feed is their
+source), and keeps conversations, turns, audit and settings.
 """
 from __future__ import annotations
 
@@ -10,13 +16,13 @@ import asyncio
 import json
 import sqlite3
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
 from contracts import AuditRecord, FarmEvent, FarmIncident
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 MAX_EVENTS = 20_000
 MAX_AUDIT = 50_000
 MAX_TURNS = 2_000
@@ -60,12 +66,6 @@ class LlmStore:
                     "VALUES(new.id,new.text); END;"
                     "CREATE TRIGGER turns_ad AFTER DELETE ON turns BEGIN INSERT INTO turns_fts(turns_fts,rowid,text) "
                     "VALUES('delete',old.id,old.text); END;"
-                    "CREATE TABLE events (id INTEGER PRIMARY KEY, sequence INTEGER NOT NULL UNIQUE, tick INTEGER NOT NULL, "
-                    "farm_time TEXT NOT NULL, type TEXT NOT NULL, severity TEXT NOT NULL, code TEXT, data_json TEXT NOT NULL, "
-                    "received_utc TEXT NOT NULL);"
-                    "CREATE INDEX events_received_utc ON events(received_utc);"
-                    "CREATE TABLE incidents (incident_id TEXT PRIMARY KEY, state TEXT NOT NULL, kind TEXT, "
-                    "farm_time TEXT NOT NULL, tick INTEGER NOT NULL, summary_json TEXT NOT NULL, updated_utc TEXT NOT NULL);"
                     "CREATE TABLE audit (id INTEGER PRIMARY KEY, request_id TEXT NOT NULL, kind TEXT NOT NULL, tool TEXT, "
                     "ok INTEGER NOT NULL, error TEXT, duration_ms INTEGER NOT NULL, farm_time TEXT, tick INTEGER, "
                     "inputs_json TEXT NOT NULL, outputs_json TEXT NOT NULL, truncated INTEGER NOT NULL, "
@@ -74,6 +74,20 @@ class LlmStore:
                     "CREATE TABLE settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL, updated_utc TEXT NOT NULL);"
                 )
                 self._db.execute("INSERT OR REPLACE INTO meta(key,value) VALUES(?,?)", ("schema_version", "1"))
+        if version < 2:
+            with self._db:
+                self._db.executescript(
+                    "DROP TABLE IF EXISTS events; DROP TABLE IF EXISTS incidents;"
+                    "CREATE TABLE events (id INTEGER PRIMARY KEY, feed_id TEXT NOT NULL, sequence INTEGER NOT NULL, "
+                    "tick INTEGER NOT NULL, time_s REAL NOT NULL, farm_time TEXT NOT NULL, type TEXT NOT NULL, "
+                    "severity TEXT NOT NULL, code TEXT, data_json TEXT NOT NULL, received_utc TEXT NOT NULL, "
+                    "UNIQUE(feed_id, sequence));"
+                    "CREATE INDEX events_feed_time ON events(feed_id, time_s);"
+                    "CREATE TABLE incidents (feed_id TEXT NOT NULL, incident_id TEXT NOT NULL, state TEXT NOT NULL, "
+                    "kind TEXT, farm_time TEXT NOT NULL, tick INTEGER NOT NULL, time_s REAL NOT NULL, "
+                    "summary_json TEXT NOT NULL, updated_utc TEXT NOT NULL, PRIMARY KEY(feed_id, incident_id));"
+                )
+                self._db.execute("INSERT OR REPLACE INTO meta(key,value) VALUES(?,?)", ("schema_version", "2"))
 
     async def _run(self, function: Any, *args: Any) -> Any:
         async with self._lock:
@@ -89,9 +103,10 @@ class LlmStore:
         received = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
         with self._db:
             self._db.execute(
-                "INSERT OR IGNORE INTO events(sequence,tick,farm_time,type,severity,code,data_json,received_utc) "
-                "VALUES(?,?,?,?,?,?,?,?)", (event.sequence, event.tick, event.farm_time, event.type,
-                                              event.severity, code, self._dump(event.data), received))
+                "INSERT OR IGNORE INTO events(feed_id,sequence,tick,time_s,farm_time,type,severity,code,data_json,"
+                "received_utc) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                (event.feed_id, event.sequence, event.tick, event.time_s, event.farm_time, event.type,
+                 event.severity, code, self._dump(event.data), received))
             self._db.execute("DELETE FROM events WHERE id IN (SELECT id FROM events ORDER BY id DESC LIMIT -1 OFFSET ?)",
                              (MAX_EVENTS,))
 
@@ -99,10 +114,10 @@ class LlmStore:
         """Store an event once by sequence and trim old rows in the same transaction."""
         await self._run(self._add_event, event)
 
-    def _events(self, since_minutes: int, severity: str | None, limit: int) -> list[dict[str, Any]]:
-        cutoff = (datetime.now(timezone.utc) - timedelta(minutes=since_minutes)).isoformat(timespec="milliseconds")
-        query = "SELECT * FROM events WHERE received_utc >= ?"
-        params: list[Any] = [cutoff]
+    def _events(self, since_minutes: int, severity: str | None, limit: int, feed_id: str,
+                now_s: float) -> list[dict[str, Any]]:
+        query = "SELECT * FROM events WHERE feed_id = ? AND time_s >= ?"
+        params: list[Any] = [feed_id, now_s - since_minutes * 60.0]
         if severity is not None:
             levels = [name for name, rank in SEVERITY_ORDER.items() if rank >= SEVERITY_ORDER[severity]]
             query += f" AND severity IN ({','.join('?' for _ in levels)})"
@@ -112,39 +127,43 @@ class LlmStore:
         return [dict(row) for row in self._db.execute(query, params).fetchall()]
 
     async def events(self, since_minutes: int, severity: Literal["info", "warning", "critical"] | None,
-                     limit: int) -> list[dict[str, Any]]:
-        """Return recent events newest first, optionally at or above a severity."""
+                     limit: int, *, feed_id: str, now_s: float) -> list[dict[str, Any]]:
+        """Events of farm run `feed_id` from the last `since_minutes` of FARM time before `now_s` (the node's latest
+        farm time), newest first, optionally at or above a severity."""
         if since_minutes < 1 or limit < 1:
             return []
-        return await self._run(self._events, since_minutes, severity, limit)
+        return await self._run(self._events, since_minutes, severity, limit, feed_id, now_s)
 
     def _upsert_incident(self, incident: FarmIncident) -> None:
         updated = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
         with self._db:
-            self._db.execute("INSERT INTO incidents VALUES(?,?,?,?,?,?,?) ON CONFLICT(incident_id) DO UPDATE SET "
+            self._db.execute("INSERT INTO incidents(feed_id,incident_id,state,kind,farm_time,tick,time_s,summary_json,"
+                             "updated_utc) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(feed_id,incident_id) DO UPDATE SET "
                              "state=excluded.state,kind=excluded.kind,farm_time=excluded.farm_time,tick=excluded.tick,"
-                             "summary_json=excluded.summary_json,updated_utc=excluded.updated_utc",
-                             (incident.incident_id, incident.state, incident.kind, incident.farm_time, incident.tick,
-                              self._dump(incident.summary), updated))
+                             "time_s=excluded.time_s,summary_json=excluded.summary_json,updated_utc=excluded.updated_utc",
+                             (incident.feed_id, incident.incident_id, incident.state, incident.kind, incident.farm_time,
+                              incident.tick, incident.time_s, self._dump(incident.summary), updated))
 
     async def upsert_incident(self, incident: FarmIncident) -> None:
         """Insert or update one public farm incident."""
         await self._run(self._upsert_incident, incident)
 
-    def _incident(self, incident_id: str) -> dict[str, Any] | None:
+    def _incident(self, incident_id: str, feed_id: str) -> dict[str, Any] | None:
         if incident_id == "current":
-            row = self._db.execute("SELECT * FROM incidents WHERE state != 'closed' ORDER BY updated_utc DESC LIMIT 1").fetchone()
+            row = self._db.execute("SELECT * FROM incidents WHERE feed_id = ? AND state != 'closed' "
+                                   "ORDER BY time_s DESC, rowid DESC LIMIT 1", (feed_id,)).fetchone()
         else:
-            row = self._db.execute("SELECT * FROM incidents WHERE incident_id = ?", (incident_id,)).fetchone()
+            row = self._db.execute("SELECT * FROM incidents WHERE feed_id = ? AND incident_id = ?",
+                                   (feed_id, incident_id)).fetchone()
         if row is None:
             return None
         result = dict(row)
         result["summary"] = json.loads(result.pop("summary_json"))
         return result
 
-    async def incident(self, incident_id: str) -> dict[str, Any] | None:
-        """Look up an incident by id or return the most recently updated active incident."""
-        return await self._run(self._incident, incident_id)
+    async def incident(self, incident_id: str, *, feed_id: str) -> dict[str, Any] | None:
+        """An incident of farm run `feed_id` by id, or with "current" its latest incident that is not closed."""
+        return await self._run(self._incident, incident_id, feed_id)
 
     def _add_audit(self, record: AuditRecord) -> None:
         with self._db:

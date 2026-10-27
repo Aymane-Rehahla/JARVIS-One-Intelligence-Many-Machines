@@ -137,7 +137,9 @@ def build_programs(ports: dict[str, Any], *, llm: bool, website: bool, nodes: tu
                             depends_on=("nats",), ready_timeout_s=60.0))
     for node in nodes:
         dependencies = ("nats", f"llama-{node}") if llm else ("nats",)
-        programs.append(Program(node, (python, str(ROOT / "nodes" / node / "runtime.py"), "--nats", nats_url), ROOT,
+        # --ports: the node's MCP port must come from the same file as every other port of this run
+        programs.append(Program(node, (python, str(ROOT / "nodes" / node / "runtime.py"), "--nats", nats_url,
+                                       "--ports", str(ports_file.resolve())), ROOT,
                                 Health("process"), depends_on=dependencies, ready_timeout_s=30.0))
     gateway_port = int(ports["gateway"])
     programs.append(Program("gateway", (python, str(ROOT / "interface" / "gateway" / "gateway.py"), "--nats", nats_url,

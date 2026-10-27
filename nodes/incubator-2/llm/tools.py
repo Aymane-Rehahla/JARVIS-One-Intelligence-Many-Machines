@@ -17,11 +17,11 @@ import time
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Literal, cast
+from typing import Any, Literal, cast, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError
 
-from contracts import NODE_IDS, FeedLabel, NodeConfig, NodeId, Topic
+from contracts import NODE_IDS, REQUEST_ID, FeedLabel, NodeConfig, NodeId, Topic
 from llm.audit import Auditor
 from llm.capabilities import classify_topic
 from llm.conversation import LlmStore
@@ -30,6 +30,7 @@ from llm.verify import ToolResult
 
 Permission = Literal["read", "ask", "owner-confirmed"]
 _FEED_LABELS = ("live: simulated brains", "live: trained brains")
+PEER_DEADLINE_S = 3.0                    # ask_peer's radio deadline (plan section 6)
 
 
 class StrictModel(BaseModel):
@@ -118,7 +119,7 @@ class EventsOutput(StrictModel):
 
 
 class IncidentOutput(StrictModel):
-    incident: dict[str, JsonValue]
+    incident: dict[str, JsonValue] | None                # None: no current incident (the normal state)
     farm_time: str
     tick: int
     label: FeedLabel
@@ -185,6 +186,22 @@ class _ToolFailure(Exception):
     pass
 
 
+Caller = Literal["owner", "llm", "peer", "mcp"]
+
+
+def _valid_request_id(request_id: str | None) -> tuple[str, str | None]:
+    """(usable id, rejected text): the given id when it matches REQUEST_ID, otherwise a fresh `r-<12 hex>` plus the
+    rejected text (cut to 80 characters), which the audit keeps as "given_request_id" so nothing is hidden."""
+    if request_id is not None and re.fullmatch(REQUEST_ID, request_id):
+        return request_id, None
+    return f"r-{secrets.token_hex(6)}", None if request_id is None else request_id[:80]
+
+
+def _audited(inputs: Mapping[str, Any], given: str | None) -> dict[str, Any]:
+    """The inputs as audited: with the rejected request id, when there was one."""
+    return {**inputs, "given_request_id": given} if given is not None else dict(inputs)
+
+
 class ConfirmTokens:
     """Issue and verify short-lived, single-use HMAC confirmations without an unbounded replay cache."""
 
@@ -247,7 +264,9 @@ class ToolRegistry:
             "get_incident": Tool("get_incident", "read", IncidentArgs, IncidentOutput, 2.0, self._get_incident),
             "search_documents": Tool("search_documents", "read", SearchArgs, DocumentsOutput, 5.0,
                                      self._search_documents),
-            "ask_peer": Tool("ask_peer", "ask", PeerArgs, PeerOutput, 3.0, self._ask_peer),
+            # the radio's own deadline is PEER_DEADLINE_S; the tool's must be longer, or its timeout races the radio's
+            # and replaces the peer's clear reason ("hvac's link is cut") with a bare "timeout"
+            "ask_peer": Tool("ask_peer", "ask", PeerArgs, PeerOutput, PEER_DEADLINE_S + 0.5, self._ask_peer),
             "recall_conversation": Tool("recall_conversation", "read", RecallArgs, RecallOutput, 2.0,
                                         self._recall_conversation),
             "acknowledge_alert": Tool("acknowledge_alert", "owner-confirmed", AcknowledgeArgs, AcknowledgeOutput,
@@ -263,6 +282,13 @@ class ToolRegistry:
             return sim.farm_time, sim.tick, sim.label
         return None, None, None
 
+    def _feed(self) -> tuple[str | None, float | None]:
+        """(feed_id, time_s) of the node's latest farm data: which farm run "now" is, and when on its clock."""
+        for source in (getattr(self.view, "status", None), getattr(self.view, "sim", None)):
+            if source is not None:
+                return source.feed_id, source.time_s
+        return None, None
+
     def _farm_fields(self) -> dict[str, Any]:
         farm_time, tick, label = self._source()
         return {"farm_time": farm_time, "tick": tick, "label": label}
@@ -274,37 +300,46 @@ class ToolRegistry:
                            farm_time=farm_time if farm_time is not None else source_time,
                            tick=tick if tick is not None else source_tick)
 
-    async def _refusal(self, name: str, request_id: str | None, args: Any, reason: str) -> ToolOutcome:
+    async def _refusal(self, name: str, request_id: str, args: Any, reason: str, given: str | None) -> ToolOutcome:
         """Audit a denied or invalid call exactly once as a refusal and return its clear reason."""
         try:
-            async with self.auditor.step(request_id, "refusal", name, args if isinstance(args, Mapping) else {}) as _:
+            async with self.auditor.step(request_id, "refusal", name,
+                                         _audited(args if isinstance(args, Mapping) else {}, given)) as _:
                 raise _ToolFailure(reason)
         except _ToolFailure:
             pass
         return self._outcome(data={}, error=reason, ok=False)
 
-    async def call(self, name: str, args: Any, *, request_id: str | None, caller: str) -> ToolOutcome:
-        """Validate permission, arguments, output and deadline; convert every ordinary failure to a ToolOutcome."""
-        request_id = request_id or f"r-{secrets.token_hex(6)}"
+    async def call(self, name: str, args: Any, *, request_id: str | None, caller: Caller) -> ToolOutcome:
+        """Validate permission, arguments, output and deadline; convert every ordinary failure to a ToolOutcome.
+
+        `caller` says who is asking: "owner" ONLY on the gateway's owner-confirmed path (6W), "llm" for the language
+        model's own tool choices (6C), "peer" for another node's question, "mcp" for a local MCP client. The
+        owner-confirmed tool also needs a valid single-use confirm token, so a wrong caller alone cannot act.
+        A request id that is not a valid REQUEST_ID is replaced by a fresh one; the given text is kept in the audit."""
+        request_id, given = _valid_request_id(request_id)
         tool = self.tools.get(name)
         if tool is None:
-            return await self._refusal(name, request_id, args, f"unknown tool: {name}")
+            return await self._refusal(name, request_id, args, f"unknown tool: {name}", given)
+        if caller not in get_args(Caller):
+            return await self._refusal(name, request_id, args, f"permission denied: unknown caller {caller!r}", given)
         try:
             parsed = tool.input_model.model_validate(args)
         except ValidationError as error:
             reason = f"invalid arguments: {error.errors()[0]['msg']}"
-            return await self._refusal(name, request_id, args, reason)
+            return await self._refusal(name, request_id, args, reason, given)
+        inputs = parsed.model_dump(mode="json")
         if tool.permission == "owner-confirmed" and caller != "owner":
-            return await self._refusal(name, request_id, parsed.model_dump(mode="json"), "permission denied: owner confirmation required")
+            return await self._refusal(name, request_id, inputs, "permission denied: owner confirmation required", given)
         if name in {"ask_peer", "recall_conversation", "acknowledge_alert"} and not self.node_config.speaks:
-            return await self._refusal(name, request_id, parsed.model_dump(mode="json"),
-                                       f"unavailable: {self.node_config.id} is not the speaking node")
+            return await self._refusal(name, request_id, inputs,
+                                       f"unavailable: {self.node_config.id} is not the speaking node", given)
         if name == "acknowledge_alert":
             acknowledge = cast(AcknowledgeArgs, parsed)
             if not self.confirm.verify(acknowledge.incident_id, acknowledge.confirm_token):
-                return await self._refusal(name, request_id, parsed.model_dump(mode="json"), "invalid confirmation token")
+                return await self._refusal(name, request_id, inputs, "invalid confirmation token", given)
         try:
-            async with self.auditor.step(request_id, "tool_call", name, parsed.model_dump(mode="json")) as step:
+            async with self.auditor.step(request_id, "tool_call", name, _audited(inputs, given)) as step:
                 async with asyncio.timeout(tool.deadline_s):
                     raw = await tool.handler(parsed, request_id or "", caller)
                 output = tool.output_model.model_validate(raw)
@@ -326,15 +361,13 @@ class ToolRegistry:
             raise _ToolFailure("no status data yet")
         readings: Mapping[str, Any] = status.readings
         allowed_fields = set(readings) | set(getattr(self.view, "allowed_reading_keys", ())) | {"online", "farm_time", "health"}
-        allowed = sorted(allowed_fields)
         unknown = sorted(set(args.fields or ()) - allowed_fields)
         if unknown:
-            raise _ToolFailure(f"unknown fields: {', '.join(unknown)}; allowed: online, farm_time, {', '.join(allowed)}")
+            raise _ToolFailure(f"unknown fields: {', '.join(unknown)}; allowed: {', '.join(sorted(allowed_fields))}")
         selected = dict(readings) if args.fields is None else {key: readings[key] for key in args.fields if key in readings}
-        selected_online = bool(status.online) if args.fields is None or "online" in args.fields else bool(status.online)
-        farm = {"online": selected_online, "farm_time": status.farm_time, "tick": status.tick,
+        # online and the farm time are always included, whatever fields were asked for
+        return {"online": bool(status.online), "farm_time": status.farm_time, "tick": status.tick,
                 "label": status.label, "readings": selected}
-        return farm
 
     async def _get_assessment(self, raw: BaseModel, request_id: str, caller: str) -> dict[str, Any]:
         assessment = getattr(self.view, "assessment", None)
@@ -373,17 +406,26 @@ class ToolRegistry:
 
     async def _list_events(self, raw: BaseModel, request_id: str, caller: str) -> dict[str, Any]:
         args = cast(EventsArgs, raw)
-        events = await self.store.events(args.since_minutes, args.severity, args.limit)
+        feed_id, now_s = self._feed()
+        if feed_id is None or now_s is None:                       # no farm data yet: nothing can be recent
+            return {"events": [], **self._farm_fields()}
+        events = await self.store.events(args.since_minutes, args.severity, args.limit, feed_id=feed_id, now_s=now_s)
         return {"events": events, **self._farm_fields()}
 
     async def _get_incident(self, raw: BaseModel, request_id: str, caller: str) -> dict[str, Any]:
+        """The current incident, or one by id, of the farm run the node is in. No current incident is a normal,
+        successful answer (incident = null, with the node's farm time); an unknown id is a failure."""
         args = cast(IncidentArgs, raw)
-        incident = await self.store.incident(args.incident_id)
-        if incident is None:
-            raise _ToolFailure("no incident data yet")
+        feed_id, _ = self._feed()
         farm_time, tick, label = self._source()
-        return {"incident": incident, "farm_time": incident.get("farm_time", farm_time),
-                "tick": incident.get("tick", tick), "label": label}
+        if feed_id is None or farm_time is None or tick is None or label is None:
+            raise _ToolFailure("no farm data yet")
+        incident = await self.store.incident(args.incident_id, feed_id=feed_id)
+        if incident is None:
+            if args.incident_id == "current":
+                return {"incident": None, "farm_time": farm_time, "tick": tick, "label": label}
+            raise _ToolFailure(f"unknown incident: {args.incident_id}")
+        return {"incident": incident, "farm_time": incident["farm_time"], "tick": incident["tick"], "label": label}
 
     async def _search_documents(self, raw: BaseModel, request_id: str, caller: str) -> dict[str, Any]:
         args = cast(SearchArgs, raw)
@@ -405,7 +447,8 @@ class ToolRegistry:
             raise _ToolFailure(f"unavailable: {target} does not announce topic {topic}")
         async with self.auditor.step(request_id, "peer_question", "ask_peer",
                                      {"node": target, "topic": topic, "question": args.question}) as question_step:
-            reply = await self.peers.ask(target, topic, args.question, deadline_s=3.0, request_id=request_id)
+            reply = await self.peers.ask(target, topic, args.question, deadline_s=PEER_DEADLINE_S,
+                                         request_id=request_id)
             if not reply.ok:
                 raise _ToolFailure(f"unavailable: {reply.detail or reply.error or 'peer did not answer'}")
             question_step.done(reply.answer, reply.farm_time, reply.tick)
@@ -425,7 +468,8 @@ class ToolRegistry:
 
     async def _acknowledge_alert(self, raw: BaseModel, request_id: str, caller: str) -> dict[str, Any]:
         args = cast(AcknowledgeArgs, raw)
-        incident = await self.store.incident(args.incident_id)
+        feed_id, _ = self._feed()
+        incident = await self.store.incident(args.incident_id, feed_id=feed_id) if feed_id is not None else None
         if incident is None or incident.get("state") == "closed":
             raise _ToolFailure("no active incident to acknowledge")
         if self.deliver is None:

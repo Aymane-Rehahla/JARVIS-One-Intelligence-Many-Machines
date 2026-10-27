@@ -335,9 +335,14 @@ class BgeEmbedder:
                 ids[row, :length] = item.ids
                 mask[row, :length] = item.attention_mask
                 token_types[row, :length] = item.type_ids
-            inputs = {input_meta.name: values for input_meta, values in
-                      zip(self.session.get_inputs(), (ids, mask, token_types), strict=False)}
-            hidden = cast(np.ndarray, self.session.run(None, inputs)[0])
+            # by NAME, never by position: an export with another input order would silently swap the tensors
+            available = {"input_ids": ids, "attention_mask": mask, "token_type_ids": token_types}
+            wanted = [item.name for item in self.session.get_inputs()]
+            missing = [name for name in wanted if name not in available]
+            if missing:
+                raise ValueError(f"the embedding model needs unknown inputs {missing}; expected a subset of "
+                                 f"{sorted(available)}")
+            hidden = cast(np.ndarray, self.session.run(None, {name: available[name] for name in wanted})[0])
             outputs.append(hidden[:, 0, :])
         if not outputs:
             return np.empty((0, self.dim), dtype=np.float32)

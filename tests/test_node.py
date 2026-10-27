@@ -19,6 +19,7 @@ import pytest
 import pytest_asyncio
 
 import runtime
+from conftest import fixture_approved_rom
 from comms.nats_link import NatsLink
 from comms.peer_network import RadioRules
 from contracts import (NODE_IDS, AskReply, Capabilities, DocumentInfo, FarmAssessment, FarmIncident, FarmStatus, Heartbeat, NodeId,
@@ -32,7 +33,7 @@ NO_DELAY = RadioRules(latency_ticks=0)
 
 
 def feed(node: NodeId, **readings: Any) -> FarmStatus:
-    return FarmStatus(node=node, tick=7, time_s=7.0, farm_time="06:07", label="live: simulated brains", online=True,
+    return FarmStatus(node=node, tick=7, time_s=7.0, farm_time="06:07", label="live: simulated brains", feed_id="0000000000a1", online=True,
                       readings=readings)
 
 
@@ -134,10 +135,10 @@ async def test_answers_come_from_the_nodes_own_machine_and_say_their_farm_time(f
     await farm.link.publish("farm.hvac.status", feed("hvac", supply_air_temperature_c=14.2, secret_internal=1,
                                                       alarms=[]))
     await farm.link.publish("farm.hvac.assessment", FarmAssessment(
-        node="hvac", tick=8, time_s=8.0, farm_time="06:08", label="live: simulated brains", assessment="WATCHING",
+        node="hvac", tick=8, time_s=8.0, farm_time="06:08", label="live: simulated brains", feed_id="0000000000a1", assessment="WATCHING",
         diagnosis="FILTER_LOADING", confidence=0.6, brain="rule"))
     await farm.link.publish("farm.hvac.incident", FarmIncident(
-        node="hvac", tick=8, time_s=8.0, farm_time="06:08", label="live: simulated brains", incident_id="hvac-1",
+        node="hvac", tick=8, time_s=8.0, farm_time="06:08", label="live: simulated brains", feed_id="0000000000a1", incident_id="hvac-1",
         state="opened", kind="equipment", summary={"cause": "filter"}))
     await until(lambda: hvac.status is not None and hvac.assessment is not None and bool(hvac.incidents))
     assert hvac.status is not None and hvac.status.node == "hvac"            # never another machine's feed
@@ -167,11 +168,15 @@ async def test_an_answer_without_readings_still_states_the_farm_time(farm: Farm)
     await farm.start("hvac")
     asker = await farm.start("animal-protection")
     await farm.link.publish("farm.sim", SimState(tick=3, time_s=3.0, farm_time="06:03", day=1, running=True,
-                                                 target_speed=1.0, actual_speed=1.0, label="live: simulated brains",
+                                                 target_speed=1.0, actual_speed=1.0, label="live: simulated brains", feed_id="0000000000a1",
                                                  episode_id="e"))
     await until(lambda: farm.nodes["hvac"].sim is not None)
     history = await asker.radio.ask("hvac", "incident_history", deadline_s=2.0)
-    assert not history.ok and history.error == "no_data"
+    # No incident and no events is the normal state of a healthy farm: an answer, with the farm time (6A's intent;
+    # 6B had changed this expectation to "no_data" to match the bug the senior review then fixed, H4).
+    assert history.ok and history.farm_time == "06:03"
+    assert history.answer["get_incident"]["incident"] is None                  # type: ignore[index]
+    assert history.answer["list_events"]["events"] == []                       # type: ignore[index]
 
 
 @pytest.mark.asyncio
@@ -230,3 +235,60 @@ async def test_the_node_program_runs_and_announces_itself(farm: Farm, tmp_path: 
     finally:
         program.terminate()
         program.wait(timeout=10)
+
+
+# --- senior review of 6B ---------------------------------------------------------------------------------------------
+
+def test_a_new_farm_run_starts_the_view_afresh_and_late_old_messages_are_dropped() -> None:
+    """Review H2: after a farm reset the ticks and sequences start again; mixing runs would make trends and "recent"
+    events wrong. The node follows the newest run and drops a late message from the run it replaced."""
+    node = Node(load_node_config(ROOT / "nodes" / "hvac" / "node.toml"), NatsLink("hvac", logger=LOG), logger=LOG)
+    old = feed("hvac", temperature_c=20.0)
+    new = old.model_copy(update={"feed_id": "0000000000b2", "tick": 1, "time_s": 1.0})
+    asyncio.run(node._on_status(old, "farm.hvac.status"))
+    assert node.feed_id == "0000000000a1" and len(node.trend_buffer) == 1
+    asyncio.run(node._on_status(new, "farm.hvac.status"))
+    assert node.feed_id == "0000000000b2" and list(node.trend_buffer) == [new] and node.status == new
+    asyncio.run(node._on_status(old, "farm.hvac.status"))                     # late, from the replaced run
+    assert node.status == new and list(node.trend_buffer) == [new]
+
+
+@pytest.mark.asyncio
+async def test_a_long_document_question_still_searches(farm: Farm, tmp_path: Path) -> None:
+    """Review M2: a question may be 2,000 characters but a search query 300; the documents answer failed instead."""
+    rom = fixture_approved_rom(ROOT / "nodes" / "hvac" / "memory" / "rom" / "hvac_manual.md",
+                               tmp_path / "copy" / "nodes" / "hvac" / "memory" / "rom")
+    await farm.start("hvac", rom_dir=rom)
+    asker = await farm.start("incubator-1")
+    await until(lambda: asker.peers["hvac"].capabilities is not None
+                and "documents" in asker.peers["hvac"].capabilities.topics, timeout_s=10.0)
+    await farm.link.publish("farm.hvac.status", feed("hvac", supply_air_temperature_c=14.0))
+    await until(lambda: farm.nodes["hvac"].status is not None)
+    question = "What does the manual say about the compressor? " + "Please be thorough. " * 90
+    assert len(question) > 1500
+    reply = await asker.radio.ask("hvac", "documents", question, deadline_s=5.0)
+    assert reply.ok, reply.detail
+    results = reply.answer["search_documents"]["results"]                     # type: ignore[index]
+    assert results and any("compressor" in r["text"].lower() for r in results)  # type: ignore[union-attr]
+
+
+@pytest.mark.asyncio
+async def test_the_document_refresh_survives_a_failed_rebuild(farm: Farm, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review M3: the first exception in the refresh loop ended document refreshing for the node's whole life."""
+    import node as node_module
+
+    monkeypatch.setattr(node_module, "DOCUMENT_REFRESH_S", 0.05)
+    hvac = await farm.start("hvac")
+    assert hvac.documents is not None
+    calls = {"n": 0}
+
+    def flaky_rebuild() -> bool:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise OSError("the index is locked")
+        return calls["n"] == 2                                                 # the second rebuild finds a change
+
+    monkeypatch.setattr(hvac.documents, "rebuild", flaky_rebuild)
+    await until(lambda: calls["n"] >= 3, timeout_s=5.0)
+    own = hvac.peers["hvac"].capabilities
+    assert own is not None and own.reason == "change"

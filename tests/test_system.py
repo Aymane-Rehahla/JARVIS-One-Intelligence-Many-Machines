@@ -11,6 +11,7 @@ import ctypes
 import json
 import logging
 import os
+import socket
 import subprocess
 import sys
 import time
@@ -102,6 +103,15 @@ def program_pids(status: dict[str, object]) -> list[int]:
     programs = status["programs"]
     assert isinstance(programs, dict)
     return [int(item["pid"]) for item in programs.values() if isinstance(item, dict) and item.get("pid")]
+
+
+def listens(port: int) -> bool:
+    """True when something accepts connections on 127.0.0.1:port."""
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=0.5):
+            return True
+    except OSError:
+        return False
 
 
 def program_status(status: dict[str, object], name: str) -> dict[str, object] | None:
@@ -201,6 +211,10 @@ async def test_system_hot_join_questions_and_cut_links(tmp_path: Path, new_port:
                                          for node in THREE_NODES) and snapshot.sim is not None,
                 "the gateway never showed all three supervised nodes alive and mutually known")
             assert three.sim is not None and three.sim.label == "live: simulated brains"
+            # review H6: each supervised node serves MCP on THIS run's ports file, not launcher/ports.toml's 8101-8104
+            for node in THREE_NODES:
+                port = int(ports["mcp"][node])
+                await until(lambda port=port: listens(port), f"{node} does not serve MCP on its temp port {port}")
 
             animal_link = NatsLink("system-animal-protection", nats_url, logger=LOG)
             await animal_link.connect(attempts=20)

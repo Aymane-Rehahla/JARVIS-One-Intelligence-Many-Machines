@@ -1,8 +1,8 @@
-# Tests deferred until the Phase 5 training ends
+# Heavy tests, run on purpose
 
-Plan ground rule 1: a test that might disturb the training is not skipped. It is written now, marked `deferred`, listed
-here with its exact command, and run once the training has ended (step 6D, or 6E for voice). Plain `pytest` skips these
-tests; setting `JARVIS_RUN_DEFERRED=1` runs them.
+These tests load language or voice models. Plain `pytest` skips them; `JARVIS_RUN_DEFERRED=1` runs them, one at a
+time, with the exact commands below. They were first deferred because they could disturb the Phase 5 training
+(plan ground rule 1); the training ended on 27 Oct, and the history below is kept as it happened.
 
 | # | Test | Why it is deferred | Run in | Exact command (PowerShell, in the project folder) |
 |---|---|---|---|---|

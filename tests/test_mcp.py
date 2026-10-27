@@ -59,7 +59,7 @@ async def test_mcp_lists_six_tools_audits_calls_and_returns_clean_errors(
     await farm_link.connect(attempts=10)
     try:
         await farm_link.publish("farm.incubator-1.status", FarmStatus(
-            node="incubator-1", tick=9, time_s=90.0, farm_time="06:09", label="live: simulated brains",
+            node="incubator-1", tick=9, time_s=90.0, farm_time="06:09", label="live: simulated brains", feed_id="0000000000a1",
             online=True, readings={"temperature_mean_c": 37.2, "alarms": []}))
         await until(lambda: node.status is not None)
         async with streamable_http_client(f"http://127.0.0.1:{port}/mcp") as (read_stream, write_stream):
@@ -115,3 +115,21 @@ def test_mcp_refuses_non_loopback_hosts() -> None:
 
 def test_runtime_can_disable_mcp() -> None:
     assert runtime.parse_args(["--no-mcp"]).no_mcp is True
+
+
+@pytest.mark.asyncio
+async def test_an_mcp_server_that_never_starts_leaves_nothing_running(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review M4: on a start timeout the uvicorn task kept running after start() had reported failure."""
+    import comms.mcp as mcp_module
+
+    async def never_ready(self: Any, sockets: Any = None) -> None:
+        await asyncio.sleep(3600)
+
+    monkeypatch.setattr(mcp_module.uvicorn.Server, "serve", never_ready)
+    monkeypatch.setattr(mcp_module, "START_TIMEOUT_S", 0.3)
+    server = NodeMCP("hvac", cast(Any, None), free_port(), logger=LOG)
+    before = set(asyncio.all_tasks())
+    assert await server.start() is False
+    await asyncio.sleep(0)
+    leftover = [task for task in asyncio.all_tasks() - before if not task.done()]
+    assert leftover == [] and server._task is None

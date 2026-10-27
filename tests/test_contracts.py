@@ -13,7 +13,7 @@ from contracts import (NODE_IDS, AskReply, AskRequest, Capabilities, ContractErr
                        farm_subject, jarvis_subject, load_node_config, node_of_subject, utc_now)
 
 ROOT = Path(__file__).resolve().parents[1]
-FARM: dict[str, Any] = dict(node="hvac", tick=12, time_s=12.0, farm_time="06:00", label="live: simulated brains")
+FARM: dict[str, Any] = dict(node="hvac", tick=12, time_s=12.0, farm_time="06:00", label="live: simulated brains", feed_id="0000000000a1")
 
 SAMPLES = [
     FarmStatus(**FARM, online=True, readings={"supply_air_temperature_c": 14.2, "alarms": []}),
@@ -24,7 +24,7 @@ SAMPLES = [
     FarmIncident(**FARM, incident_id="hvac-equipment-0001", state="opened", kind="equipment", summary={"x": 1}),
     LinkStatus(tick=12, time_s=12.0, cut=["hvac"], offline=[]),
     SimState(tick=12, time_s=12.0, farm_time="06:00", day=1, running=True, target_speed=1.0, actual_speed=1.0,
-             label="live: simulated brains", episode_id="e1"),
+             label="live: simulated brains", feed_id="0000000000a1", episode_id="e1"),
     Heartbeat(node="hvac", seq=1, sent_utc=utc_now(), started_utc=utc_now(), uptime_s=1.5, known=["hvac"],
               alive=["hvac"]),
     Capabilities(node="hvac", machine="hvac", speaks=False, topics=["status", "readings"], documents=[

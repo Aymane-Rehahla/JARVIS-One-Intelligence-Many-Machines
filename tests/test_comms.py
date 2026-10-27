@@ -17,7 +17,19 @@ from contracts import AskReply, AskRequest, Heartbeat, LinkStatus, SimState, enc
 
 LOG = logging.getLogger("test-comms")
 FAST = SimState(tick=1, time_s=1.0, farm_time="06:00", day=1, running=True, target_speed=10.0, actual_speed=10.0,
-                label="live: simulated brains", episode_id="e")              # one tick of latency = 0.1 s
+                label="live: simulated brains", episode_id="e", feed_id="0000000000a1")  # one tick of latency = 0.1 s
+
+
+def test_the_radio_uses_the_asked_speed_until_the_farm_has_measured_one() -> None:
+    """Review H7: in the first seconds of a run the farm reports actual_speed 0; keeping the 1x default made every hop
+    ten times too slow at 10x (a flaky test, and slow first answers after every start)."""
+    radio = PeerNetwork("incubator-1", NatsLink("x", logger=LOG), logger=LOG)
+    radio.update_sim(FAST.model_copy(update={"actual_speed": 0.0}))
+    assert radio.latency_s == pytest.approx(0.1)                       # the asked 10x, not the 1x default
+    radio.update_sim(FAST.model_copy(update={"actual_speed": 8.0}))
+    assert radio.latency_s == pytest.approx(0.125)                     # then the measured speed
+    radio.update_sim(FAST.model_copy(update={"running": False, "target_speed": 60.0, "actual_speed": 0.0}))
+    assert radio.latency_s == pytest.approx(1 / 60)                    # paused: the asked speed
 
 
 def beat(node: str = "hvac") -> Heartbeat:

@@ -11,7 +11,7 @@ pythonpath = [".", "tools", "nodes/incubator-1", "matrix", "interface/gateway", 
 addopts = "-ra --strict-markers"
 asyncio_default_fixture_loop_scope = "function"
 markers = [
-    "deferred: could disturb the Phase 5 training; runs only with JARVIS_RUN_DEFERRED=1 (see tests/DEFERRED.md)",
+    "deferred: heavy (loads language or voice models); runs only with JARVIS_RUN_DEFERRED=1 (see tests/DEFERRED.md)",
 ]
 
 [tool.coverage.run]

@@ -192,3 +192,21 @@ async def test_a_node_answers_from_the_live_feed(nats_url: str, tmp_path: Path) 
         for node in nodes:
             await node.stop()
         await farm_link.close()
+
+
+def test_a_rising_severity_is_news_and_each_run_has_its_own_feed_id() -> None:
+    """Review L3 and H2: a warning that becomes critical is raised again; a reset starts a new run (new feed_id) whose
+    event sequences start again, which is why the nodes keep events per run."""
+    runtime, _ = farm()
+    first = runtime._events("hvac", True, {"alarms": [{"code": "FILTER_DIRTY", "severity": "warning"}]}, {})
+    worse = runtime._events("hvac", True, {"alarms": [{"code": "FILTER_DIRTY", "severity": "critical"}]}, {})
+    same = runtime._events("hvac", True, {"alarms": [{"code": "FILTER_DIRTY", "severity": "critical"}]}, {})
+    assert [(e.type, e.severity) for e in first] == [("alarm_raised", "warning")]
+    assert [(e.type, e.severity) for e in worse] == [("alarm_raised", "critical")]
+    assert same == []                                                         # unchanged: no news
+    before = runtime.feed_id
+    assert first[0].feed_id == before and runtime.sim_state().feed_id == before
+    runtime.reset()
+    assert runtime.feed_id != before
+    again = runtime._events("hvac", True, {"alarms": [{"code": "X"}]}, {})
+    assert again[0].sequence == 1 and again[0].feed_id == runtime.feed_id     # sequences restart, in a new run

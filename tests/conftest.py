@@ -1,14 +1,18 @@
 """Shared pytest setup.
 
-Tests marked `deferred` could disturb the Phase 5 training (plan ground rule 1). They are written now, listed in
-tests/DEFERRED.md with their exact command, and run only when JARVIS_RUN_DEFERRED=1.
+Tests marked `deferred` are heavy (they load language or voice models): plain `pytest` skips them, and they run on
+purpose, one at a time, with JARVIS_RUN_DEFERRED=1 (tests/DEFERRED.md lists each with its exact command). They were
+deferred while the Phase 5 training ran; it ended on 27 Oct.
 
 `nats_url` starts the project's own nats-server (third_party/nats-server/) on a free port of 127.0.0.1 for one test
 module, and stops it afterwards: a few megabytes of RAM, no model, nothing outside the project.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import os
+import shutil
 import socket
 import subprocess
 import time
@@ -27,7 +31,7 @@ PORTS = ROOT / "launcher" / "ports.toml"
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     if os.environ.get("JARVIS_RUN_DEFERRED") == "1":
         return
-    skip = pytest.mark.skip(reason="deferred until the Phase 5 training ends; see tests/DEFERRED.md")
+    skip = pytest.mark.skip(reason="heavy test: run it on purpose with JARVIS_RUN_DEFERRED=1 (tests/DEFERRED.md)")
     for item in items:
         if "deferred" in item.keywords:
             item.add_marker(skip)
@@ -94,3 +98,26 @@ def nats_url() -> Iterator[str]:
     finally:
         process.terminate()
         process.wait(timeout=10)
+
+
+def fixture_approved_rom(source: Path, destination: Path) -> Path:
+    """Copy one real manual into a test ROM and approve only the exact temporary bytes."""
+    destination.mkdir(parents=True)
+    target = destination / source.name
+    content = source.read_text(encoding="utf-8").replace('status = "draft"', 'status = "approved"', 1)
+    target.write_text(content, encoding="utf-8")
+    metadata = tomllib.loads(content.split("+++", 2)[1])
+    project_root = destination.parents[3]
+    for source_record in metadata["sources"]:
+        copied_source = (source.parent / source_record["link"]).resolve()
+        copied_target = project_root / copied_source.relative_to(ROOT)
+        copied_target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(copied_source, copied_target)
+    digest = hashlib.sha256(target.read_bytes()).hexdigest()
+    (destination / "approvals.json").write_text(json.dumps({
+        "schema_version": 1,
+        "approved": {target.name: {"sha256": digest, "version": 1, "approved_utc": "2026-10-27T00:00:00Z",
+                                   "by": "test fixture"}},
+        "history": {},
+    }), encoding="utf-8")
+    return destination

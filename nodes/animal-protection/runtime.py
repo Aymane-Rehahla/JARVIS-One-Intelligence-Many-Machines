@@ -2,10 +2,11 @@
 
 Usage (from the project folder; the launcher's supervisor normally starts it):
     python nodes/<node>/runtime.py [--nats URL] [--heartbeat-s S] [--latency-ticks N] [--loss P] [--probe]
-                                   [--connect-attempts N] [--data-dir DIR] [--no-mcp] [--logs DIR | --no-logs] [--echo]
+                                   [--connect-attempts N] [--ports FILE] [--data-dir DIR] [--no-mcp]
+                                   [--logs DIR | --no-logs] [--echo]
 
-The node reads its own `node.toml` (next to this file), connects to NATS (the URL from launcher/ports.toml unless
---nats is given) and runs until it is stopped (Ctrl+C, Ctrl+Break, or the process is ended). Logs go to
+The node reads its own `node.toml` (next to this file), connects to NATS (the URL from the ports file, by default
+launcher/ports.toml, unless --nats is given; its MCP port comes from the same file) and runs until it is stopped (Ctrl+C, Ctrl+Break, or the process is ended). Logs go to
 logs/<node>.jsonl. The node serves its six read-only tools over localhost MCP unless --no-mcp is given. --probe lets
 tests and diagnostics make this node ask a peer (`jarvis.<node>.probe`).
 Exit codes: 0 stopped, 2 bad configuration or NATS unreachable.
@@ -43,7 +44,10 @@ def nats_url(ports_file: Path = ROOT / "launcher" / "ports.toml") -> str:
 
 def parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--nats", help="NATS URL (default: from launcher/ports.toml)")
+    parser.add_argument("--nats", help="NATS URL (default: from the ports file)")
+    parser.add_argument("--ports", type=Path, default=ROOT / "launcher" / "ports.toml",
+                        help="ports file for the NATS URL and this node's MCP port (default: launcher/ports.toml; "
+                             "the supervisor passes its own)")
     parser.add_argument("--heartbeat-s", type=float, default=HEARTBEAT_S, help="heartbeat period (default 10 s)")
     parser.add_argument("--latency-ticks", type=int, default=1, help="ZigBee latency in farm ticks (default 1)")
     parser.add_argument("--loss", type=float, default=0.0, help="ZigBee loss probability (default 0)")
@@ -63,10 +67,10 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
 
 async def run(args: argparse.Namespace) -> int:
     config = load_node_config(NODE_DIR / "node.toml")
-    ports = tomllib.loads((ROOT / "launcher" / "ports.toml").read_text(encoding="utf-8"))
+    ports = tomllib.loads(args.ports.read_text(encoding="utf-8"))
     mcp_port = int(ports["mcp"][config.id])
     logger = program_logger(config.id, None if args.no_logs else args.logs, echo=args.echo)
-    link = NatsLink(config.id, args.nats or nats_url(), logger=logger)
+    link = NatsLink(config.id, args.nats or nats_url(args.ports), logger=logger)
     try:
         await link.connect(attempts=max(1, args.connect_attempts))
     except NoServersError:

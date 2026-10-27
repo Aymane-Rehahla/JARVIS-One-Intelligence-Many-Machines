@@ -67,11 +67,10 @@ class PeerNetwork:
         self._cut = cut
 
     def update_sim(self, sim: SimState) -> None:
-        """The farm clock's speed (`farm.sim`): it sets how long a tick of latency lasts in real time."""
-        if sim.running and sim.actual_speed > 0:
-            self._speed = sim.actual_speed
-        elif not sim.running:
-            self._speed = sim.target_speed
+        """The farm clock's speed (`farm.sim`): it sets how long a tick of latency lasts in real time. The measured
+        speed is used once there is one; until then (the first seconds of a run, when the farm reports 0) and while
+        paused, the speed asked for. Keeping the 1x default instead made hops ten times too slow at 10x."""
+        self._speed = sim.actual_speed if sim.running and sim.actual_speed > 0 else sim.target_speed
 
     def is_cut(self, node: str) -> bool:
         """True while that node's radio link is cut."""

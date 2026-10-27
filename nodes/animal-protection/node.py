@@ -46,6 +46,7 @@ HEARTBEAT_S = 10.0
 SILENT_AFTER_S = 30.0                       # three missed heartbeats: the peer is silent
 EVENTS_KEPT = 200
 INCIDENTS_KEPT = 20
+DOCUMENT_REFRESH_S = 5.0                     # how often the approved-document index is checked for changes
 
 
 class _PeerAnswerFailure(Exception):
@@ -151,6 +152,8 @@ class Node:
         self.links: LinkStatus | None = None
         self.events: deque[FarmEvent] = deque(maxlen=EVENTS_KEPT)
         self.trend_buffer: deque[FarmStatus] = deque(maxlen=7200)
+        self.feed_id: str | None = None                    # the farm run this node follows (FarmMessage.feed_id)
+        self._retired_feeds: deque[str] = deque(maxlen=16)
         self.incidents: dict[str, FarmIncident] = {}
         self.store: LlmStore | None = None
         self.auditor: Auditor | None = None
@@ -256,7 +259,8 @@ class Node:
                                  ("list_events", {"since_minutes": 60, "severity": "warning", "limit": 50})],
             "hazard_check": [("get_status", {"fields": list(HAZARD_KEYS[self.config.machine])}),
                              ("list_events", {"since_minutes": 30, "severity": "critical", "limit": 50})],
-            "documents": [("search_documents", {"query": request.question, "k": 4})],
+            # a question may be 2,000 characters (AskRequest); a search query at most 300 (SearchArgs)
+            "documents": [("search_documents", {"query": request.question[:300] or request.topic, "k": 4})],
         }
         if self.config.machine == "incubator":
             tool_calls["incubation"] = [("get_status", {"fields": list(INCUBATION_KEYS)})]
@@ -276,8 +280,9 @@ class Node:
                                                 in zip(tool_calls[request.topic], outcomes, strict=True)}
                 if request.topic == "documents" and not answer["search_documents"]["results"]:  # type: ignore[index]
                     raise _PeerAnswerFailure("no_data", "no approved document matched the question")
-                source = next((outcome for outcome in outcomes if outcome.farm_time is not None and outcome.tick is not None),
-                              None)
+                # the answer's farm time is its newest data's (an incident's own time may be older than the readings)
+                timed = [outcome for outcome in outcomes if outcome.farm_time is not None and outcome.tick is not None]
+                source = max(timed, key=lambda outcome: outcome.tick or 0, default=None)
                 if source is None:
                     raise _PeerAnswerFailure("no_data", "tool results have no farm time")
                 audit_step.done(answer, source.farm_time, source.tick)
@@ -292,10 +297,28 @@ class Node:
 
     # --- the farm feed -----------------------------------------------------------------------------------------
 
+    def _follow_feed(self, feed_id: str) -> bool:
+        """Track the farm run. A message from a new run (a farm reset or restart) starts the node's in-memory view
+        afresh, because the new run's ticks, sequences and incident ids begin again; a late message from a run that
+        has already been replaced is dropped (False). The stored events and incidents are kept per run by LlmStore."""
+        if feed_id == self.feed_id:
+            return True
+        if feed_id in self._retired_feeds:
+            return False
+        if self.feed_id is not None:
+            self._retired_feeds.append(self.feed_id)
+            log(self.logger, logging.INFO, "a new farm run", node=self.id, feed_id=feed_id, previous=self.feed_id)
+        self.feed_id = feed_id
+        self.status = self.assessment = None
+        self.trend_buffer.clear()
+        self.events.clear()
+        self.incidents.clear()
+        return True
+
     async def _on_status(self, status: FarmStatus, subject: str) -> None:
+        if not self._follow_feed(status.feed_id):
+            return
         self.status = status
-        if self.trend_buffer and status.time_s < self.trend_buffer[-1].time_s:
-            self.trend_buffer.clear()
         self.trend_buffer.append(status)
         cutoff = status.time_s - 2 * 60 * 60
         while self.trend_buffer and self.trend_buffer[0].time_s < cutoff:
@@ -303,16 +326,22 @@ class Node:
         self.bus.publish("farm.status", status)
 
     async def _on_assessment(self, assessment: FarmAssessment, subject: str) -> None:
+        if not self._follow_feed(assessment.feed_id):
+            return
         self.assessment = assessment
         self.bus.publish("farm.assessment", assessment)
 
     async def _on_event(self, event: FarmEvent, subject: str) -> None:
+        if not self._follow_feed(event.feed_id):
+            return
         self.events.append(event)
         if self.store is not None:
             await self.store.add_event(event)
         self.bus.publish("farm.events", event)
 
     async def _on_incident(self, incident: FarmIncident, subject: str) -> None:
+        if not self._follow_feed(incident.feed_id):
+            return
         self.incidents[incident.incident_id] = incident
         while len(self.incidents) > INCIDENTS_KEPT:
             self.incidents.pop(next(iter(self.incidents)))
@@ -325,6 +354,8 @@ class Node:
         self.radio.update_links(status)
 
     async def _on_sim(self, sim: SimState, subject: str) -> None:
+        if not self._follow_feed(sim.feed_id):
+            return
         self.sim = sim
         self.radio.update_sim(sim)
 
@@ -391,14 +422,21 @@ class Node:
                     log(self.logger, logging.WARNING, "peers went silent", silent=silent)
 
     async def _document_refresh_loop(self) -> None:
-        """Rebuild the ROM index periodically and announce only when its indexed set changes."""
+        """Rebuild the ROM index periodically and announce only when its indexed set changes. A failed rebuild is
+        logged and retried at the next period: one bad moment (a file being written, a locked index) must not end the
+        refreshing for the node's whole life."""
         while True:
-            await asyncio.sleep(5.0)
+            await asyncio.sleep(DOCUMENT_REFRESH_S)
             documents = self.documents
             if documents is None:
                 continue
-            async with asyncio.timeout(30.0):
-                changed = await asyncio.to_thread(documents.rebuild)
+            try:
+                async with asyncio.timeout(30.0):
+                    changed = await asyncio.to_thread(documents.rebuild)
+            except Exception as error:                     # never CancelledError: that is a BaseException
+                log(self.logger, logging.WARNING, "document index refresh failed; retrying", node=self.id,
+                    error=f"{type(error).__name__}: {error}")
+                continue
             if changed:
                 capabilities = self.capabilities("change")
                 self.peers[self.id].capabilities = capabilities

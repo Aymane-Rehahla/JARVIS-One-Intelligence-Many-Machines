@@ -6,18 +6,15 @@ model: the LLM-worded answer comes in 6C.
 from __future__ import annotations
 
 import asyncio
-import hashlib
-import json
 import logging
-import shutil
 import time
 from pathlib import Path
 from typing import Any
-import tomllib
 
 import pytest
 
 import farm_runtime as fr
+from conftest import fixture_approved_rom
 from comms.nats_link import NatsLink
 from comms.peer_network import RadioRules
 from contracts import NODE_IDS, NodeId, load_node_config
@@ -28,27 +25,6 @@ LOG = logging.getLogger("test-h1-hot-join")
 INITIAL_NODES: tuple[NodeId, ...] = ("incubator-1", "incubator-2", "hvac")
 
 
-def fixture_approved_rom(source: Path, destination: Path) -> Path:
-    """Copy one real manual into a test ROM and approve only the exact temporary bytes."""
-    destination.mkdir(parents=True)
-    target = destination / source.name
-    content = source.read_text(encoding="utf-8").replace('status = "draft"', 'status = "approved"', 1)
-    target.write_text(content, encoding="utf-8")
-    metadata = tomllib.loads(content.split("+++", 2)[1])
-    project_root = destination.parents[3]
-    for source_record in metadata["sources"]:
-        copied_source = (source.parent / source_record["link"]).resolve()
-        copied_target = project_root / copied_source.relative_to(ROOT)
-        copied_target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(copied_source, copied_target)
-    digest = hashlib.sha256(target.read_bytes()).hexdigest()
-    (destination / "approvals.json").write_text(json.dumps({
-        "schema_version": 1,
-        "approved": {target.name: {"sha256": digest, "version": 1, "approved_utc": "2026-10-27T00:00:00Z",
-                                   "by": "test fixture"}},
-        "history": {},
-    }), encoding="utf-8")
-    return destination
 
 
 async def until(check: Any, timeout_s: float) -> None:
@@ -97,11 +73,12 @@ async def test_hot_join_publishes_document_capability_and_answers_with_audit_pai
                       logger=LOG, rules=RadioRules(latency_ticks=1), heartbeat_s=0.1, silent_after_s=1.0,
                       data_dir=tmp_path / "data" / "animal-protection", rom_dir=animal_rom)
         speaker = nodes["incubator-1"]
+        # "no restart" (review L4): each running node keeps its process start time across the hot-join
+        started_before: dict[NodeId, str] = {node_id: node.started_utc for node_id, node in nodes.items()}
         hot_join_started = time.monotonic()
         nodes["animal-protection"] = animal
         async with asyncio.timeout(30.0):
             await animal.start()
-        object_ids: dict[NodeId, int] = {node_id: id(node) for node_id, node in nodes.items()}
         await until(lambda: all(node.known() == list(NODE_IDS) for node in nodes.values()), 10.0)
         hot_join_s = time.monotonic() - hot_join_started
         assert hot_join_s < 10.0
@@ -128,7 +105,10 @@ async def test_hot_join_publishes_document_capability_and_answers_with_audit_pai
         assert any(row["kind"] == "peer_question" and row["ok"] == 1 for row in speaker_audit)
         assert any(row["kind"] == "peer_answer" and row["ok"] == 1 for row in animal_audit)
         assert all(row["request_id"] == "h1-hot-join-ask" for row in speaker_audit + animal_audit)
-        assert all(id(nodes[node_id]) == original_id for node_id, original_id in object_ids.items())
+        assert {node_id: nodes[node_id].started_utc for node_id in started_before} == started_before
+        assert all(speaker.peers[node_id].capabilities is not None
+                   and speaker.peers[node_id].capabilities.started_utc == started  # type: ignore[union-attr]
+                   for node_id, started in started_before.items() if node_id != "incubator-1")
         print(f"H1 hot_join_s={hot_join_s:.3f} peer_ask_s={ask_s:.3f}")
     finally:
         stop.set()

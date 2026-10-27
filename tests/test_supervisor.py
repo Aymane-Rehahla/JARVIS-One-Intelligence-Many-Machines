@@ -177,6 +177,15 @@ def test_the_jarvis_programs_and_their_order() -> None:
     assert [program.name for program in only_hvac] == ["nats", "llama-hvac", "hvac"]
 
 
+def test_node_programs_get_the_runs_own_ports_file(tmp_path: Path) -> None:
+    """Review H6: a node read its MCP port from the real launcher/ports.toml, so a test run bound 8101-8104."""
+    other = tmp_path / "ports.toml"
+    other.write_text((ROOT / "launcher" / "ports.toml").read_text(encoding="utf-8"), encoding="utf-8")
+    for program in sv.build_programs(sv.read_ports(other), llm=False, website=False, ports_file=other):
+        if program.name in NODE_IDS:
+            assert program.argv[program.argv.index("--ports") + 1] == str(other.resolve()), program.name
+
+
 @pytest.mark.asyncio
 async def test_bad_dependencies_exit_two_with_a_logged_reason(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
                                                               capsys: pytest.CaptureFixture[str]) -> None:

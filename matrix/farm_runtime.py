@@ -28,6 +28,7 @@ import argparse
 import asyncio
 import contextlib
 import logging
+import secrets
 import sys
 import time
 import tomllib
@@ -54,6 +55,7 @@ from contracts import (FARM_LINKS, FARM_SIM, NODE_IDS, FarmAssessment, FarmEvent
                        FarmIncident, FarmStatus, FeedLabel, GateDecision, LinkStatus, NodeId, SimState, farm_subject)
 
 MAX_PUBLISH_HZ = 10.0
+SEVERITY_RANK = {"info": 0, "warning": 1, "critical": 2}
 SIM_EVERY_S = 1.0
 LINKS_EVERY_S = 10.0
 SPEED_WINDOW_S = 5.0
@@ -100,7 +102,7 @@ def _event_codes(readings: Mapping[str, Any]) -> dict[str, tuple[Literal["alarm"
             else:
                 continue
             current = found.get(code)
-            order = {"info": 0, "warning": 1, "critical": 2}
+            order = SEVERITY_RANK
             if current is None or order[severity] > order[current[1]] or (
                     severity == current[1] and source == "fault"):
                 found[code] = (source, severity)
@@ -156,10 +158,13 @@ class FarmRuntime:
     # --- the farm ----------------------------------------------------------------------------------------------
 
     def reset(self) -> None:
-        """A fresh farm and fresh brains."""
+        """A fresh farm and fresh brains, as a new farm run with its own feed_id (ticks, event sequences and incident
+        ids start again, so the nodes must not mix them with the previous run's)."""
         self.engine = self._engine_cls(seed=self.seed, config=self.config or None)
         self.runtime = self._runtime_cls(self.engine)
-        self._alarms: dict[str, dict[str, str]] = {node: {} for node in NODE_IDS}
+        self.feed_id = secrets.token_hex(6)
+        self._alarms: dict[str, dict[str, tuple[Literal["alarm", "fault"], Literal["info", "warning", "critical"]]]] = {
+            node: {} for node in NODE_IDS}
         self._online: dict[str, bool] = {node: True for node in NODE_IDS}
         self._incidents: dict[str, tuple[str | None, str]] = {node: (None, "") for node in NODE_IDS}
         self._event_seq = 0
@@ -169,7 +174,8 @@ class FarmRuntime:
         self._links: tuple[tuple[str, ...], tuple[str, ...]] | None = None
         self._speed_samples: list[tuple[float, float]] = []
         self._pending: dict[str, Any] = {}
-        log(self.logger, logging.INFO, "farm reset", seed=self.seed, episode=self.engine.world.episode_id)
+        log(self.logger, logging.INFO, "farm reset", seed=self.seed, episode=self.engine.world.episode_id,
+            feed_id=self.feed_id)
 
     @property
     def tick(self) -> int:
@@ -217,7 +223,8 @@ class FarmRuntime:
 
     def _common(self, node: NodeId) -> dict[str, Any]:
         farm_time, _ = self.farm_time()
-        return {"node": node, "tick": self.tick, "time_s": self.time_s, "farm_time": farm_time, "label": LABEL}
+        return {"node": node, "tick": self.tick, "time_s": self.time_s, "farm_time": farm_time, "label": LABEL,
+                "feed_id": self.feed_id}
 
     def messages_for_tick(self, results: Mapping[str, Any], *, include_state: bool) -> list[tuple[str, BaseModel]]:
         """Everything to publish after one tick (status and assessment only when `include_state`)."""
@@ -249,15 +256,17 @@ class FarmRuntime:
             self._online[node] = online
         if online:
             current = _event_codes(readings)
-            codes = set(current)
+            before = self._alarms[node]
+            # raised: a new code, or a known code whose severity rose (warning -> critical is news for the owner)
             raised: list[tuple[FarmEventType, Literal["info", "warning", "critical"], dict[str, JsonValue]]] = [
-                ("alarm_raised", current[code][1], {"code": code, "source": current[code][0]})
-                for code in sorted(codes - self._alarms[node].keys())]
+                ("alarm_raised", severity, {"code": code, "source": source})
+                for code, (source, severity) in sorted(current.items())
+                if code not in before or SEVERITY_RANK[severity] > SEVERITY_RANK[before[code][1]]]
             cleared: list[tuple[FarmEventType, Literal["info", "warning", "critical"], dict[str, JsonValue]]] = [
-                ("alarm_cleared", "info", {"code": code, "source": self._alarms[node][code]})
-                for code in sorted(self._alarms[node].keys() - codes)]
+                ("alarm_cleared", "info", {"code": code, "source": before[code][0]})
+                for code in sorted(before.keys() - current.keys())]
             found += raised + cleared
-            self._alarms[node] = {code: source for code, (source, _) in current.items()}
+            self._alarms[node] = dict(current)
         gate_kinds: tuple[tuple[str, FarmEventType], ...] = (("action", "safety_action"),
                                                              ("communication", "safety_communication"))
         for key, kind in gate_kinds:
@@ -314,7 +323,7 @@ class FarmRuntime:
         farm_time, day = self.farm_time()
         return SimState(tick=self.tick, time_s=self.time_s, farm_time=farm_time, day=day, running=self.running,
                         target_speed=self.speed, actual_speed=round(self.actual_speed(), 3), label=LABEL,
-                        episode_id=str(self.engine.world.episode_id))
+                        episode_id=str(self.engine.world.episode_id), feed_id=self.feed_id)
 
     def link_state(self) -> LinkStatus:
         offline: list[NodeId] = [node for node in NODE_IDS if not self.engine.world.devices[node].online]

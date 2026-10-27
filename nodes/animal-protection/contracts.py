@@ -15,6 +15,7 @@ Subjects (plan section 4.3), built by the helpers below:
 """
 from __future__ import annotations
 
+import json
 import re
 import tomllib
 from datetime import datetime, timezone
@@ -37,6 +38,7 @@ FeedLabel = Literal["live: simulated brains", "live: trained brains"]
 AskError = Literal["timeout", "link_cut", "unavailable", "no_data", "bad_request", "lost"]
 FARM_TIME = r"^([01][0-9]|2[0-3]):[0-5][0-9]$"
 REQUEST_ID = r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$"
+FEED_ID = r"^[0-9a-f]{12}$"                 # one farm run: new at every farm-runtime start and every reset
 MAX_DEADLINE_MS = 30_000
 SPEAKER_MODEL = "Qwen-3.5-2b-roleplay-tuned.Q8_0.gguf"
 
@@ -164,13 +166,16 @@ def node_of_subject(subject: str) -> NodeId | None:
 
 
 class FarmMessage(Contract):
-    """What every farm message has: the machine it is about and the farm time it is from."""
+    """What every farm message has: the machine it is about, the farm time it is from, and the farm run (`feed_id`)
+    it belongs to. A reset or a restart of the farm starts a new run whose ticks, event sequences and incident ids
+    begin again, so they are only unique within one feed_id."""
 
     node: NodeId
     tick: int = Field(ge=0)
     time_s: float = Field(ge=0.0)
     farm_time: str = Field(pattern=FARM_TIME)
     label: FeedLabel
+    feed_id: str = Field(pattern=FEED_ID)
 
 
 class FarmStatus(FarmMessage):
@@ -259,6 +264,7 @@ class SimState(Contract):
     actual_speed: float = Field(ge=0.0)
     label: FeedLabel
     episode_id: str
+    feed_id: str = Field(pattern=FEED_ID)
 
 
 # --- between nodes ---------------------------------------------------------------------------------------------------
@@ -365,8 +371,6 @@ class AuditRecord(Contract):
 
     @model_validator(mode="after")
     def _bounded_payloads(self) -> AuditRecord:
-        import json
-
         for name, value in (("inputs", self.inputs), ("outputs", self.outputs)):
             if len(json.dumps(value, separators=(",", ":"), ensure_ascii=False).encode("utf-8")) > 4096:
                 raise ValueError(f"{name} exceeds 4 KB")

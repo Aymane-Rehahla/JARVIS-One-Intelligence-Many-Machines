@@ -11,6 +11,11 @@
       "title": "Farm Time",
       "type": "string"
     },
+    "feed_id": {
+      "pattern": "^[0-9a-f]{12}$",
+      "title": "Feed Id",
+      "type": "string"
+    },
     "label": {
       "enum": [
         "live: simulated brains",
@@ -63,6 +68,7 @@
     "time_s",
     "farm_time",
     "label",
+    "feed_id",
     "online",
     "readings"
   ],

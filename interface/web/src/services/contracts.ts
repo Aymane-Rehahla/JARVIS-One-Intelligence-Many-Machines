@@ -28,6 +28,8 @@ const FarmTime = z.string().regex(/^([01][0-9]|2[0-3]):[0-5][0-9]$/)
 const Tick = z.number().int().min(0)
 const Seconds = z.number().min(0)
 const JsonRecord = z.record(z.string(), z.json())
+/** One farm run: new at every farm-runtime start and every reset (ticks and sequences start again in a new run). */
+const FeedId = z.string().regex(/^[0-9a-f]{12}$/)
 
 const farmMessage = {
   schema_version: SchemaVersion,
@@ -36,6 +38,7 @@ const farmMessage = {
   time_s: Seconds,
   farm_time: FarmTime,
   label: FeedLabel,
+  feed_id: FeedId,
 }
 
 export const FarmStatus = z.strictObject({ ...farmMessage, online: z.boolean(), readings: JsonRecord })
@@ -91,6 +94,7 @@ export const SimState = z.strictObject({
   actual_speed: z.number().min(0),
   label: FeedLabel,
   episode_id: z.string(),
+  feed_id: FeedId,
 })
 
 export const Capabilities = z.strictObject({

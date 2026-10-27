@@ -194,6 +194,11 @@
           "title": "Farm Time",
           "type": "string"
         },
+        "feed_id": {
+          "pattern": "^[0-9a-f]{12}$",
+          "title": "Feed Id",
+          "type": "string"
+        },
         "incident_id": {
           "anyOf": [
             {
@@ -264,6 +269,7 @@
         "time_s",
         "farm_time",
         "label",
+        "feed_id",
         "assessment",
         "diagnosis",
         "confidence",
@@ -286,6 +292,11 @@
         "farm_time": {
           "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
           "title": "Farm Time",
+          "type": "string"
+        },
+        "feed_id": {
+          "pattern": "^[0-9a-f]{12}$",
+          "title": "Feed Id",
           "type": "string"
         },
         "label": {
@@ -355,6 +366,7 @@
         "time_s",
         "farm_time",
         "label",
+        "feed_id",
         "sequence",
         "type",
         "severity",
@@ -370,6 +382,11 @@
         "farm_time": {
           "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
           "title": "Farm Time",
+          "type": "string"
+        },
+        "feed_id": {
+          "pattern": "^[0-9a-f]{12}$",
+          "title": "Feed Id",
           "type": "string"
         },
         "label": {
@@ -424,6 +441,7 @@
         "time_s",
         "farm_time",
         "label",
+        "feed_id",
         "online",
         "readings"
       ],
@@ -631,6 +649,11 @@
           "title": "Farm Time",
           "type": "string"
         },
+        "feed_id": {
+          "pattern": "^[0-9a-f]{12}$",
+          "title": "Feed Id",
+          "type": "string"
+        },
         "label": {
           "enum": [
             "live: simulated brains",
@@ -675,7 +698,8 @@
         "target_speed",
         "actual_speed",
         "label",
-        "episode_id"
+        "episode_id",
+        "feed_id"
       ],
       "title": "SimState",
       "type": "object"

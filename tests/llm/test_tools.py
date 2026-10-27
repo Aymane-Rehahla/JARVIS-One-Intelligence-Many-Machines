@@ -48,15 +48,15 @@ async def rig(tmp_path: Path) -> AsyncIterator[dict[str, Any]]:
     documents = Documents(tmp_path / "rom", tmp_path / "docs_index.sqlite", HashEmbedder(), tokenizer_path=None)
     documents.rom.mkdir()
     status = FarmStatus(node="incubator-1", tick=7, time_s=120.0, farm_time="06:02",
-                        label="live: simulated brains", online=True,
+                        label="live: simulated brains", feed_id="0000000000a1", online=True,
                         readings={"supply_air_temperature_c": 20.0, "relative_humidity_pct": 55.0,
                                   "fan_running": True, "alarms": []})
     assessment = FarmAssessment(node="incubator-1", tick=7, time_s=120.0, farm_time="06:02",
-                               label="live: simulated brains", assessment="NORMAL", diagnosis="NORMAL",
+                               label="live: simulated brains", feed_id="0000000000a1", assessment="NORMAL", diagnosis="NORMAL",
                                confidence=0.9, brain="rule")
     view = SimpleNamespace(status=status, assessment=assessment, sim=None,
                            trend_buffer=deque([FarmStatus(node="incubator-1", tick=i, time_s=i * 60.0,
-                                                         farm_time=f"06:{i:02d}", label="live: simulated brains",
+                                                         farm_time=f"06:{i:02d}", label="live: simulated brains", feed_id="0000000000a1",
                                                          online=True, readings={"temperature": float(10 + 2 * i)})
                                                for i in range(3)], maxlen=7200))
     auditor = Auditor(store, None, "incubator-1")
@@ -80,10 +80,10 @@ async def test_each_tool_succeeds_with_typed_data_and_audit(rig: dict[str, Any])
     store: LlmStore = rig["store"]
     registry: ToolRegistry = rig["registry"]
     await store.add_event(FarmEvent(node="incubator-1", tick=7, time_s=120.0, farm_time="06:02",
-                                    label="live: simulated brains", sequence=7, type="alarm_raised",
+                                    label="live: simulated brains", feed_id="0000000000a1", sequence=7, type="alarm_raised",
                                     severity="warning", data={"code": "FILTER", "source": "alarm"}))
     await store.upsert_incident(FarmIncident(node="incubator-1", tick=7, time_s=120.0, farm_time="06:02",
-                                             label="live: simulated brains", incident_id="incident-1", state="opened",
+                                             label="live: simulated brains", feed_id="0000000000a1", incident_id="incident-1", state="opened",
                                              kind="equipment", summary={"code": "FILTER"}))
     conversation_id = await store.new_conversation("HVAC")
     await store.add_turn(conversation_id, "history-1", "owner", "Check the airflow")
@@ -135,7 +135,7 @@ async def test_empty_data_paths_are_explicit(rig: dict[str, Any]) -> None:
     registry.peers.available = False
     for name, args, phrase in (("get_status", {}, "no status"), ("get_assessment", {}, "no assessment"),
                                ("get_trend", {"signal": "temperature", "minutes": 5}, "not enough data"),
-                               ("get_incident", {"incident_id": "missing"}, "no incident"),
+                               ("get_incident", {"incident_id": "missing"}, "no farm data"),
                                ("ask_peer", {"node": "hvac", "question": "read status"}, "unknown")):
         result = await registry.call(name, args, request_id=f"empty-{name}", caller="owner")
         assert not result.ok and phrase in (result.error or "")
@@ -202,7 +202,7 @@ async def test_every_tool_deadline_returns_timeout_and_preserves_request_id(rig:
     if name == "acknowledge_alert":
         args["confirm_token"] = rig["confirm"].issue("incident-1")
         await rig["store"].upsert_incident(FarmIncident(node="incubator-1", tick=7, time_s=120.0, farm_time="06:02",
-                                                        label="live: simulated brains", incident_id="incident-1",
+                                                        label="live: simulated brains", feed_id="0000000000a1", incident_id="incident-1",
                                                         state="opened", summary={}))
     result = await registry.call(name, args, request_id=f"slow-{name}", caller="owner")
     assert not result.ok and result.error == "timeout"
@@ -247,3 +247,80 @@ async def test_peer_refusals_do_not_use_radio(rig: dict[str, Any]) -> None:
 ])
 def test_topic_classifier_examples(question: str, topic: str) -> None:
     assert classify_topic(question) == topic
+
+
+# --- senior review of 6B: each test below failed on the code as first delivered ----------------------------------------
+
+@pytest.mark.asyncio
+async def test_no_current_incident_is_a_normal_answer_and_an_unknown_id_is_not(rig: dict[str, Any]) -> None:
+    """Review H4: "no current incident" is the normal state of a healthy farm, not a failure; it made every peer
+    incident_history question answer "no data"."""
+    registry: ToolRegistry = rig["registry"]
+    current = await registry.call("get_incident", {"incident_id": "current"}, request_id="h4-current", caller="peer")
+    assert current.ok and current.data["incident"] is None and current.data["farm_time"] == "06:02"
+    unknown = await registry.call("get_incident", {"incident_id": "nope"}, request_id="h4-unknown", caller="peer")
+    assert not unknown.ok and "unknown incident" in (unknown.error or "")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("given", ["bad id!", "", "x" * 200, "with space"])
+async def test_an_invalid_request_id_still_gives_one_honest_audit_row(rig: dict[str, Any], given: str) -> None:
+    """Review H3: an invalid id made the audit record itself invalid: no row, and a misleading "tool failed"."""
+    registry: ToolRegistry = rig["registry"]
+    store: LlmStore = rig["store"]
+    outcome = await registry.call("get_status", {}, request_id=given, caller="peer")
+    assert outcome.ok, outcome.error
+    rows = store._db.execute("SELECT request_id, ok, inputs_json FROM audit").fetchall()
+    assert len(rows) == 1 and rows[0]["ok"] == 1 and rows[0]["request_id"].startswith("r-")
+    if given:
+        assert '"given_request_id"' in rows[0]["inputs_json"]
+
+
+@pytest.mark.asyncio
+async def test_unknown_callers_are_refused(rig: dict[str, Any]) -> None:
+    """Review M5: the caller decides the owner-confirmed permission, so only the four known callers exist."""
+    outcome = await rig["registry"].call("get_status", {}, request_id="m5", caller="admin")  # type: ignore[arg-type]
+    assert not outcome.ok and "unknown caller" in (outcome.error or "")
+
+
+@pytest.mark.asyncio
+async def test_a_peers_own_reason_survives_the_tool_deadline(rig: dict[str, Any]) -> None:
+    """Review H5: the tool's deadline equalled the radio's 3 s, so the tool's timeout won the race and replaced the
+    peer's clear reason ("hvac's link is cut") with a bare "timeout"."""
+    registry: ToolRegistry = rig["registry"]
+    peers: FakePeers = rig["peers"]
+    peers.delay = 3.0                                       # the radio gives up at its own 3 s deadline, with a reason
+
+    async def cut_link_reply(node: str, topic: str, question: str, *, deadline_s: float,
+                             request_id: str | None) -> Any:
+        await asyncio.sleep(deadline_s)
+        return SimpleNamespace(ok=False, answer={}, farm_time=None, tick=None, error="timeout",
+                               detail=f"no answer from {node} within {deadline_s:.1f} s ({node}'s link is cut)")
+
+    peers.ask = cut_link_reply  # type: ignore[method-assign]
+    outcome = await registry.call("ask_peer", {"node": "hvac", "question": "any smoke?"}, request_id="h5",
+                                  caller="owner")
+    assert not outcome.ok and "link is cut" in (outcome.error or ""), outcome.error
+
+
+@pytest.mark.asyncio
+async def test_recording_never_changes_the_outcome(rig: dict[str, Any]) -> None:
+    """Review M1: values JSON cannot hold, and a failing audit store, must not fail or mask the operation."""
+    import datetime
+
+    auditor: Auditor = rig["auditor"]
+    async with auditor.step("m1-json", "tool_call", "x", {"pair": (1, 2), "when": datetime.date(2026, 10, 27)}) as step:
+        step.done({"ok": True})
+    row = (await auditor.timings("m1-json"))[0]
+    assert row["ok"] == 1 and '"pair":[1,2]' in row["inputs_json"] and "2026-10-27" in row["inputs_json"]
+
+    async def broken(record: Any) -> None:
+        raise OSError("disk full")
+
+    rig["store"].add_audit = broken
+    async with auditor.step("m1-store", "tool_call", "x", {}) as step:     # success stays success
+        step.done({"ok": True})
+    with pytest.raises(ValueError, match="the real error"):                   # the real error is not replaced
+        async with auditor.step("m1-store", "tool_call", "x", {}):
+            raise ValueError("the real error")
+    assert auditor.failures == 2
