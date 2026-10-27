@@ -12,6 +12,7 @@ import logging
 import math
 import re
 import sqlite3
+import threading
 import tomllib
 from collections import OrderedDict
 from collections.abc import Mapping, Sequence
@@ -352,7 +353,8 @@ class Documents:
         self.tokenizer_path = tokenizer_path
         self.logger = logger or logging.getLogger("jarvis.documents")
         self.cache: OrderedDict[tuple[str, int], list[dict[str, Any]]] = OrderedDict()
-        self._db = sqlite3.connect(index_path)
+        self._lock = threading.RLock()
+        self._db = sqlite3.connect(index_path, check_same_thread=False)
         self._db.row_factory = sqlite3.Row
         self._db.execute("PRAGMA foreign_keys=ON")
         self._init_db()
@@ -401,6 +403,11 @@ class Documents:
 
     def rebuild(self) -> bool:
         """Incrementally index changed approved documents and return whether the index changed."""
+        with self._lock:
+            return self._rebuild()
+
+    def _rebuild(self) -> bool:
+        """Perform the rebuild while the public method owns the SQLite lock."""
         eligible = {path.name: path for path in indexable(self.rom)}
         existing = {row["file"]: dict(row) for row in self._db.execute("SELECT * FROM documents")}
         meta = self._db.execute("SELECT embedder_id FROM meta LIMIT 1").fetchone()
@@ -474,6 +481,11 @@ class Documents:
 
     def search(self, query: str, k: int = 4) -> list[dict[str, Any]]:
         """Return 1–8 hybrid results, merging top-20 keyword/vector rankings with RRF and a bounded LRU."""
+        with self._lock:
+            return self._search(query, k)
+
+    def _search(self, query: str, k: int) -> list[dict[str, Any]]:
+        """Search while the public method owns the SQLite lock."""
         if not 1 <= k <= 8:
             raise ValueError("k must be from 1 to 8")
         normalized = " ".join(query.casefold().split())[:1000]
@@ -512,7 +524,8 @@ class Documents:
 
     def close(self) -> None:
         """Close the SQLite index."""
-        self._db.close()
+        with self._lock:
+            self._db.close()
 
 
 def escaped_query(query: str) -> str:

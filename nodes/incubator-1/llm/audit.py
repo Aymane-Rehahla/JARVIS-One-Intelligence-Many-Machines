@@ -5,6 +5,7 @@ best-effort `jarvis.<node>.audit` messages; exceptions are recorded and re-raise
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import secrets
@@ -77,6 +78,9 @@ class Auditor:
                 outputs = step.outputs
         except Exception as error:
             error_text = f"{type(error).__name__}: {error}"
+            raise
+        except asyncio.CancelledError:
+            error_text = "CancelledError: operation cancelled or deadline exceeded"
             raise
         finally:
             input_json, input_truncated = _bounded(inputs)
