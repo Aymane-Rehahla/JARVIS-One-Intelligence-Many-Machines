@@ -11,7 +11,7 @@ import json
 import logging
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from fastapi.testclient import TestClient
@@ -156,7 +156,7 @@ def test_the_matrix_api() -> None:
 
 
 @pytest.mark.asyncio
-async def test_a_node_answers_from_the_live_feed(nats_url: str) -> None:
+async def test_a_node_answers_from_the_live_feed(nats_url: str, tmp_path: Path) -> None:
     farm_link = NatsLink("farm-runtime", nats_url, logger=LOG)
     await farm_link.connect(attempts=5)
     runtime = fr.FarmRuntime(farm_link, logger=LOG, speed=10.0)
@@ -165,7 +165,8 @@ async def test_a_node_answers_from_the_live_feed(nats_url: str) -> None:
         link = NatsLink(node_id, nats_url, logger=LOG)
         await link.connect(attempts=5)
         node = Node(load_node_config(ROOT / "nodes" / node_id / "node.toml"), link, logger=LOG,
-                    rules=RadioRules(latency_ticks=1), heartbeat_s=0.5, silent_after_s=2.0)
+                    rules=RadioRules(latency_ticks=1), heartbeat_s=0.5, silent_after_s=2.0,
+                    data_dir=tmp_path / node_id)
         await node.start()
         nodes.append(node)
     hvac, asker = nodes
@@ -179,7 +180,10 @@ async def test_a_node_answers_from_the_live_feed(nats_url: str) -> None:
         started = time.monotonic()
         reply = await asker.radio.ask("hvac", "readings", deadline_s=3.0)
         elapsed = time.monotonic() - started
-        assert reply.ok and "supply_air_temperature_c" in reply.answer and reply.farm_time is not None
+        readings_data = cast(dict[str, Any], reply.answer["get_status"])
+        readings = cast(dict[str, Any], readings_data["readings"])
+        assert reply.ok and "supply_air_temperature_c" in readings
+        assert reply.farm_time is not None
         assert 0.15 <= elapsed < 1.5                                           # two hops of 0.1 s at 10x
         assert asker.status is not None and asker.status.node == "incubator-1"
     finally:

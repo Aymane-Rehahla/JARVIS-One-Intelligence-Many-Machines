@@ -13,7 +13,7 @@ import sys
 import time
 from collections.abc import AsyncIterator, Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 import pytest_asyncio
@@ -21,8 +21,8 @@ import pytest_asyncio
 import runtime
 from comms.nats_link import NatsLink
 from comms.peer_network import RadioRules
-from contracts import (NODE_IDS, AskReply, Capabilities, FarmAssessment, FarmIncident, FarmStatus, Heartbeat, NodeId,
-                       ProbeRequest, SimState, load_node_config)
+from contracts import (NODE_IDS, AskReply, Capabilities, DocumentInfo, FarmAssessment, FarmIncident, FarmStatus, Heartbeat, NodeId,
+                       ProbeRequest, SimState, load_node_config, utc_now)
 from node import Node
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -47,8 +47,9 @@ async def until(check: Callable[[], bool], timeout_s: float = 3.0) -> None:
 class Farm:
     """Starts nodes and stands in for the farm runtime's publications."""
 
-    def __init__(self, url: str) -> None:
+    def __init__(self, url: str, data_dir: Path) -> None:
         self.url = url
+        self.data_dir = data_dir
         self.nodes: dict[NodeId, Node] = {}
         self.link = NatsLink("farm", url, logger=LOG)
 
@@ -56,7 +57,7 @@ class Farm:
         link = NatsLink(node, self.url, logger=LOG)
         await link.connect(attempts=5)
         started = Node(load_node_config(ROOT / "nodes" / node / "node.toml"), link, logger=LOG, rules=NO_DELAY,
-                       heartbeat_s=BEAT_S, silent_after_s=SILENT_S, **options)
+                       heartbeat_s=BEAT_S, silent_after_s=SILENT_S, data_dir=self.data_dir / node, **options)
         await started.start()
         self.nodes[node] = started
         return started
@@ -66,8 +67,8 @@ class Farm:
 
 
 @pytest_asyncio.fixture
-async def farm(nats_url: str) -> AsyncIterator[Farm]:
-    world = Farm(nats_url)
+async def farm(nats_url: str, tmp_path: Path) -> AsyncIterator[Farm]:
+    world = Farm(nats_url, tmp_path / "nodes")
     await world.link.connect(attempts=5)
     yield world
     for node in list(world.nodes):
@@ -80,6 +81,10 @@ async def test_a_node_that_starts_later_is_known_by_all_without_a_restart(farm: 
     for node in ("incubator-1", "incubator-2", "hvac"):
         await farm.start(node)
     await until(lambda: all(n.known() == ["incubator-1", "incubator-2", "hvac"] for n in farm.nodes.values()))
+    assert all(n.documents is not None and n.documents.status() == "no approved documents" for n in farm.nodes.values())
+    capabilities = [n.peers[n.id].capabilities for n in farm.nodes.values()]
+    assert all(capabilities) and all(not capability.documents and "documents" not in capability.topics
+                                     for capability in capabilities if capability is not None)
     joined = time.monotonic()
     late = await farm.start("animal-protection")
     await until(lambda: all(n.known() == list(NODE_IDS) for n in farm.nodes.values()))
@@ -137,13 +142,22 @@ async def test_answers_come_from_the_nodes_own_machine_and_say_their_farm_time(f
     await until(lambda: hvac.status is not None and hvac.assessment is not None and bool(hvac.incidents))
     assert hvac.status is not None and hvac.status.node == "hvac"            # never another machine's feed
     readings = await asker.radio.ask("hvac", "readings", deadline_s=2.0)
-    assert readings.ok and readings.answer == {"supply_air_temperature_c": 14.2, "alarms": []}
+    reading_data = cast(dict[str, Any], readings.answer["get_status"])
+    assert readings.ok and reading_data == {
+        "online": True, "farm_time": "06:07", "tick": 7, "label": "live: simulated brains",
+        "readings": {"supply_air_temperature_c": 14.2, "alarms": []}}
     assert (readings.farm_time, readings.tick) == ("06:07", 7)
     status = await asker.radio.ask("hvac", "status", deadline_s=2.0)
-    assert status.ok and status.answer["diagnosis"] == "FILTER_LOADING" and status.farm_time == "06:08"
+    status_tool = cast(dict[str, Any], status.answer["get_assessment"])
+    assessment_data = cast(dict[str, Any], status_tool["assessment"])
+    assert status.ok and assessment_data["diagnosis"] == "FILTER_LOADING"
+    assert status.farm_time == "06:08"
     history = await asker.radio.ask("hvac", "incident_history", deadline_s=2.0)
-    incidents = history.answer["incidents"]
-    assert history.ok and isinstance(incidents, list) and len(incidents) == 1
+    incident_tool = cast(dict[str, Any], history.answer["get_incident"])
+    incident = cast(dict[str, Any], incident_tool["incident"])
+    assert history.ok and incident["incident_id"] == "hvac-1"
+    event_tool = cast(dict[str, Any], history.answer["list_events"])
+    assert event_tool["events"] == []
     refused = await asker.radio.ask("hvac", "incubation", deadline_s=2.0)
     assert not refused.ok and refused.error == "unavailable"                 # an HVAC has no eggs
 
@@ -157,7 +171,7 @@ async def test_an_answer_without_readings_still_states_the_farm_time(farm: Farm)
                                                  episode_id="e"))
     await until(lambda: farm.nodes["hvac"].sim is not None)
     history = await asker.radio.ask("hvac", "incident_history", deadline_s=2.0)
-    assert history.ok and history.answer == {"incidents": []} and history.farm_time == "06:03"
+    assert not history.ok and history.error == "no_data"
 
 
 @pytest.mark.asyncio
@@ -180,12 +194,25 @@ def test_bad_heartbeat_settings_are_refused() -> None:
         Node(config, NatsLink("hvac", logger=LOG), logger=LOG, heartbeat_s=1.0, silent_after_s=1.0)
 
 
+def test_capability_registry_lists_topic_knowledge_and_documents() -> None:
+    config = load_node_config(ROOT / "nodes" / "incubator-1" / "node.toml")
+    node = Node(config, NatsLink("incubator-1", logger=LOG), logger=LOG)
+    info = DocumentInfo(file="manual.md", title="Manual", kind="shared", version=1, sha256="a" * 64)
+    node.peers["hvac"].capabilities = Capabilities(node="hvac", machine="hvac", speaks=False,
+                                                   topics=["readings", "documents"], documents=[info],
+                                                   started_utc=utc_now(), reason="start")
+    node.peers["hvac"].last_heard = time.monotonic()
+    assert node.capability_registry.who_knows("readings") == ["hvac"]
+    assert node.capability_registry.documents_of("hvac") == [info]
+    assert node.capability_registry.is_alive("hvac")
+
+
 def test_the_program_gives_up_cleanly_when_nats_is_not_there(new_port: Callable[[], int]) -> None:
     assert runtime.main(["--nats", f"nats://127.0.0.1:{new_port()}", "--connect-attempts", "1", "--no-logs"]) == 2
 
 
 @pytest.mark.asyncio
-async def test_the_node_program_runs_and_announces_itself(farm: Farm) -> None:
+async def test_the_node_program_runs_and_announces_itself(farm: Farm, tmp_path: Path) -> None:
     announced: list[Capabilities] = []
 
     async def heard(capabilities: Capabilities, subject: str) -> None:
@@ -193,7 +220,8 @@ async def test_the_node_program_runs_and_announces_itself(farm: Farm) -> None:
 
     await farm.link.subscribe("jarvis.hvac.capabilities", Capabilities, heard)
     program = subprocess.Popen([sys.executable, str(ROOT / "nodes" / "hvac" / "runtime.py"), "--nats", farm.url,
-                                "--heartbeat-s", "0.5", "--no-logs"], stdout=subprocess.DEVNULL,
+                                "--heartbeat-s", "0.5", "--no-logs", "--data-dir", str(tmp_path / "program-data")],
+                               stdout=subprocess.DEVNULL,
                                stderr=subprocess.PIPE)
     try:
         await until(lambda: bool(announced), timeout_s=20.0)

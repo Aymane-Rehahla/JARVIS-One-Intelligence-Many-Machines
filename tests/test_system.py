@@ -10,6 +10,7 @@ import asyncio
 import ctypes
 import json
 import logging
+import os
 import subprocess
 import sys
 import time
@@ -183,9 +184,11 @@ async def test_system_hot_join_questions_and_cut_links(tmp_path: Path, new_port:
     ports = write_test_ports(tmp_path / "ports.toml", new_port)
     logs, status_path = tmp_path / "logs", tmp_path / "logs" / "supervisor.status.json"
     nats_url = f"nats://127.0.0.1:{ports['nats']}"
+    child_environment = os.environ.copy()
+    child_environment["JARVIS_DATA_ROOT"] = str(tmp_path / "node-data")
     supervisor = subprocess.Popen([str(PYTHON), str(SUPERVISOR), "--no-llm", "--only", ",".join(SYSTEM_PROGRAMS),
                                     "--ports", str(tmp_path / "ports.toml"), "--logs", str(logs)], cwd=ROOT,
-                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=child_environment)
     animal: Node | None = None
     stopped_status: dict[str, object] | None = None
     try:
@@ -201,7 +204,8 @@ async def test_system_hot_join_questions_and_cut_links(tmp_path: Path, new_port:
 
             animal_link = NatsLink("system-animal-protection", nats_url, logger=LOG)
             await animal_link.connect(attempts=20)
-            animal = Node(load_node_config(ROOT / "nodes" / "animal-protection" / "node.toml"), animal_link, logger=LOG)
+            animal = Node(load_node_config(ROOT / "nodes" / "animal-protection" / "node.toml"), animal_link, logger=LOG,
+                          data_dir=tmp_path / "animal-protection-data")
             hot_join_started = time.monotonic()
             await animal.start()
             four = await next_snapshot(

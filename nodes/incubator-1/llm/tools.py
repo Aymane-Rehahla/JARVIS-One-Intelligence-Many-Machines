@@ -12,6 +12,7 @@ import hmac
 import logging
 import math
 import re
+import secrets
 import time
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Mapping, Sequence
@@ -284,6 +285,7 @@ class ToolRegistry:
 
     async def call(self, name: str, args: Any, *, request_id: str | None, caller: str) -> ToolOutcome:
         """Validate permission, arguments, output and deadline; convert every ordinary failure to a ToolOutcome."""
+        request_id = request_id or f"r-{secrets.token_hex(6)}"
         tool = self.tools.get(name)
         if tool is None:
             return await self._refusal(name, request_id, args, f"unknown tool: {name}")
@@ -323,8 +325,9 @@ class ToolRegistry:
         if status is None:
             raise _ToolFailure("no status data yet")
         readings: Mapping[str, Any] = status.readings
-        allowed = sorted(readings)
-        unknown = sorted(set(args.fields or ()) - set(allowed) - {"online", "farm_time"})
+        allowed_fields = set(readings) | set(getattr(self.view, "allowed_reading_keys", ())) | {"online", "farm_time", "health"}
+        allowed = sorted(allowed_fields)
+        unknown = sorted(set(args.fields or ()) - allowed_fields)
         if unknown:
             raise _ToolFailure(f"unknown fields: {', '.join(unknown)}; allowed: online, farm_time, {', '.join(allowed)}")
         selected = dict(readings) if args.fields is None else {key: readings[key] for key in args.fields if key in readings}
@@ -337,7 +340,8 @@ class ToolRegistry:
         assessment = getattr(self.view, "assessment", None)
         if assessment is None:
             raise _ToolFailure("no assessment data yet")
-        return {"assessment": assessment.model_dump(mode="json"), **self._farm_fields()}
+        return {"assessment": assessment.model_dump(mode="json"), "farm_time": assessment.farm_time,
+                "tick": assessment.tick, "label": assessment.label}
 
     async def _get_trend(self, raw: BaseModel, request_id: str, caller: str) -> dict[str, Any]:
         args = cast(TrendArgs, raw)
@@ -399,9 +403,12 @@ class ToolRegistry:
         topic = args.topic or classify_topic(args.question)
         if topic not in capabilities.topics:
             raise _ToolFailure(f"unavailable: {target} does not announce topic {topic}")
-        reply = await self.peers.ask(target, topic, args.question, deadline_s=3.0, request_id=request_id or None)
-        if not reply.ok:
-            raise _ToolFailure(f"unavailable: {reply.detail or reply.error or 'peer did not answer'}")
+        async with self.auditor.step(request_id, "peer_question", "ask_peer",
+                                     {"node": target, "topic": topic, "question": args.question}) as question_step:
+            reply = await self.peers.ask(target, topic, args.question, deadline_s=3.0, request_id=request_id)
+            if not reply.ok:
+                raise _ToolFailure(f"unavailable: {reply.detail or reply.error or 'peer did not answer'}")
+            question_step.done(reply.answer, reply.farm_time, reply.tick)
         label = reply.answer.get("label")
         if label not in _FEED_LABELS:
             _, _, label = self._source()

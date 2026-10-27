@@ -104,7 +104,10 @@ async def test_each_tool_succeeds_with_typed_data_and_audit(rig: dict[str, Any])
         result = await registry.call(name, args, request_id=f"tool-{index}", caller="owner")
         assert result.ok, (name, result.error)
         assert result.tool_result(name).name == name
-        assert len(await rig["auditor"].timings(f"tool-{index}")) == 1
+        rows = await rig["auditor"].timings(f"tool-{index}")
+        assert sum(row["kind"] == "tool_call" for row in rows) == 1
+        if name == "ask_peer":
+            assert sum(row["kind"] == "peer_question" for row in rows) == 1
     assert registry.tools["get_status"].permission == "read"
     assert rig["peers"].calls == [("animal-protection", "hazard_check", "tool-6")]
     assert rig["delivered"] == ["incident-1"]

@@ -15,6 +15,7 @@ import argparse
 import asyncio
 import contextlib
 import logging
+import os
 import signal
 import sys
 import tomllib
@@ -48,6 +49,9 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--probe", action="store_true", help="answer jarvis.<node>.probe (tests, diagnostics)")
     parser.add_argument("--connect-attempts", type=int, default=CONNECT_ATTEMPTS,
                         help=f"tries to reach NATS before giving up (default {CONNECT_ATTEMPTS})")
+    data_root = os.environ.get("JARVIS_DATA_ROOT")
+    default_data_dir = Path(data_root) / NODE_DIR.name if data_root else NODE_DIR / "data"
+    parser.add_argument("--data-dir", type=Path, default=default_data_dir, help="node data folder (default: data/)")
     where = parser.add_mutually_exclusive_group()
     where.add_argument("--logs", type=Path, default=ROOT / "logs", help="log folder (default: logs/)")
     where.add_argument("--no-logs", action="store_true", help="no log file")
@@ -64,7 +68,7 @@ async def run(args: argparse.Namespace) -> int:
     except NoServersError:
         return 2
     node = Node(config, link, logger=logger, heartbeat_s=args.heartbeat_s, probe=args.probe,
-                rules=RadioRules(latency_ticks=args.latency_ticks, loss=args.loss))
+                rules=RadioRules(latency_ticks=args.latency_ticks, loss=args.loss), data_dir=args.data_dir)
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
     for name in ("SIGINT", "SIGTERM", "SIGBREAK"):

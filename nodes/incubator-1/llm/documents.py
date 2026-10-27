@@ -292,24 +292,36 @@ class BgeEmbedder:
 
     def __init__(self, model_path: Path = EMBEDDINGS_DIR / "model.onnx",
                  tokenizer_path: Path = EMBEDDINGS_DIR / "tokenizer.json", *, manifest_path: Path = ROOT / "models" / "MANIFEST.json") -> None:
-        import onnxruntime as ort
-        from tokenizers import Tokenizer
-
-        if not model_path.is_file() or not tokenizer_path.is_file():
-            raise FileNotFoundError("BGE model.onnx and tokenizer.json are required")
         self.dim = 384
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         model_relative = model_path.resolve().relative_to((ROOT / "models").resolve()).as_posix()
         model_hash = manifest["files"][model_relative]["sha256"]
         self.model_id = f"bge-small-en-v1.5:{model_hash}"
+        self.model_path = model_path
+        self.tokenizer_path = tokenizer_path
+        self.session: Any | None = None
+        self.tokenizer: Any | None = None
+
+    def _load(self) -> None:
+        """Load the CPU model only when an approved document or query needs an embedding."""
+        if self.session is not None and self.tokenizer is not None:
+            return
+        import onnxruntime as ort
+        from tokenizers import Tokenizer
+
+        if not self.model_path.is_file() or not self.tokenizer_path.is_file():
+            raise FileNotFoundError("BGE model.onnx and tokenizer.json are required")
         options = ort.SessionOptions()
         options.intra_op_num_threads = 2
         options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
-        self.session = ort.InferenceSession(str(model_path), sess_options=options, providers=["CPUExecutionProvider"])
-        self.tokenizer = Tokenizer.from_file(str(tokenizer_path))
+        self.session = ort.InferenceSession(str(self.model_path), sess_options=options,
+                                            providers=["CPUExecutionProvider"])
+        self.tokenizer = Tokenizer.from_file(str(self.tokenizer_path))
         self.tokenizer.enable_truncation(max_length=512)
 
     def embed(self, texts: Sequence[str]) -> np.ndarray:
+        self._load()
+        assert self.session is not None and self.tokenizer is not None
         outputs: list[np.ndarray] = []
         for offset in range(0, len(texts), 16):
             batch = list(texts[offset:offset + 16])
@@ -354,6 +366,7 @@ class Documents:
         self.logger = logger or logging.getLogger("jarvis.documents")
         self.cache: OrderedDict[tuple[str, int], list[dict[str, Any]]] = OrderedDict()
         self._lock = threading.RLock()
+        index_path.parent.mkdir(parents=True, exist_ok=True)
         self._db = sqlite3.connect(index_path, check_same_thread=False)
         self._db.row_factory = sqlite3.Row
         self._db.execute("PRAGMA foreign_keys=ON")
@@ -385,8 +398,9 @@ class Documents:
 
     @property
     def generation(self) -> str:
-        row = self._db.execute("SELECT built_utc FROM meta LIMIT 1").fetchone()
-        return str(row[0]) if row else ""
+        with self._lock:
+            row = self._db.execute("SELECT built_utc FROM meta LIMIT 1").fetchone()
+            return str(row[0]) if row else ""
 
     def _infos(self) -> list[DocumentInfo]:
         return [DocumentInfo(file=row["file"], title=row["title"], kind=row["kind"], version=row["version"],
@@ -394,12 +408,14 @@ class Documents:
 
     def infos(self) -> list[DocumentInfo]:
         """Return metadata for currently indexed documents."""
-        return self._infos()
+        with self._lock:
+            return self._infos()
 
     def status(self) -> str:
         """Describe whether approved documents are available to search."""
-        count = self._db.execute("SELECT count(*) FROM documents").fetchone()[0]
-        return "ready" if count else "no approved documents"
+        with self._lock:
+            count = self._db.execute("SELECT count(*) FROM documents").fetchone()[0]
+            return "ready" if count else "no approved documents"
 
     def rebuild(self) -> bool:
         """Incrementally index changed approved documents and return whether the index changed."""
