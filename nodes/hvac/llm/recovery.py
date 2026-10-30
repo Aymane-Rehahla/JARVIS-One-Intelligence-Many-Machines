@@ -65,7 +65,8 @@ def describe(data: MachineData) -> str:
     if data.assessment is not None:
         level = str(data.assessment.get("assessment", ""))
         diagnosis = str(data.assessment.get("diagnosis", "NONE"))
-        parts.append(LEVEL_WORDS.get(level, words(level)) + ("" if diagnosis in ("NONE", "") else f", {words(diagnosis)}"))
+        same = diagnosis in ("NONE", "", level)                   # NORMAL/NORMAL says it once
+        parts.append(LEVEL_WORDS.get(level, words(level)) + ("" if same else f", {words(diagnosis)}"))
     readings = data.readings or {}
     shown = [f"{label} {text}{unit}" for key, label, unit, decimals in KEY_READINGS[MACHINES[data.node]]
              if (text := _number(readings.get(key), decimals)) is not None]

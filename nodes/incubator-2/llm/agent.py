@@ -23,6 +23,7 @@ is cancelled and the reply ends with a fallback from the data gathered so far. E
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import re
@@ -54,6 +55,7 @@ GATEWAY_CHAT_S = 30.0                         # the gateway's deadline for a Cha
 ALERT_TEMPLATE_S = 0.5                        # an alert's template is sent within this of hearing it
 ALERT_REWORD_S = 2.0                          # the model may reword it only if verified within this in total
 MAX_TOOL_ROUNDS = 2
+WARM_S = 30.0                    # the warm-up's own deadline (cold prefill 6.5 s, or a server still loading)
 MAX_CITATIONS = 3
 QUEUE_SIZE = 64
 CONFIRM_SECONDS = 60
@@ -174,6 +176,38 @@ class Agent:
         self.alert_levels: dict[tuple[str, NodeId], str] = {}         # (feed, node) -> last alert level heard
         self._listeners: list[Callable[[OwnerAlert], Awaitable[None]]] = []
         self.tool_schemas = self._tool_schemas()
+        self._warming: asyncio.Future[float | None] | None = None
+        self.warm_ms: float | None = None                              # the last successful warm-up, measured
+
+    # --- the server's prompt cache ----------------------------------------------------------------------------
+
+    async def warm(self) -> float | None:
+        """Prefill the fixed start of every prompt (the persona and the tool schemas) into the server's cache, so a
+        turn pays only for its own data. Measured on the RX 580 (31 Oct): 6.5 s to the first token with a cold
+        cache, 2.1 s with the fixed start cached; the first-token watchdog is FIRST_TOKEN_S. None on failure."""
+        started = time.monotonic()
+        try:
+            async for _ in self.engine.chat_stream(
+                    [*fixed_start(self.persona), {"role": "user", "content": "<data>ready?</data>"}], max_tokens=1,
+                    temperature=0.0, tools=self.tool_schemas, deadline_s=WARM_S, first_token_s=WARM_S):
+                pass
+        except EngineError as error:
+            log(self.logger, logging.WARNING, "prompt cache warm-up failed", error=str(error)[:200])
+            return None
+        self.warm_ms = (time.monotonic() - started) * 1000
+        log(self.logger, logging.INFO, "prompt cache warmed", ms=round(self.warm_ms))
+        return self.warm_ms
+
+    def rewarm(self) -> None:
+        """Warm the cache in the background (at start, and after the server failed: a restarted server is cold)."""
+        if self._warming is None or self._warming.done():
+            self._warming = asyncio.ensure_future(self.warm())
+
+    async def close(self) -> None:
+        if self._warming is not None and not self._warming.done():
+            self._warming.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._warming
 
     # --- the interface -----------------------------------------------------------------------------------------
 
@@ -442,6 +476,7 @@ class Agent:
         except EngineError as error:
             turn.outcome, turn.reason = "fallback", f"language model unavailable: {str(error)[:200]}"
             await send(self._join(said, fallback_text(list(turn.machines.values()), "model")))
+            self.rewarm()
         if turn.outcome == "answered" and not said:
             turn.outcome, turn.reason = "fallback", "the language model returned no text"
             await send(fallback_text(list(turn.machines.values()), "verify"))
@@ -460,7 +495,8 @@ class Agent:
         went out verified; otherwise why the first failing sentence was stopped."""
         sampling = self.persona.sampling
         for round_ in range(MAX_TOOL_ROUNDS + 1):
-            offer = self.tool_schemas if tools and round_ < MAX_TOOL_ROUNDS else None
+            # the schemas go with every call, even when no tool may be called, so the cached prompt start stays the same
+            allowed = tools and round_ < MAX_TOOL_ROUNDS
             fragments: list[dict[str, Any]] = []
             buffer = ""
             started = time.monotonic()
@@ -468,7 +504,7 @@ class Agent:
             stream = self.engine.chat_stream(
                 messages, max_tokens=style.max_tokens, temperature=min(style.temperature, sampling.temperature),
                 top_p=sampling.top_p, min_p=sampling.min_p, top_k=sampling.top_k,
-                repeat_penalty=sampling.repeat_penalty, tools=offer,
+                repeat_penalty=sampling.repeat_penalty, tools=self.tool_schemas,
                 deadline_s=max(0.5, min(self.llm_call_s, self._remaining(turn) - 1.0)),
                 first_token_s=self.first_token_s)
             try:
@@ -485,6 +521,9 @@ class Agent:
             finally:
                 await stream.aclose()
                 turn.llm_ms += (time.monotonic() - started) * 1000
+            if fragments and not allowed:
+                turn.tool_calls_invalid += 1
+                return "it asked for a tool after its last tool round"
             if fragments:
                 calls = assemble_tool_calls(fragments)
                 messages = [*messages, {"role": "assistant", "content": "", "tool_calls": calls}]

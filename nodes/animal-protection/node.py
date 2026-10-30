@@ -198,6 +198,7 @@ class Node:
             if self.engine is not None and self.persona is not None:
                 from llm.agent import Agent
                 self.agent = Agent(self, self.engine, self.persona, logger=self.logger)
+                self.agent.rewarm()
             self.alert_desk = AlertDesk(self.link, logger=self.logger,
                                         deliver=self.agent.alert if self.agent is not None else None)
         elif self.engine is not None:
@@ -237,6 +238,8 @@ class Node:
         for task in [*self._tasks, *self._background]:
             task.cancel()
         await asyncio.gather(*self._tasks, *self._background, return_exceptions=True)
+        if self.agent is not None:
+            await self.agent.close()
         if self.engine is not None:
             await self.engine.close()
         await self.link.close()

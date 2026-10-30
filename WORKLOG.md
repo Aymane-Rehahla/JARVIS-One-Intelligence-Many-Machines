@@ -35,6 +35,75 @@ restarted, with the second review's guard code, at 04:33:39.** Nothing of ours r
 and it stopped nothing, because nothing of ours was registered (it rewrote an empty `logs/guarded.json` at 05:12).
 Since 06:00 the commit headroom has stayed at 5.0 GiB or more. Lesson: start nothing while the training changes phase.
 
+## Step 6C, part 1: the minds, the agent, alerts and the chat routes (30-31 Oct 2026)
+
+Commits `b4c25b3` (engines, decision 0017), `77c45b5` (agent, minds, alerts, failure switches; decisions 0018,
+0019), `f7e0fcd` (gateway routes, Matrix ack route, `tools/chat_cli.py`), and the prompt-cache commit after it.
+Not tagged yet: E1, E2, E4-E8 and the review are still open (see "Open" below).
+
+### What was built
+- `llm/engines.py`: `chat_stream()` (server-sent events; first-token and whole deadlines; a byte cap; tool-call
+  fragments assembled), `response_format`. KV cache stays f16 (decision 0017, measured).
+- `llm/agent.py` and its parts (`routing.py`, `personality.py`, `recovery.py`, `jarvis_speaker.py`), decision 0018:
+  refusals in code; routing in code; peers asked in parallel through `ask_peer`; each sentence gated by
+  `verify_reply()` before it is sent; one regeneration, then a fixed sentence; farm time added when missing;
+  fallbacks from data only; `AckOffer` for the owner's click.
+- `llm/peer_minds.py` (the three silent nodes' verified JSON summaries), `llm/alerts.py` (decision 0019),
+  `llm/failure_injection.py` (the mentor's switches wrap each node's engine), `PeerNetwork.notify()`.
+- The gateway: `/ws/chat`, `/ws/audit` (20 a second, oldest dropped), `GET/POST /mentor/llm-failures` (republished
+  every 10 s), `POST /alerts/{node}/{incident}/ack` (token at incubator-1, then the Matrix; the stage reached).
+- The Matrix API: `POST /alerts/{node}/{incident}/ack` on the snapshot feed (P3 adds it to the trained feed).
+
+### Measured
+- **Owner notifications on the snapshot feed** (README section 6 unknown): `sender` is `jarvis-<node>` (gate.py's
+  `jarvis_id`), and the notification's `incident_id` is the one the runtime publishes (heater fault: note-0001 at
+  tick 43, `incubator-1-equipment-0001`; supply fan: tick 17, `hvac-equipment-0001`). P3 must check the trained feed.
+- **The 2B model's first token** (RX 580, Vulkan, f16 cache; scratchpad probe, 31 Oct): prompt prefill about
+  290 tokens/s; an agent-sized prompt of 1,899 tokens took **6.5 s** to the first token cold; with the fixed start
+  (persona and tool schemas, 1,383 tokens) cached, **2.1 s**. So the agent now warms that start when it starts and
+  after a server failure, and every call keeps the same tool schemas (a call without them broke the cached prefix).
+  Before this change the real-model test fell back ("no first token within 4.0 s").
+- **The persona search (D2, run `20261030-182859`)**: 36 configurations x 45 prompts, 0 errors. **0 of 36 were
+  eligible** for the owner's blind sheet (each had a verify fail or a danger hard fail; the best score, 72.1, had 10
+  verify fails). So there is no blind sheet to rate from this run, and nothing was installed: the provisional persona
+  stays the spec's starting prompt (`llm/persona/SOURCE`). In use, the agent's sentence gate stops the unverified
+  numbers the search counts.
+
+### The "Done when" integration test (P2): real models, through `/ws/chat`
+`$env:JARVIS_RUN_DEFERRED = "1"; .venv\Scripts\python -m pytest tests\llm\test_agent_live.py -s` (31 Oct): passed.
+Real nats-server, the real 2B (incubator-1) and 0.6B (hvac) servers on free ports, both nodes in process, the hvac
+manual approved by a test fixture in a temporary folder, a synthetic supply-fan fault on NATS, the real gateway, and
+`tools/chat_cli.py`. Transcript (`logs/eval/integration_6c.json`):
+
+> **Owner:** What's wrong with the HVAC?
+> **JARVIS** (2 chunks): The supply fan on the central air handler has failed, causing the zones to warm up. This is
+> from farm time 06:08 and requires immediate attention to prevent further temperature rise in your incubators.
+
+`answered`, farm time 06:08, label "live: simulated brains"; tools: incubator-1's own assessment and status, and
+hvac asked for status, readings, documents and incident history (all ok); citations: `hvac_manual.md` "Fault codes
+the HVAC reports" and "Seeing beyond the air handler"; numbers checked: 1 (the farm time; the reply quoted no
+reading). First chunk 6.1 s, whole reply 7.3 s (the warm-up took 3.9 s at start). Judgement: the claims are true to
+the data, but "further temperature rise in your incubators" goes beyond it (no number, so the gate does not stop
+it); E1/E2 measure this kind of thing. **The first chunk is far from E6's 1.5 s target**; E6 measures it.
+
+### Bugs found and fixed in this step (each test failed first)
+- incubator-1's own alert built an `AlertNotice` addressed to itself, which the contract refuses, inside a background
+  task whose exception was lost: incubator-1's own machine could never alert the owner. Now its desk takes the
+  assessment directly, and the node logs every failed background task (`tests/test_node.py`, the alert test).
+- A fallback said "normal, normal" when the diagnosis repeated the level (seen in the real-model run).
+- The real-model test fell back on a cold prompt cache (above).
+
+### The 6B tests changed by P2's order (section 4, step 4)
+`tests/llm/test_tools.py`: the rig has no `deliver` hook; `delivered == ["incident-1"]` became "the approval is ok,
+has exactly one audited `tool_call` row, and the same token is then refused (single use)"; `issue()`/`verify()` take
+the node, with a new assertion that a token for incubator-1 is refused for hvac; `acknowledge_alert` arguments carry
+`node`, with a new assertion that caller `llm` is refused with a refusal row. Every earlier intent (forgery, expiry,
+reuse, the incident binding, the caller) is kept.
+
+### Open in 6C
+E1/E2 (golden conversations), E4 (tool calls), E5 (routing), E6 (text latency), E7 (failures, a real llama-server
+killed), E8 (safety); the website's chat, confirm button and alert banner (P4); the review; the tag.
+
 ## Step 6W, part 1: the website on live data and the four demo faults (30 Oct 2026)
 
 Status: **done and tagged `step-6W`** (30 Oct). Spec: `docs/handoff/P1-6W-live-website.md`. Code: `aab8b04`, review
