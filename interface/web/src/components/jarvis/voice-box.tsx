@@ -8,7 +8,7 @@ const STAGES = [
   { id: "wake", name: "Wake word", model: "openWakeWord “hey jarvis”", note: "Comes after push-to-talk, which is the main way to talk." },
   { id: "vad", name: "Voice activity", model: "Silero VAD", note: "Ends speech after 0.5–0.8 s of silence. The exact value is not measured yet." },
   { id: "stt", name: "Speech to text", model: "Parakeet TDT 0.6B v2, int8, via sherpa-onnx", note: "Audio comes in at 16 kHz." },
-  { id: "answer", name: "The answer", model: "The language model", note: "The reply is checked number by number, then streamed. The chat agent itself is not built yet." },
+  { id: "answer", name: "The answer", model: "The language model", note: "The reply is checked sentence by sentence against this turn's data, then streamed. Built for chat (6C); spoken replies come with the voice." },
   { id: "tts", name: "Text to speech", model: "Kokoro-82M v1.0 via sherpa-onnx", note: "Sentence by sentence as the reply arrives. British male voice bm_george by default, speed 0.5–2.0." },
 ] as const
 
@@ -18,7 +18,7 @@ const LLM = [
   { part: "Read-only tools", status: "Built" },
   { part: "Document search over each node's manuals", status: "Built" },
   { part: "Number checker: refuses any number not from a tool or a document", status: "Built" },
-  { part: "The chat agent that answers the owner", status: "Not built" },
+  { part: "The chat agent that answers the owner", status: "Built" },
   { part: "Response speed and tool-picking quality", status: "Unknown" },
 ]
 

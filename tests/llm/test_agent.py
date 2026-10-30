@@ -266,6 +266,8 @@ async def test_acknowledging_offers_a_single_use_confirm_button(rig: dict[str, A
     assert offer.node == "hvac" and offer.incident_id == "hvac-equipment-0001"
     assert rig["confirm"].verify("hvac", "hvac-equipment-0001", offer.token)
     assert not rig["confirm"].verify("hvac", "hvac-equipment-0001", offer.token)          # single use
+    # seen in the live run (31 Oct): "To acknowledge the The HVAC alert, equipment, ..."
+    assert done.text.startswith("To acknowledge the alert on the HVAC (equipment), press Confirm within 60 seconds")
 
 
 @pytest.mark.asyncio

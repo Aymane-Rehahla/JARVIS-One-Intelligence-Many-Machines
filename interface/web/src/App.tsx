@@ -10,6 +10,7 @@ import {
   Info,
   LayoutDashboard,
   Menu,
+  MessageSquare,
   Network,
   OctagonAlert,
   Pause,
@@ -49,6 +50,9 @@ import { Toaster } from "@/components/ui/sonner"
 import { ASSESSMENT_TONES, worstAssessment } from "@/lib/assessment"
 import { cn } from "@/lib/utils"
 import { useFarm, type Farm } from "@/hooks/use-farm"
+import { useChat } from "@/hooks/use-chat"
+import { AlertBanner, ChatPage } from "@/components/chat/chat-page"
+import { LlmSwitchesPanel } from "@/components/chat/llm-switches"
 import { AssessmentBadge, EmptyState, Kicker, Notice, PageHeader } from "@/components/farm-ui"
 import { JarvisPage } from "@/components/jarvis/jarvis-page"
 import { JarvisVoice } from "@/components/jarvis-voice"
@@ -80,6 +84,7 @@ const FarmScene3D = lazy(() => import("@/components/farm/FarmScene3D").then((mod
 const navItems = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
   { id: "jarvis", label: "JARVIS", icon: Network },
+  { id: "chat", label: "Chat", icon: MessageSquare },
   { id: "simulator", label: "Simulator", icon: Play },
   { id: "devices", label: "Devices", icon: SlidersHorizontal },
   { id: "events", label: "Events & alarms", icon: Bell },
@@ -95,6 +100,7 @@ function App() {
   const [mobileOpen, setMobileOpen] = useState(false)
 
   const state = farm.state
+  const chat = useChat(state.source === "live")
   const selectedDevice = selectedDeviceId ? deviceById(state, selectedDeviceId) ?? null : null
 
   const [eventQuery, setEventQuery] = useState("")
@@ -138,7 +144,7 @@ function App() {
   const activateVoice = () => {
     if (!farm.voiceDemo()) {
       toast.info("Voice isn't connected yet", {
-        description: state.source === "live" ? "Available after 6C/6E. The demo mode previews how JARVIS listens and speaks." : "Use demo mode to preview how JARVIS listens and speaks.",
+        description: state.source === "live" ? "The voice comes in step 6E; ask in writing on the Chat page. The demo mode previews how JARVIS listens and speaks." : "Use demo mode to preview how JARVIS listens and speaks.",
       })
     }
   }
@@ -175,7 +181,7 @@ function App() {
                   <TabNavigation page={page} onNavigate={navigate} />
                 </SheetContent>
               </Sheet>
-              <button type="button" onClick={() => navigate("overview")} aria-label="JARVIS farm, overview" className="shrink-0">
+              <button type="button" onClick={() => navigate("overview")} aria-label="JARVIS, overview" className="shrink-0">
                 <BrandMark />
               </button>
               <nav aria-label="Main" className="ml-auto hidden h-full items-stretch lg:flex">
@@ -211,6 +217,7 @@ function App() {
               </div>
             </div>
             <SystemBar state={state} isConnecting={farm.isConnecting} liveAvailable={farm.liveAvailable} onGoLive={farm.goLive} onEvents={() => navigate("events")} />
+            <AlertBanner chat={chat} onOpen={() => navigate("chat")} />
           </header>
           <main className="px-4 py-8 sm:px-6 md:px-10 md:py-12">
             {page === "overview" && (
@@ -238,6 +245,7 @@ function App() {
               />
             )}
             {page === "jarvis" && <JarvisPage state={state} farm={farm} />}
+            {page === "chat" && <ChatPage state={state} farm={farm} chat={chat} />}
             {page === "events" && (
               <EventsPage state={state} farm={farm} initialQuery={eventQuery} />
             )}
@@ -255,12 +263,11 @@ export default App
 // Shell
 // ---------------------------------------------------------------------------
 
-/** The wordmark: "jarvis" reversed out of a dark block, then FARM. */
+/** The wordmark: "jarvis" reversed out of a dark block. The product is JARVIS; the farm is only its test bench. */
 function BrandMark({ inverse = false }: { inverse?: boolean }) {
   return (
     <span className="flex items-center gap-1.5 leading-none">
       <span className={cn("px-1.5 pb-[3px] pt-[2px] text-[17px] font-bold lowercase [font-stretch:125%]", inverse ? "bg-background text-foreground" : "bg-foreground text-background")}>jarvis</span>
-      <span className={cn("text-[17px] font-semibold uppercase [font-stretch:125%]", inverse ? "text-background" : "text-foreground")}>Farm</span>
     </span>
   )
 }
@@ -538,7 +545,7 @@ function Overview({
     <div className="mx-auto max-w-[1400px] space-y-10">
       <PageHeader
         index="01"
-        kicker="Farm overview"
+        kicker="JARVIS"
         title={<>Four machines.<br />One JARVIS.</>}
         action={
           offline ? (
@@ -554,6 +561,20 @@ function Overview({
           )
         }
       />
+      <section aria-label="What JARVIS is" className="grid gap-6 border-b pb-8 md:grid-cols-3">
+        <p className="text-[16px] leading-7 md:col-span-2">
+          JARVIS is one mind that lives in machines. Every machine carries its own node, and together the nodes are one
+          JARVIS that keeps thinking: each node's Continuous Thought Machine thinks every second, carries its thought on
+          to the next, and notices, weighs and concludes before anyone asks. Its memory records what it concluded; its
+          language model and voice talk to you. They talk; they never act. A safety gate outside the brain checks the
+          evidence before any action.
+        </p>
+        <p className="text-[14px] leading-6 text-muted-foreground">
+          <span className="label-mono mr-2 text-foreground">The test bench //</span>
+          The four machines below run in the Matrix, a physics simulation built to test JARVIS: faults happen there,
+          and JARVIS has to catch them.
+        </p>
+      </section>
       {activeIncidents > 0 && (
         <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 border-l-[3px] border-l-signal bg-foreground px-5 py-4 text-background">
           <p className="min-w-0 text-[14px] leading-6">
@@ -665,7 +686,7 @@ function SupervisorPanel({ state, onDemo, onOpen }: { state: FarmState; onDemo: 
       )}
       <div className="mt-2 flex justify-between border-t pt-3">
         <span className="label-mono text-muted-foreground">Messages to the owner</span>
-        <span className="font-mono text-[13px] tabular-nums">{state.source === "demo" ? state.jarvis.announcements : state.source === "live" ? "available after 6C" : "None"}</span>
+        <span className="font-mono text-[13px] tabular-nums">{state.source === "demo" ? state.jarvis.announcements : state.source === "live" ? "on the Chat page" : "None"}</span>
       </div>
     </Panel>
   )
@@ -906,6 +927,7 @@ function Simulator({
       >
         <FarmScene3D devices={state.devices} onDevice={onDevice} />
       </Suspense>
+      {live && <LlmSwitchesPanel />}
       <TimelineCard state={state} />
       <AlertDialog open={confirmInject} onOpenChange={setConfirmInject}>
         <AlertDialogContent>
@@ -1285,7 +1307,7 @@ function EventsPage({
         title="Events & alarms"
         action={
           isLive ? (
-            <span className="label-mono text-muted-foreground">Acknowledging alerts: available after 6C (your words + a confirm click)</span>
+            <span className="label-mono text-muted-foreground">To acknowledge an alert, ask JARVIS in your own words, then confirm</span>
           ) : <>
             <Button variant="outline" size="sm" onClick={() => (criticalOpen ? setConfirmAcknowledgeAll(true) : acknowledgeEverything())} disabled={openCount === 0}>
               <CheckCircle2 className="size-3.5" />

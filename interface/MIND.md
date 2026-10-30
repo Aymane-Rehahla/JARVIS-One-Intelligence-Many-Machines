@@ -47,7 +47,7 @@ page is about the test bench.
 | Neurons have positions or layers | The model has **no geometry**. Any 2D or 3D placement is a layout choice, so say so ("positions are a layout; the links and the activity are real"). Laying neurons out by their real links (a force layout on `edges`) is honest; input, hidden and output layers are not, because no neuron is an input or an output neuron. | n/a |
 | The CMM interacts with the CTM | In the shipped recipe the brain **does not read the CMM**: its memory-note inputs are blanked (`hide_notes=True`, a design choice: those notes came from the old rule brains). The CMM **records** what the brain concluded and what the machine reported. The brain's own short-term memory is its 32-step trace, carried from second to second. | `architecture.json` → `inputs.notes_hidden` |
 | Voice Box | **Not built yet.** The models are chosen and downloaded, but no voice code runs today. Show it as "planned", never as working. | §5 |
-| The LLM | **Partly built.** Its tools, document search and number checking exist and are tested. The chat agent that answers the owner is **not built yet**. | §6 |
+| The LLM | **Built for chat (6C, 31 Oct).** Its tools, document search and number checking, and the chat agent that answers the owner in writing (every sentence checked against that turn's data before it is sent). Voice is not built yet. | §6 |
 | The tab must show the effort | Effort is **not** a varying step count, because it is always 16. The real effort signals are in every thought: certainty after each step (how sure), the RMS change of the activity after each step (how much the thought is still moving), and the measured time of one thought. | `per_step.certainty`, `per_step.rms_change`, `latency_ms` |
 
 ## 2. One thought, in order (what the code really does)
@@ -196,8 +196,12 @@ way to talk.** A DANGER alert interrupts anything being said. Audio comes in at 
 - **Servers:** one llama.cpp server per node (Vulkan build for the RX 580).
 - **Built (step 6B):** read-only tools, document search over each node's manuals, and the number checker. The checker
   refuses any number in a reply that doesn't come from a tool or a document.
-- **Not built yet:** the chat agent (6C).
-- **Unknown:** response speed, and how well the 2B model picks tools. Neither is measured yet.
+- **Built (step 6C, 31 Oct):** the chat agent on incubator-1: it asks the other nodes, writes with the 2B model, checks
+  each sentence against that turn's data before sending it, states the farm time, and falls back to a template built
+  from the data when the model fails. The three other nodes summarise their own answers with the 0.6B model, checked
+  the same way. Alerts reach the owner from a fixed template.
+- **Measured once (31 Oct, one real run):** first piece of a reply 6.1 s, whole reply 7.3 s. The full latency
+  measurement (E6) and how well the 2B model picks tools (E4) are not done yet.
 - **What the LLM may not do:** it talks; it never acts. No machine commands, no emergency calls, no CMM access.
 
 ## 7. The current website's brain view: what is wrong with it

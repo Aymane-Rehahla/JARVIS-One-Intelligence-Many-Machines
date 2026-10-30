@@ -35,6 +35,34 @@ restarted, with the second review's guard code, at 04:33:39.** Nothing of ours r
 and it stopped nothing, because nothing of ours was registered (it rewrote an empty `logs/guarded.json` at 05:12).
 Since 06:00 the commit headroom has stayed at 5.0 GiB or more. Lesson: start nothing while the training changes phase.
 
+## Step 6W, part 2 (first piece): the website's chat, acknowledgement, alerts and LLM switches (31 Oct 2026)
+
+- Built: `src/services/chat.ts` (the conversation as a pure reducer, the `/ws/chat` client with zod checks and
+  backoff, the ack and mentor-switch calls), `src/hooks/use-chat.ts`, the Chat page (the reply growing piece by
+  piece; on its ChatDone: outcome and reason, farm time, label, numbers verified, sources, what was asked, timings; a
+  lost piece shown as such; ChatError shown), the confirm button with its countdown, the alert banner on every page
+  (DANGER in the danger colour; each alert also joins the chat), and the mentor's LLM switches on the Simulator page
+  ("test only"). The identity fix (MIND.md section 0): the wordmark says JARVIS only, the overview introduces JARVIS
+  and calls the farm its test bench; stale "available after 6C" texts updated; MIND.md section 6 updated.
+- Tests: `tests/test_chat_logic.py` runs `scripts/check-chat.ts` under Node 24 on sequences made by the Python
+  contracts (chunks joined = done text, out-of-order pieces, a gap in seq, fewer pieces than the done says, ChatError,
+  late pieces after a timeout, an alert in the middle of a reply and sent twice, one question at a time, fallback and
+  refused, invalid messages and a closed socket, the confirm countdown and expiry): passed.
+- Bundle: main JS 584 → 607.5 kB (+4 %); CSS 141 kB; the 3D chunk unchanged.
+- **Real run (31 Oct, about 00:45 local, `start_all.ps1 -NoLlm`, website at 5173):** live mode connected; "What's
+  wrong with the HVAC?" got a fallback built from the data in 4.8 s (no language servers; the reason shown); the
+  supply-fan demo fault was injected from the website and the HVAC's own alert reached the banner at farm time 06:02
+  (through the radio); "Acknowledge the HVAC alert." got a confirm offer (60 s countdown); the click was checked by
+  incubator-1 and recorded by the Matrix (`farm_runtime` log: "owner acknowledged", note-0001, tick 162; the website
+  showed "Acknowledged: the Matrix recorded it"); the silent-peer switch for the HVAC was set from the website, and
+  `tools/chat_cli.py "How is the HVAC?"` then described the HVAC from its last report of this run. Everything was
+  stopped with `stop_all.ps1`; the ports were free.
+- Found and fixed in that run: the offer read "To acknowledge the The HVAC alert, equipment" (test first); a
+  fallback's "0 numbers verified" now says it was written from the data by a template; the nav label "Ask JARVIS"
+  wrapped, now "Chat".
+- Open: the JARVIS AI page (W7), the audit and latency view (A10), the voice menu (6E). A silent peer's fallback
+  quotes its last report but not the alert heard from it since (noted for 6F).
+
 ## Step 6C, part 1: the minds, the agent, alerts and the chat routes (30-31 Oct 2026)
 
 Commits `b4c25b3` (engines, decision 0017), `77c45b5` (agent, minds, alerts, failure switches; decisions 0018,

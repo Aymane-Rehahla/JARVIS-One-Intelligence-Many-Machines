@@ -17,6 +17,11 @@ from contracts import MACHINES, NodeId
 
 NAMES: dict[NodeId, str] = {"incubator-1": "Incubator one", "incubator-2": "Incubator two", "hvac": "The HVAC",
                             "animal-protection": "Animal protection"}
+def in_sentence(node: NodeId) -> str:
+    """A machine's name inside a sentence: "the HVAC", "incubator one"."""
+    return "the HVAC" if node == "hvac" else NAMES[node].lower()
+
+
 LEVEL_WORDS = {"NORMAL": "normal", "HANDLED_BY_MACHINE": "handling a problem by itself",
                "WATCHING": "watching something", "ESCALATE_TO_USER": "needs you", "DANGER": "in danger"}
 #: The readings a fallback reply gives per machine: (key, words, unit, decimals).

@@ -48,7 +48,7 @@ type Injected = { scenarioId: ScenarioId; feedId: string; startS: number; endTic
  * Chooses the live farm (through the gateway) or the clearly labelled demo. Live is the default; the owner may choose
  * the demo, which stays available. While live is chosen and the gateway is down, silent or its farm stalled, the pages
  * show "not connected" (never the demo, never old values as if live). In live mode the actions go to the gateway;
- * chat, voice and acknowledging events are not wired yet (the pages say "available after 6C").
+ * the chat (and acknowledging an alert: the owner's words, then a confirm click) is useChat(); voice comes in 6E.
  */
 export function useFarm(): Farm {
   const demo = useDemoFarm()
@@ -178,7 +178,7 @@ export function useFarm(): Farm {
       reset: () => void act("reset"),
       setSpeed: (speed: SimulationSpeed) => void act("speed", speed),
       inject: (scenarioId: ScenarioId) => void inject(scenarioId),
-      // Acknowledging needs the owner's words and a confirm click (ground rule 3): available after 6C, never here.
+      // Acknowledging needs the owner's words and a confirm click (ground rule 3): the chat's confirm offer, never here.
       acknowledge: () => undefined,
       acknowledgeAllEvents: () => undefined,
       clearResolved: () => undefined,

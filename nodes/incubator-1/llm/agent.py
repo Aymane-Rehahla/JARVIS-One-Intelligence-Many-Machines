@@ -40,7 +40,7 @@ from contracts import (NODE_IDS, AckOffer, ChatChunk, ChatDone, Citation, FeedLa
 from llm.engines import EngineError, assemble_tool_calls
 from llm.jarvis_speaker import Persona, fixed_start, history_messages, turn_message
 from llm.personality import Style, style_for
-from llm.recovery import NAMES, MachineData, PeerMemory, describe, fallback_text, words
+from llm.recovery import NAMES, MachineData, PeerMemory, describe, fallback_text, in_sentence, words
 from llm.routing import ALIASES, Route, route
 from llm.tools import PEER_DEADLINE_S
 from llm.verify import states_farm_time, verify_reply
@@ -632,7 +632,7 @@ class Agent:
             return
         incident = data.incident
         if not incident or incident.get("state") == "closed" or not incident.get("incident_id"):
-            await send(f"There's no active alert on {NAMES[node].lower() if node != 'hvac' else 'the HVAC'} "
+            await send(f"There's no active alert on {in_sentence(node)} "
                        f"at farm time {data.farm_time or farm_time}, sir.")
             return
         incident_id = str(incident["incident_id"])[:80]
@@ -641,7 +641,7 @@ class Agent:
         kind = words(str(incident.get("kind") or (data.assessment or {}).get("diagnosis") or "alert"))
         summary = f"{NAMES[node]}: {kind} (incident {incident_id}), as of farm time {data.farm_time}"[:300]
         turn.confirm = AckOffer(node=node, incident_id=incident_id, token=token, expires_utc=expires, summary=summary)
-        await send(f"To acknowledge the {NAMES[node]} alert, {kind}, press Confirm within {CONFIRM_SECONDS} seconds, "
+        await send(f"To acknowledge the alert on {in_sentence(node)} ({kind}), press Confirm within {CONFIRM_SECONDS} seconds, "
                    f"sir. It tells the machine you have seen it; it changes nothing on the machine. "
                    f"Its data is as of farm time {data.farm_time}.")
 
