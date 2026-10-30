@@ -8,34 +8,26 @@ Never write the three outside paths (the release folder, the training's Python, 
 | Step | Commit / tag | Evidence |
 |---|---|---|
 | Step 0: redesigned website swapped in | `7de674e` | WORKLOG.md, "Step 0" |
+| P1 (6W part 1): demo faults, live website, review fixed, decision 0020 | `aab8b04`, `35e6297`, `9430629`, tag `step-6W` | WORKLOG.md, "Step 6W, part 1" |
+| 6C engines: streaming, tool calls, KV cache decision 0017 (keep f16; flash attention works) | `b4c25b3` | decision 0017 |
+| 6C agent, peer minds, alerts, failure switches, node wiring; decisions 0018, 0019 | `77c45b5` | tests/llm/test_agent.py, test_minds_alerts_failures.py, tests/test_node.py |
+| 6C gateway routes (/ws/chat, /ws/audit, mentor switches, ack) + Matrix ack route + tools/chat_cli.py | `f7e0fcd` | tests/test_gateway_chat.py, tests/test_farm_runtime.py |
 
-## In progress: P1 (6W part 1). Written and tested, NOT committed yet (30 Oct, about 16:30)
+Measured on 31 Oct: the snapshot's owner notifications name their sender `jarvis-<node>`, and their incident id is
+the one the runtime publishes (README section 6 unknown, answered for the test feed; P3 must check the trained feed).
 
-Uncommitted files, all passing their own tests:
-- `nodes/incubator-1/contracts.py` (+ synced copies): `ScenarioId`, `SCENARIO_IDS`, `FaultResult` (never on NATS);
-  `interface/contracts/FaultResult.schema.json`; zod `FaultResult` and the `FarmEvent/FarmStatus/FarmAssessment` types
-  in `interface/web/src/services/contracts.ts`; a `FaultResult` sample in `tests/test_contracts_zod.py` (41 passed).
-- `matrix/farm_runtime.py`: `POST /faults/{id}`, `DEMO_FAULTS` (first ordinary library variant matching the website:
-  heater_relay_stuck v9 on incubator-1; supply_fan_failure v1; sensor_fault v228 = incubator-2.humidity_1 drift
-  +0.00349 %/s; overvoltage v1 shared 267.9 V for 221 ticks), one fault per run, 409, reset clears.
-  Tests appended to `tests/test_farm_runtime.py`: N per fault = 1, 1, 15, 1 farm ticks; epistemic wall holds for all
-  four (the only match is the incubators' own `power_status` "overvoltage" reading, judged telemetry); a paused
-  injection publishes nothing. Rule brains: heater ESCALATE after 42 ticks, fan ESCALATE after 18, overvoltage
-  HANDLED_BY_MACHINE after 1, humidity drift NO reaction within 900 ticks (measure longer; report honestly).
-- `interface/gateway/gateway.py`: `/faults/{id}` (422/404/409/502/503), `FarmView.follow()` (new feed clears, late
-  messages dropped, 16 retired runs). `tests/test_gateway_faults.py` (9 tests) + `tests/test_gateway.py`: 17 passed.
-- Website: `src/services/live-map.ts` (pure mapping), `src/services/live.ts` (WS client, zod, backoff 1..30 s,
-  HTTP actions), `src/hooks/use-farm.ts` (live by default when the gateway answers, demo on request), `App.tsx` and
-  `jarvis-page.tsx` live labels (feed label, farm time, asked vs reached speed, refusals shown, acknowledging marked
-  "available after 6C"), `matrix.ts` (`LiveInfo`, `import.meta.env?.`). `scripts/check-live-map.ts` +
-  `tests/test_live_map.py`: 1 passed; mapping mean 0.75 ms, p95 0.80 ms over 1,000 snapshots.
-- Also uncommitted, from helpers, to review before committing: `tests/llm/eval/run_all.py` + `test_run_all.py`
-  (7 passed per the helper); `tests/llm/retrieval/retrieval_set.json`, `test_retrieval_set.py`,
-  `tests/llm/eval/e3_retrieval.py` (E3 ran: hybrid Recall@4 0.909 overall, misses per machine; `logs/eval/E3.json`).
+## Next (in order)
 
-Before committing P1: website typecheck + build (sizes), pyright on touched paths, the touched tests, name guard.
-Then P1 section F (the real run with `start_all.ps1 -NoLlm`, the four faults from the website), WORKLOG evidence,
-decision 0020, an independent review, the full suite twice, then tag `step-6W`.
+1. 6C still open: install the provisional persona from the D2 persona search results (top eligible automatic config;
+   never rate, never open sealed/); the real-model integration test ("What's wrong with the HVAC?" through /ws/chat,
+   real 2B + 0.6B servers, fixture-approved manuals, a synthetic hvac fault); WORKLOG 6C section.
+2. P4 chat, ack, alerts on the website (chat page, confirm button with countdown, alert banner, mentor LLM switches),
+   the identity fix (JARVIS, not "JARVIS Farm"), bundle size report.
+3. P3 (6D): torch into requirements, install_release, equivalence proof, trained feed, ack route on both feeds, E9/E10,
+   decision 0021.
+4. Rest of P2: E7 (real llama-server kill), E8 (draft of 18 attacks in the scratchpad: re-create if lost), E1/E2
+   golden, E4, E5 (>= 40 questions), E6 text; review; tag `step-6C`.
+5. P4 voice; tag `step-6E`. 6. run_all -> docs/results-phase6.md. 7. 6F (bugs, review, 3 rehearsals, docs, tag).
 
 ## Open bugs found (to log in WORKLOG and fix)
 
@@ -43,15 +35,15 @@ decision 0020, an independent review, the full suite twice, then tag `step-6W`.
   keyword query ORs every word including stopwords; H1 titles become tiny distractor passages; `_TokenCounter`
   catches every exception silently.
 - The logo/titles still say "JARVIS Farm" (owner's identity fix, MIND.md section 0): not done.
-
-## Next
-
-P1 F + tag → P2 core → P4 chat/ack/alerts → P3 → rest of P2 → P4 voice → run_all → 6F (README section 3).
+- 6W L8 (known limit): an old open alarm can fall out of the website's 50-event window.
+- P1 real run: the humidity-drift demo fault got no reaction from the rule brain in 127 farm minutes (reported, not
+  tuned).
 
 ## Open questions / owner actions
 
-- The owner alone: approve the 20 ROM documents; rate the persona; record the backup video.
+- The owner alone: approve the 20 ROM documents; rate the persona (blind sheet from the D2 search in
+  `logs/persona_search/`); record the backup video.
 - The hand-in must carry `interface/web/public/assets/farm/` (3D models, about 277 MB, out of git; see
   `interface/web/assets-manifest.json`).
-- On 30 Oct 14:57 another session's vite dev server (on the X: copy, PID 11212) held port 5173; it was not started by
-  this builder and was left alone. It must be stopped before the cold-start rehearsals (the launcher needs 5173).
+- Port 5173 may be held by another session's vite dev server (seen 30 Oct, not started by this builder); it must be
+  stopped before the cold-start rehearsals.
