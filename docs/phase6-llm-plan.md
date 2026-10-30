@@ -16,9 +16,9 @@ Hand-in **1 Nov**
 2. **Owner decisions:** 6D installs the trained brains inside JARVIS, re-saved as plain weights with a tensor-for-tensor
    proof (decision 0015); the voice's tone hint is cut (0016, plan section 11's third cut); one llama.cpp server per
    node stands (0013).
-3. **How the rest is built:** two builders in parallel, each on its own branch and folder, with the
-   contracts between their work fixed beforehand by the senior reviewer (`docs/handoff/`): 6C on one side; 6W, 6D and
-   6E on the other. Only the senior reviews, merges and tags. Proactive alerts move from 6D to 6C (they are the agent's).
+3. **How the rest is built:** one Claude session builds, reviews and tags 6W, 6C, 6D and 6E from the specs in
+   `docs/handoff/` (owner, 30 Oct; a 27 Oct plan for two builders in parallel was dropped). The contracts between
+   the steps were fixed first (`cf933a5`). Proactive alerts move from 6D to 6C (they are the agent's).
 4. **Dates:** the shipped system 31 Oct; hand-in 1 Nov.
 
 **v3.1 (24 Oct 2026), the owner's pause, then the owner's correction:**

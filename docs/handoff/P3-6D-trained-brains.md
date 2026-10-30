@@ -1,7 +1,8 @@
 # P3 · Step 6D: the trained brains, installed inside JARVIS
 
-**Builder:** Luna, in `C:\Users\Aymane\Desktop\JARVIS-luna`, branch `build-6w6d6e`, after P1 is committed. Read
-`docs/handoff/README.md` and **decision 0015** first: the owner chose how this is done, and 0015 is the design.
+**Builder:** the one builder, in `C:\Users\Aymane\Desktop\JARVIS` on `master`. Read `docs/handoff/README.md` (section
+2 says how to read this file now that there is one builder) and **decision 0015** first: the owner chose how this is
+done, and 0015 is the design.
 Your prompt gives you two paths: the **release folder** (release v3.1, read-only) and the **training's Python** (it
 has torch 2.14.1; you may run it, never install into it). Never write either path into any file, log you commit,
 commit message or report: say "the release folder" and "the training's Python". The **upstream CTM folder** is
@@ -86,7 +87,7 @@ differing tick and node; do not tune, do not "fix" the copy.
 - **Every Matrix API route works on both feeds:** `/sim/*`, `/links/*`, P1's `/faults/*`, and the new acknowledgement
   route below.
 
-**The owner-acknowledgement route** (Terra's gateway calls it; build exactly this): `POST /alerts/{node}/{incident_id}/ack`,
+**The owner-acknowledgement route** (P2's gateway calls it; build exactly this): `POST /alerts/{node}/{incident_id}/ack`,
 no body. It marks the current run's owner notifications that the node's brain sent for that incident and that are
 delivered but not yet acknowledged, as the Matrix's communications service does when the simulated owner answers
 (`matrix/communications.py`: the record's acknowledgement time becomes now, so its status turns "acknowledged" on the
@@ -106,7 +107,7 @@ brain and its CMM run and why (decisions 0012 and 0015). No code copies into the
 - **The safety path without any LLM (E7's brains part, plan P1):** with the trained feed and **no** LLM program at all
   (`start_all.ps1 -NoLlm`), each of the four demo faults injected through the gateway is still caught and the safety
   gate still acts; plus a static test that the farm runtime imports nothing from any node's `llm/`. Put the result in
-  your report (the senior merges it into E7).
+  WORKLOG.md and in E7.
 - **E9, the epistemic wall** (`tests/llm/eval/e9_epistemic_wall.py`): the four faults on the trained feed; record
   every message on every subject a node subscribes to (`farm.<node>.*`, `farm.links`, `farm.sim`, `jarvis.*`,
   `mentor.llm_failures`); collect the forbidden strings in-process from the engine (the scenario and episode ids, the
@@ -117,11 +118,11 @@ brain and its CMM run and why (decisions 0012 and 0015). No code copies into the
   judging or exam episode used (compute the library's seeds for those spec lists and prove the five are not among
   them), with the trained brains and with the rule brains on the same release copy: caught (the faulted machine's
   node leaves NORMAL with a diagnosis of that fault's kind; write down the mapping from family to diagnoses), and the
-  farm time from injection to detection. The explanation part (the agent's words) is measured after the merge.
+  farm time from injection to detection. The explanation part (the agent's words) is measured once P2's agent works.
   Known open issues the owner accepted (the release README): animal protection's false alerts on a calm farm,
   civil-protection calls, the incubator's response to its own stuck heater. Report what you measure; do not tune.
 
-## Done when (plan 6D, the parts on this branch)
+## Done when (plan 6D)
 
 | Check | Evidence |
 |---|---|

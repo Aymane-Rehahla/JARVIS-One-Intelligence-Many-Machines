@@ -1,170 +1,172 @@
-# Builder hand-off: 6W, 6C, 6D and 6E
+# Hand-off: the rest of Phase 6 (6W, 6C, 6D, 6E), for one builder
 
-Written by the senior reviewer (Claude) on 27 Oct. **Read all of this before your package file.** The builders work
-while the senior is away; the senior then reviews every commit line by line, fixes or sends back what is wrong,
-merges and tags. The system ships on 31 Oct; the hand-in is on 1 Nov.
+Written on 30 Oct 2026 by the Claude session that reviewed 6A and 6B. **Read all of it before touching anything.**
+Where something is not known, it says so; do not fill the gap with a guess, measure it or ask the owner.
 
-Where things stand: `step-6.0`, `step-6A` and `step-6B` are tagged. The training is over (the brains to ship are
-release v3.1). The plan is `docs/phase6-llm-plan.md` (v3.2); its sections 2 (ground rules) and 3 (engineering
-standard) apply to every line you write.
+## 0. The situation
 
-## 1. Who builds what, where
+- **You are the only builder,** a Claude session, working in `C:\Users\Aymane\Desktop\JARVIS` on branch `master`.
+  You commit, review (with an independent subagent, plan Q10) and tag yourself. There is no other builder and no
+  other branch or folder. (An earlier version of this file planned two builders in parallel; that plan was dropped
+  on 30 Oct and its branches and second folder were removed.)
+- **The owner** is busy with other work and wants this done without supervision. **Deadline: the system ships on
+  the night of Saturday 31 Oct; the hand-in is 1 Nov** (plan header). What exactly "ship" means beyond the plan's
+  step 6F (rehearsals from a cold start, a backup video, the docs) is **not known**: ask the owner when they are back.
+- **The plan** is `docs/phase6-llm-plan.md` (v3.2). Sections 2 (ground rules) and 3 (engineering standard) bind every
+  line. Section 11 says what to cut first when time runs short; section 12 lists the open points.
+- **Your prompt** gives three paths that must never be written into any file in this repository, a log you commit or a
+  commit message (two of them contain the old project name): the **release folder** (release v3.1, the trained
+  brains), the **training's Python** (it has torch 2.14.1) and the **upstream CTM folder**.
 
-Two builders work **in parallel, each in its own folder and on its own branch**. The two folders share `.venv`,
-`models/`, the nats-server and llama.cpp binaries and the website's `node_modules` (links), nothing else.
+## 1. What is true now (checked on 30 Oct)
 
-| Builder | Folder | Branch | Packages, in this order |
-|---|---|---|---|
-| Terra (GPT 5.6 Terra) | `C:\Users\Aymane\Desktop\JARVIS` | `build-6c` | **P2** `P2-6C-agent.md`: the minds and the agent |
-| Luna (GPT-6 Luna) | `C:\Users\Aymane\Desktop\JARVIS-luna` | `build-6w6d6e` | **P1** `P1-6W-live-website.md` → **P3** `P3-6D-trained-brains.md` → **P4** `P4-6E-voice-and-pages.md` |
+- `master` is at `cf933a5`; tags `step-6.0`, `step-6A` (`9621d3e`), `step-6B` (`e3678df`). The tree is clean.
+- **Tests.** The full suite last ran on 27 Oct at `e3678df`: 744 passed, 5 skipped (deferred), 91 % coverage, twice.
+  `cf933a5` only added contracts, an eval format and docs; for it, the touched test files ran (110 passed), pyright on
+  the whole project gave 0 errors, and the old-name test passed. **The full suite has not been run on `cf933a5`.**
+- **Built and tagged (6A, 6B):** contracts (`nodes/incubator-1/contracts.py`, exported to `interface/contracts/`, zod in
+  `interface/web/src/services/contracts.ts`), NATS link, simulated ZigBee radio (`comms/peer_network.py`), heartbeats,
+  hot-join, the supervisor and launcher (`launcher/start_all.ps1`, `-NoLlm`, `-NoWebsite`), the gateway skeleton
+  (`/health`, `/ws/farm`, `/sim/*`), the farm runtime on the **simulated** feed (the read-only snapshot in
+  `_dev/farm_poc_snapshot/` with rule brains, "live: simulated brains"), the nine tools with permissions and audit,
+  hybrid document search (FTS5 + bge-small), the conversation/event store, MCP (six read tools), `verify.py`, and the
+  engine client (`llm/engines.py`, non-streaming chat only). WORKLOG.md has the evidence for each.
+- **Not built yet:** the agent and the minds (6C), the website on live data, demo faults and every live page (6W), the
+  trained brains in the farm (6D), voice (6E), the evaluation scripts and `docs/results-phase6.md`, and step 6F.
+- **Fixed on 30 Oct for the next steps** (`cf933a5`, tested): the chat, alert, acknowledgement, mentor and voice
+  messages in `contracts.py`'s last section and next to `FarmSnapshot` in `interface/gateway/gateway.py`
+  (`WEBSITE_MODELS` lists every route and stream), their zod mirrors, and `tools/eval_results.py` (one `EvalResult`
+  per metric, `logs/eval/<id>.json`). They were designed carefully; you may change them if the work shows a real need,
+  but then change every side (pydantic, the exported schemas, zod, the samples in `tests/test_contracts.py` and
+  `tests/test_contracts_zod.py`) and say why in the commit.
+- **Owner decisions:** one llama.cpp server per node (0013); the trained brains are installed inside JARVIS and
+  re-saved as plain weights with a tensor-for-tensor proof (0015); the voice's tone hint (emotion2vec+) is cut (0016).
+- **Measured in 6A (D3, 27 Oct):** Qwen 3.5 2B roleplay (incubator-1) loads in 4.88 s and generates 21.7 tok/s; each
+  Qwen3-0.6B about 31 tok/s; with all four servers loaded, 7.44 of 7.94 GiB VRAM are used; every chat template reports
+  tool-call support (its real tool-calling quality is **not** measured).
+- **Waiting for the owner (only the owner can do these):**
+  - **None of the 20 ROM documents is approved** (`nodes/*/memory/rom/`, no `approvals.json`), so in the real system
+    document search finds nothing and no reply can cite a manual. Tests use approvals made by a fixture in temporary
+    folders. Approval is an interactive command (`tools/knowledge.py approve <file> --by owner`) that refuses scripts:
+    **never approve on the owner's behalf.** Tell the owner, early, that the live demo's citations depend on it.
+  - The public source list (`docs/knowledge/sources-proposal.md`) is unapproved, so no domain guides exist.
+  - The persona search (D2) has never run, so the owner has never rated a persona.
+- **Hardware:** Windows 11, 16 GB RAM, an RX 580 with 8 GB (llama.cpp Vulkan build in `third_party/llama.cpp/bin`).
+  Whether a microphone and speakers are connected is **not known**.
 
-- Start a package only when your previous one is committed and `git status` is clean.
-- Never switch branches, never merge, never rebase, never tag, never touch the other builder's folder. Only the
-  senior merges and tags.
-- If a package is blocked, write its report with the blocked part marked **BLOCKED** and why, commit what is green,
-  and go on with the parts that do not depend on it.
+## 2. The specs
 
-## 2. Who may change which files (so the merge is clean)
+`P1-6W-live-website.md`, `P2-6C-agent.md`, `P3-6D-trained-brains.md` and `P4-6E-voice-and-pages.md` were written on
+27-30 Oct for two builders in parallel. **Their content and "Done when" tables stand.** With one builder:
+- ignore every mention of Terra, Luna, another builder, branches, the second folder, file ownership and merging;
+- where a spec says "the senior wires this when merging" (the voice box to the agent), do it yourself;
+- where a spec says "do not edit WORKLOG.md / tests/DEFERRED.md / README.md, put it in your report", edit them
+  yourself, as every earlier step did;
+- the per-package reports in `docs/handoff/reports/` are optional; WORKLOG.md is the record.
 
-| Path | Terra (P2) | Luna (P1, P3, P4) |
-|---|---|---|
-| `nodes/incubator-1/llm/**`, `node.py`, `runtime.py`, `comms/**` | yes | no |
-| `nodes/incubator-1/voice/**` | no | yes (P4) |
-| `nodes/incubator-1/contracts.py` | may **add** models at the end of the 6C section (the agent's own radio notice); never change an existing one | no |
-| the other three node folders | only through `tools/sync_nodes.py` | only through `tools/sync_nodes.py` |
-| `interface/gateway/gateway.py` | the 6C routes and their code, in one block marked `# --- 6C routes ---` | `FarmView`'s farm-run handling and `/faults` (P1), the voice routes (P4), in blocks marked `# --- 6W routes ---` and `# --- 6E routes ---` |
-| `matrix/**` (the farm runtime and the Matrix API) | no | yes (P1, P3) |
-| `launcher/**` | the LLM server command flags only | the farm runtime's feed and the website (P1, P3) |
-| `interface/web/**` | no | yes (P1, P4) |
-| `requirements.in`, `requirements.lock` | no (stop and ask if you need a package) | `torch==2.14.1` only (P3) |
-| `pyproject.toml` | no | the exclusions for `matrix/release_v31/` (P3) |
-| `tests/llm/**` | yes, except the files Luna's packages name | `tests/llm/eval/e6_voice.py`, `e9_*.py`, `e10_*.py`, `run_all.py` only |
-| other tests | new files only (e.g. `tests/test_gateway_chat.py`) | `tests/test_gateway.py`, `tests/test_farm_runtime.py` and new files |
-| `tests/conftest.py` | no: fixtures go in `tests/llm/conftest.py` | no: fixtures go in a `conftest.py` of your own test folder |
-| `WORKLOG.md`, `tests/DEFERRED.md`, the root `README.md`, `docs/phase6-llm-plan.md` | **no**: write what belongs there in your report; the senior merges it | **no**: same |
-| `docs/decisions/` | numbers 0017-0019 | 0020 (P1), 0021 (P3), 0022-0023 (P4) |
-| `tools/` | new tools of your own | new tools of your own |
+## 3. Suggested order, and what to cut
 
-## 3. Fixed before you start: the contracts between the two branches
+This is a suggestion from the reviewer, not an owner decision. The time each piece takes is **not known** (no
+estimate was ever measured); re-plan as you go and tell the owner what you dropped.
 
-These were written and tested by the senior on `master` before the branches were made. **Use them exactly. Do not
-change them.** If one is wrong or missing something, write a "Contract change request" in your report and work with
-what exists; the senior decides when merging.
+1. **P1 (6W part 1):** the website on live data and the four demo faults. Small, and every later demo needs it.
+2. **P2 (6C) core:** engine streaming, the agent with sentence-by-sentence verification and fallbacks, chat through
+   the gateway (`/ws/chat`), the peer minds. This is the heart of Phase 6; without it JARVIS cannot talk.
+3. **P4 section 3, items 1-3:** the website's chat page, the acknowledgement button and the alert banner.
+4. **P3 (6D):** the trained brains. If it fails, the simulated feed still runs, honestly labelled.
+5. **P2 the rest:** acknowledgement flow, proactive alerts, failure injection, the suites and the evaluation scripts.
+6. **P4 voice** (push-to-talk, speech-to-text, the agent, text-to-speech), then the other pages.
+7. `run_all.py` → `docs/results-phase6.md`, 6F (rehearsal from a cold start, docs).
 
-- **NATS messages** (`nodes/incubator-1/contracts.py`, section "the owner and JARVIS"): `ChatRequest`, `ChatChunk`,
-  `ChatDone` (with `Citation`, `ToolUse`, `ReplyTimings`, `AckOffer`), `OwnerAlert`, `AckCommand`, `AckResult`,
-  `LlmFailureSwitches`, `VoiceStatus`, `VoiceSettings`, `VoiceSettingsResult`, `PushToTalk`. The subjects are in the
-  module docstring; the kinds are in `JarvisKind`; `MENTOR_LLM_FAILURES` is the mentor subject.
-- **Website messages** (`interface/gateway/gateway.py`, next to `FarmSnapshot`): `ChatSend`, `ChatAccepted`,
-  `ChatError`, `AckBody`, `AckResponse`, `LlmFailureBody`, `PttBody`, `OkResponse`, and `WEBSITE_MODELS`, which
-  lists every route and stream and what it carries.
-- **The website's zod schemas** (`interface/web/src/services/contracts.ts`) mirror all of them;
-  `tests/test_contracts_zod.py` runs valid and broken samples through both sides.
-- **Evaluation results** (`tools/eval_results.py`): every evaluation script writes one `EvalResult` with
-  `write_result()` to `logs/eval/<id>.json`. P4's `tests/llm/eval/run_all.py` turns them into
-  `docs/results-phase6.md`.
+The persona search (D2, about 2 hours of model time) and the KV-cache measurement (P2 section 0) need the GPU: run
+them in the background when nothing else uses it, or skip them and say so. Without D2, the speaking model uses the
+best system prompt of `docs/persona-spec.md`, marked provisional.
 
-**The agent's interface for the voice box.** Terra implements it in `nodes/incubator-1/llm/agent.py`; Luna's voice box
-(P4) calls it, and the senior wires the two together when merging:
+Plan section 11's cut order, first cut first: interruptions; wake word; tone hint (already cut); the latency dashboard;
+chat summaries; the search cache; the personality state. **Never cut:** the ground rules, the engineering standard,
+verification, recovery, document search, NATS and MCP, the gateway, the live farm, the evaluation report, basic voice.
 
-```python
-class Agent:
-    async def reply(self, text: str, *, request_id: str, conversation_id: str | None,
-                    source: Literal["chat", "voice"]) -> AsyncIterator[ChatChunk | ChatDone]:
-        """Zero or more ChatChunk (verified pieces, seq 0, 1, 2, ...), then exactly one ChatDone. Never raises for an
-        ordinary failure: it ends with a fallback, refused or error ChatDone, within its own total deadline."""
+## 4. Rules
 
-    def add_alert_listener(self, listener: Callable[[OwnerAlert], Awaitable[None]]) -> None:
-        """Called with every OwnerAlert incubator-1 sends (the voice box speaks them)."""
-```
-
-## 4. Rules for every package
-
-1. **Ground rules (plan section 2).** The LLM talks and never acts; it never opens the CMM; JARVIS sees public
-   telemetry only (no scenario label, fault schedule, hidden truth, evaluator score or mentor fault click ever
-   reaches a node); the safety path never depends on the LLM; every number said matches a tool result of the same turn;
-   every answer states the farm time of its data; labels are honest ("demo", "live: simulated brains", "live: trained
-   brains").
-2. **Never edit** `_dev/farm_poc_snapshot/`, anything on drive F:, or the training's folders outside JARVIS (reading
-   and copying are fine). Never write a path on F: or the training's folder names into any file, log you commit,
-   commit message or report: name them "the release folder" and "the training's folders".
-3. **The old project name** never appears in any file, commit message or report. Before every commit:
-   `.venv\Scripts\python tools\name_guard.py staged --message <file with your commit message>`, and check its
-   **exit code** (0 means clean). After every commit: `.venv\Scripts\python tools\name_guard.py history`, exit code
-   0. Never pipe these through `tail`, `Select-Object` or anything that hides the exit code.
-4. **Never weaken an existing test.** Do not change an existing assertion, tolerance or expected value to make it
-   pass. If an old test fails, your code is wrong until you prove otherwise in your report.
-5. **Every bug fix has a test you saw fail first.** Say so in the report, with the failing output.
-6. **Farm time for farm data.** "Recent", "how long ago" and "when" about the farm use the farm clock (`time_s`,
-   `farm_time`), never the wall clock. Timeouts and latencies use `time.monotonic()` / `time.perf_counter()`.
-7. **A new `feed_id` is a new farm run.** Ticks, event sequences and incident ids start again in it; never mix two
-   runs.
-8. **Normal is not a failure.** "No incident", "no events", "no alarm" are successful answers.
-9. **Deadlines nest strictly:** an outer deadline is longer than every inner one, with a margin. Every wait has a
-   timeout; every queue, list and cache has a bound.
-10. **Nothing hard-coded that a caller can pass:** ports, paths, URLs, the ports file. Tests use temporary folders and
-    free ports, never the real ones (4222, 8000, 8010, 8081-8084, 8101-8104, 5173), unless the test's purpose is
-    the real launcher.
-11. **Measure what the rule is about,** on the side that the rule is about (a send rate is measured where it is sent).
-    A timing test that fails while other heavy programs run is re-run alone, never loosened.
-12. **No new package and no download** beyond what your package file names. A download over 1 GB: stop and ask.
-13. **Shared node code** is edited in `nodes/incubator-1/` only, then `.venv\Scripts\python tools\sync_nodes.py`;
-    `tests/test_nodes_in_sync.py` must pass.
-14. **Checks before every commit:** the test files you touched, each run on its own; pyright with 0 errors on what you
-    touched (`.venv\Scripts\python -m pyright <paths>`); for the website, `npm run typecheck` and `npm run build`
-    (Node 24 is at `C:\Users\Aymane\node\node-v24.22.1-win-x64`; put it on PATH). **At the end of each package:**
-    pyright on the whole project, and the full suite twice:
-    `.venv\Scripts\python -m pytest -p no:cacheprovider --cov` (report both pass counts, durations and coverage).
-15. **Commit after every finished piece** (tests green), never a broken tree. Messages are short and plain, and end
-    with the line `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
-16. **Real runs and real ports.** Before starting anything on the real ports (`launcher\start_all.ps1`, a llama-server
-    on 8081-8084, the website on 5173), check they are free:
+1. **Ground rules (plan section 2):** the LLM talks and never acts; it never opens the CMM; nodes see public telemetry
+   only (no scenario label, fault schedule, hidden truth, evaluator score or mentor fault click); the safety path
+   never depends on the LLM; every number said matches a tool result of the same turn; every answer states the farm
+   time of its data; honest labels ("demo", "live: simulated brains", "live: trained brains").
+2. **The training's folders and F:** never edit, move or delete anything in the release folder, anything else on F:,
+   or the training's folders outside JARVIS (reading and copying are fine). Never install packages into the training's
+   Python. Never create a `STOP` file. Never stop a `python.exe` you did not start.
+3. **The old project name** never appears in any file, commit message or tag (decision 0010; `tools/name_guard.py`
+   writes it as `"thir" + "duni"`). Before every commit run `.venv\Scripts\python tools\name_guard.py staged --message
+   <file with the commit message>`; after it `... history`; check each **exit code** (0 = clean), never pipe them
+   through anything that hides it. Before each tag also run the full scan:
+   `$env:JARVIS_FULL_NAME_SCAN = "1"; .venv\Scripts\python -m pytest tests\test_no_old_name.py`.
+4. **Never weaken an existing test** (an assertion, a tolerance, an expected value) to make it pass. If an old test
+   fails, the new code is wrong until proven otherwise.
+5. Every bug fix has a test that was seen to fail first.
+6. Farm data uses farm time (`time_s`, `farm_time`), never the wall clock; timeouts use `time.monotonic()`.
+7. A new `feed_id` is a new farm run; never mix runs.
+8. Normal states ("no incident", "no events") are successful answers, not errors.
+9. Deadlines nest strictly (outer longer than inner, with a margin); every wait has a timeout; every queue and cache
+   is bounded.
+10. Nothing hard-coded that a caller can pass (ports, paths, URLs, the ports file). Tests use temporary folders and
+    free ports.
+11. Measure what a rule is about, where it applies; a timing test that fails under load is re-run alone, never
+    loosened.
+12. **Ask the owner before:** a download over 1 GB, a new program or service not in the plan, any change to the
+    Matrix physics, encoders or labels, or anything not decided here or in the plan. Packages: only from
+    `requirements.in` + the hashed `requirements.lock` (P3 adds `torch==2.14.1`, the training's version).
+13. Shared node code is edited in `nodes/incubator-1/` only, then `.venv\Scripts\python tools\sync_nodes.py`.
+14. Before each commit: the touched test files, pyright on the touched paths, and for the website `npm run typecheck`
+    and `npm run build`. Before each tag: pyright on the whole project and the full suite
+    (`.venv\Scripts\python -m pytest -p no:cacheprovider --cov`), the evidence in WORKLOG.md, and an independent
+    review by a subagent whose findings are fixed (plan Q10).
+15. Commit messages end with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`. The owner's email is used only
+    for git authorship.
+16. Stop every program you started before you finish (`launcher\stop_all.ps1`), and check the ports are free:
     `Get-NetTCPConnection -State Listen -LocalPort 4222,8000,8010,8081,8082,8083,8084,5173 -ErrorAction SilentlyContinue`.
-    If any is taken, the other builder is running: do something else and try again later. **Never stop a process you
-    did not start.** Stop everything you started before you finish, and show it (`launcher\stop_all.ps1`, then the
-    same port check, empty).
-17. **Memory.** The PC has 16 GB of RAM and the RX 580 has 8 GB. Programs that may use a lot of memory register with
-    the RAM guard as the launcher does (`tools/resource_monitor.py`, `logs/guarded.json`).
-18. **Stop and write it in the report** (then go on with what does not depend on it) when: something needs a decision
-    that is not in your package file, a ground rule would bend, a test cannot be fixed properly, or a measurement
-    misses its target. Never invent a number, never call something done without its evidence.
+17. Programs that may use a lot of memory register with the RAM guard as the launcher does
+    (`tools/resource_monitor.py`).
 
-## 5. Where the builders failed before, and what was fixed (build on the fixed code)
+## 5. Bugs found in earlier reviews (do not repeat them)
 
-The senior review of 6B found 7 high, 7 medium and 6 low bugs, all fixed in `e3678df` (WORKLOG.md, step 6B, "Senior
-review"). The ones to remember:
+The 6B review (`e3678df`, WORKLOG.md step 6B) found 7 high, 7 medium and 6 low bugs. The kinds to watch for:
 
-| What went wrong | How it was fixed | Rule |
+| Bug | Fix | Rule |
 |---|---|---|
-| "Recent" events used the wall clock; at 60x, "the last 60 minutes" meant 60 farm hours | events and incidents store farm `time_s`; `list_events` counts back from the latest farm time | 6 |
-| A farm reset restarted event sequences and incident ids, so new events were dropped as duplicates and old incidents overwritten | every farm message and `SimState` carries `feed_id`; stores key by run; a node starts afresh on a new run | 7 |
-| "No current incident", the normal state, was an error, so every peer `incident_history` answer was "no data" | it is ok with `incident = null` | 8 |
-| An invalid request id made the audit record invalid: no audit row at all | invalid ids are replaced and the given text kept as `given_request_id` | validate at the border; bookkeeping never breaks the real work |
-| The tool deadline equalled the radio's (3.0 s), so the tool's timeout replaced the peer's clear reason | tool deadline = radio deadline + 0.5 s | 9 |
-| Node programs read the real ports file, so test runs bound the real MCP ports | `runtime.py --ports`; the supervisor passes its own file | 10 |
-| The radio used 1x until the farm measured a speed, which made a test flaky | the asked speed is used until a measured one exists | startup defaults are real values |
-| A gateway test measured gaps where it received messages and was flaky | it measures the gateway's own send times | 11 |
-| **A 6A test's expectation was changed to match a new bug** | the test's intent was restored | **4: never do this** |
+| "Recent" events counted on the wall clock (at 60x, "the last hour" was 60 farm hours) | farm `time_s` | 6 |
+| A farm reset restarted sequences and ids; new events were dropped as duplicates | `feed_id` on every farm message | 7 |
+| "No current incident" was an error | ok with `incident = null` | 8 |
+| An invalid request id broke the audit row | replaced, the given text kept | validate at the border |
+| Tool deadline = radio deadline, so the clear reason was lost | tool = radio + 0.5 s | 9 |
+| Node programs read the real ports file in tests | `--ports` | 10 |
+| The radio used 1x until the farm measured a speed (flaky test) | the asked speed first | startup defaults are real |
+| A test measured send gaps on the receiving side (flaky) | the sender's own times | 11 |
+| **A builder changed a 6A test's expectation to match its new bug** | intent restored | **4** |
 
-## 6. Your report
+## 6. What is not known (find out; never assume)
 
-Each package ends with `docs/handoff/reports/P<n>.md`, committed as the package's last commit. It holds:
-1. **Commits:** hash and title of each.
-2. **What was built:** per file, one line.
-3. **Evidence:** every command you ran for the checks, with its real last output lines (copied, never retyped);
-   every measured number with the command that produced it.
-4. **Done-when table** from your package file: each check, pass or fail, and its evidence.
-5. **Deviations** from the package file, and why.
-6. **Not verified,** and why.
-7. **BLOCKED** parts, if any, and what would unblock them.
-8. **Contract change requests,** if any.
-9. **For the senior:** what goes into `WORKLOG.md`, `tests/DEFERRED.md` and the README (ready-to-paste text).
+- Whether llama.cpp's Vulkan build supports flash attention on the RX 580 (needed for a quantized V cache, P2 section 0).
+- How well the 2B model chooses tools with llama.cpp's tool calling (E4 measures it).
+- Whether torch 2.14.1 resolves to a Windows wheel for Python 3.12 from PyPI (the training's copy is a `+cpu` build
+  on Python 3.14), and whether the installed brains decide exactly like the release on 3.12 (P3 step 4 proves it).
+- How long one exam-style episode takes with the four trained brains, and what speed the farm reaches with them.
+- Whether the incident id the farm runtime publishes equals the one in the brain's owner notifications (P3 tests it).
+- How a notification's `sender` names a node (`gate.py` passes `caller`; its value is not checked).
+- Whether Kokoro's `model.onnx` carries `speaker2id` metadata (its README says the metadata script writes it; not
+  checked), and whether a microphone and speakers are present.
+- Which engine seeds the training used (the library derives them with `_seed()`; P3's E10 must prove its seeds are new).
+- When the owner will approve the ROM documents and rate a persona.
 
-The owner pastes your final chat message to the senior, so end your session with a short summary: the report's path,
-the commits, the full-suite result, and the blocked parts.
+## 7. Practical notes
 
-## 7. What the senior does after the build
-
-Reads every report and every diff, re-runs the evidence, fixes or returns what is wrong (the 6B review found 20
-findings), merges `build-6w6d6e` and `build-6c` into `master`, wires the voice box to the agent, runs the whole system
-from a cold start, and tags `step-6W`, `step-6C`, `step-6D` and `step-6E` when each one's "Done when" checks pass.
+- Python: `.venv\Scripts\python` (3.12). Node 24: `C:\Users\Aymane\node\node-v24.22.1-win-x64` (not on PATH; run
+  `npm.cmd` from there or put it on PATH). Caches and downloads go to `F:\JARVIS-cache` (C: is low on space); that
+  folder is ours, unlike the release folder.
+- Through the Bash tool, a heredoc collapses `\\` to `\`: on 30 Oct it wrote a raw control character into a test file.
+  Write any text with backslashes with the Write or Edit tools.
+- A shell `cd` does not persist between commands; use absolute paths.
+- The first old-name scan in a fresh folder takes about 6 minutes (it reads every file once, then caches in `.cache/`).
+- The launcher: `powershell -ExecutionPolicy Bypass -File launcher\start_all.ps1 [-NoLlm] [-NoWebsite]`, then
+  `launcher\stop_all.ps1`. Ports are in `launcher/ports.toml`.
+- **When you finish a step** tell the owner in plain words: what works, the evidence, what was cut or is not
+  verified, and what the owner must do (approvals, rating, the rehearsal).

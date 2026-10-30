@@ -1,9 +1,21 @@
 # P4 · Step 6E voice, step 6W part 2 (the website's live pages), and the evaluation report
 
-**Builder:** Luna, in `C:\Users\Aymane\Desktop\JARVIS-luna`, branch `build-6w6d6e`, after P3 is committed (if P3 is
-blocked, P4 may start: it does not depend on P3). Read `docs/handoff/README.md` first, above all section 3: the
-contracts are fixed, and the agent is built on the other branch. Here you build against the contracts and the
-`Agent` interface, with fakes in your tests; the senior connects the two branches when merging.
+**Builder:** the one builder, in `C:\Users\Aymane\Desktop\JARVIS` on `master`. Read `docs/handoff/README.md` first
+(section 2 says how to read this file now that there is one builder). The voice box calls the agent through the
+`Agent` interface below; test it with fakes, and wire it to the real agent (P2) in `runtime.py` yourself.
+
+**The agent's interface** (P2 implements it in `nodes/incubator-1/llm/agent.py`):
+
+```python
+class Agent:
+    async def reply(self, text: str, *, request_id: str, conversation_id: str | None,
+                    source: Literal["chat", "voice"]) -> AsyncIterator[ChatChunk | ChatDone]:
+        """Zero or more ChatChunk (verified pieces, seq 0, 1, 2, ...), then exactly one ChatDone. Never raises for an
+        ordinary failure: it ends with a fallback, refused or error ChatDone, within its own total deadline."""
+
+    def add_alert_listener(self, listener: Callable[[OwnerAlert], Awaitable[None]]) -> None:
+        """Called with every OwnerAlert incubator-1 sends (the voice box speaks them)."""
+```
 
 **Read before you start:** plan sections 2, 3, 4.3, 4.4, 5 (voice), 7 (Voice; Website and gateway), 8 (E6) and 9 (6W,
 6E) and 11 (what to cut first); decision 0016 (the tone hint is cut); `tests/voice/test_voice_models_load.py` (how
@@ -32,7 +44,7 @@ In `nodes/incubator-1/voice/` (then `sync_nodes.py`; the other three load nothin
   (`VoiceStatus`). **Push-to-talk** is the main way to talk (the website's button). Audio in and out through
   sounddevice at 16 kHz in; a missing microphone is `mic = "missing"`, never a crash, and a **file source** replaces
   the microphone for tests and measurements.
-  - Its constructor takes `answer`, a callable with the signature of `Agent.reply` (README section 3), and a
+  - Its constructor takes `answer`, a callable with the signature of `Agent.reply` (the interface above), and a
     `publish` callable for `VoiceStatus`. It never imports `llm/agent.py`.
   - `announce(alert: OwnerAlert)`: speaks an alert at once; a DANGER alert interrupts anything else being said.
   - `handle_settings(VoiceSettings) -> VoiceSettingsResult`: checks the voice against the model's voices and the
@@ -40,8 +52,8 @@ In `nodes/incubator-1/voice/` (then `sync_nodes.py`; the other three load nothin
     sentence.
   - `handle_ptt(PushToTalk)`: pressed starts listening, released ends the utterance.
   - `serve(link)`: subscribes `jarvis.incubator-1.voice_settings` (request-reply) and `jarvis.incubator-1.ptt` on a
-    `NatsLink`, and publishes `VoiceStatus` on `jarvis.incubator-1.voice` on every change and every 5 s. **Do not
-    edit `node.py` or `runtime.py`:** the senior wires `VoiceBox` to the agent with one call when merging.
+    `NatsLink`, and publishes `VoiceStatus` on `jarvis.incubator-1.voice` on every change and every 5 s. Wire it in
+    `runtime.py` on incubator-1 only (`voice = true`): `answer=agent.reply`, `agent.add_alert_listener(box.announce)`.
 - `tools/voice_check.py`: runs the voice box alone with a fake `answer` (a fixed, verified reply), from the
   microphone or from a WAV file, and prints each stage's timing.
 - The wake word (`wake_word.py`, openWakeWord "hey jarvis", ONNX backend, the three model files in
@@ -51,9 +63,9 @@ In `nodes/incubator-1/voice/` (then `sync_nodes.py`; the other three load nothin
   hint's model.
 - **E6, voice part** (`tests/llm/eval/e6_voice.py`): with recorded questions (synthesise them with Kokoro, then feed
   them as files) and the fake answer: from the end of speech to the first audio out, p50 and p95 over 50 runs; and
-  from an `OwnerAlert` to its first audio. The text part of E6 is Terra's; whichever of you writes `E6.json` second
-  must keep the other's numbers (read it first, add yours under their own keys). The full spoken path with the real
-  agent is measured after the merge.
+  from an `OwnerAlert` to its first audio. The text part of E6 comes from P2; whichever script writes `E6.json`
+  second must keep the other's numbers (read it first, add its own under their own keys). Then measure the full
+  spoken path with the real agent too.
 
 **The gateway's voice routes** (`# --- 6E routes ---`): `WS /ws/voice` relays `VoiceStatus`; `POST /voice/settings`
 sends `VoiceSettings` to `jarvis.incubator-1.voice_settings` and answers its `VoiceSettingsResult` (503 with a reason
@@ -90,15 +102,15 @@ run by pytest (as in P1): the chunks joined equal the done text; a lost chunk (a
 what arrived) is shown as such; `ChatError`; an alert in the middle of a reply; a `confirm` that expires. The
 smoothness benchmark from P1 still passes; report the bundle size again (growth over 10 % needs a reason).
 
-## 4. The real thing (what this branch can show)
+## 4. The real thing
 
 Check the ports (README rule 16). `start_all.ps1 -NoLlm` with the trained feed: the website in live mode, the mentor
-panel's faults, the voice menu (incubator-1's voice box is not wired on this branch, so the menu shows "voice
-unavailable" honestly), the chat page showing the gateway's honest `ChatError` because the agent is not on this branch.
+panel's faults, the voice menu, and, if P2 is done, a chat question
+and a push-to-talk question answered (without the language servers: the honest `ChatError` or fallback).
 Then `tools/voice_check.py` with the microphone if there is one (else from files): what it heard, what it said, the
 timings. Stop everything and show that nothing is left.
 
-## Done when (the parts on this branch)
+## Done when
 
 | Check | Evidence |
 |---|---|

@@ -1,7 +1,7 @@
 # P1 · Step 6W, part 1: the website on live data, and the demo faults
 
-**Builder:** Luna, in `C:\Users\Aymane\Desktop\JARVIS-luna`, branch `build-6w6d6e`. Read `docs/handoff/README.md`
-first. No language model is used in this package.
+**Builder:** the one builder, in `C:\Users\Aymane\Desktop\JARVIS` on `master`. Read `docs/handoff/README.md` first
+(section 2 says how to read this file now that there is one builder). No language model is used in this package.
 
 **Read before you start:** plan sections 2, 3, 4.4 (the website, the gateway and the demo-fault table) and 9 (6W);
 `interface/gateway/gateway.py`; `matrix/farm_runtime.py`; `interface/web/src/services/matrix.ts` and `contracts.ts`;

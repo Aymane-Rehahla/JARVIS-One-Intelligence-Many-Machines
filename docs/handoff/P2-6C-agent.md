@@ -1,8 +1,8 @@
 # P2 · Step 6C: the minds and the agent
 
-**Builder:** Terra, in `C:\Users\Aymane\Desktop\JARVIS`, branch `build-6c`. Read `docs/handoff/README.md` first: the
-ownership table (section 2) and the fixed contracts (section 3) bind you. No website work and no farm-runtime work in
-this package: Luna builds those on the other branch, against the same contracts.
+**Builder:** the one builder, in `C:\Users\Aymane\Desktop\JARVIS` on `master`. Read `docs/handoff/README.md` first
+(section 2 says how to read this file now that there is one builder). The website and the farm runtime parts are in
+P1, P3 and P4; the Matrix acknowledgement route this package calls is built in P3 (build it here if P3 is not done).
 
 **Read before you start:** plan sections 2, 3, 4.3, 4.4, 6, 7 (Agent; Reliability and safety), 8 and 9 (6C, and the
 proactive alerts in 6D); `docs/persona-spec.md`; decisions 0003, 0013, 0014; the 6B code you build on:
@@ -56,7 +56,7 @@ request's remaining time, minus the return hop and a 0.3 s margin, covers its bu
 ## 3. The talking mind and the agent (incubator-1)
 
 `llm/jarvis_speaker.py`, `llm/personality.py`, `llm/recovery.py`, `llm/agent.py`, with the `Agent` interface of the
-README (section 3) **exactly**. One turn:
+P4's header **exactly**. One turn:
 
 1. **Request** → an audit `answer` step with the request id; the owner's text is stored as a turn
    (`conversation.py`).
@@ -115,7 +115,7 @@ budget; summarise older ones only if time is left.
 - `POST /mentor/llm-failures` (`LlmFailureBody`) publishes `LlmFailureSwitches` on `MENTOR_LLM_FAILURES` and answers
   with what it sent; `GET` returns the current one; the gateway republishes it every 10 s so a restarted node learns
   it.
-- `tools/chat_cli.py`: a small command-line chat client for `/ws/chat`, for your tests and the senior's.
+- `tools/chat_cli.py`: a small command-line chat client for `/ws/chat`, for the tests and the owner.
 
 **Acknowledging an alert (ground rule 3: the owner's words plus a confirm click).**
 1. The owner asks in their own words ("acknowledge the HVAC alert"). The agent finds that machine's current incident
@@ -129,12 +129,12 @@ budget; summarise older ones only if time is left.
    confirm_token}`; the tool checks the token (and, for incubator-1's own machine, that the incident is active) and
    audits the approval. **The tool no longer delivers anything itself:** the `deliver` hook is removed. Update the
    6B tests that asserted `delivered` to assert the approval and its single audit row instead; this interface change
-   is ordered by the senior. List each changed assertion in your report; keep every test's intent (forgery, expiry,
+   is ordered by this spec. List each changed assertion in your report; keep every test's intent (forgery, expiry,
    reuse, the node and incident binding, the caller).
 5. On an ok `AckResult`, the gateway calls the Matrix API: **`POST /alerts/{node}/{incident_id}/ack`**, no body. It
    answers 200 with `{"node", "incident_id", "acknowledged": <notifications marked, at least 1>, "farm_time"}`, or 404
    with `{"detail": "..."}` when the current farm run has no delivered, unacknowledged owner notification from that node
-   for that incident. Luna builds this route in P3 (it is the Matrix's own owner-acknowledgement signal, so the brains
+   for that incident. P3 builds this route (it is the Matrix's own owner-acknowledgement signal, so the brains
    see nothing new); you test against an httpx mock of exactly this behaviour.
 6. The gateway answers `AckResponse` with the stage it reached: `token` (refused by incubator-1, or no answer),
    `matrix` (refused or unreachable), or `done`.
@@ -149,8 +149,8 @@ incident and level; a rising level alerts again. Measure the time from the farm 
 `OwnerAlert`.
 
 **Node programs:** `runtime.py` builds the agent on incubator-1 (`speaks = true`) and the peer mind on the other
-three, from `node.toml` and the run's ports file; every node runs the failure injector. **Do not wire the voice box**
-(the senior does that when merging).
+three, from `node.toml` and the run's ports file; every node runs the failure injector. The voice box is wired
+in P4.
 
 ## 5. The 6C suites and the evaluation scripts
 
