@@ -37,7 +37,8 @@ Since 06:00 the commit headroom has stayed at 5.0 GiB or more. Lesson: start not
 
 ## Step 6W, part 1: the website on live data and the four demo faults (30 Oct 2026)
 
-Spec: `docs/handoff/P1-6W-live-website.md`. Code: `aab8b04`. Decision 0020 (the demo faults).
+Status: **done and tagged `step-6W`** (30 Oct). Spec: `docs/handoff/P1-6W-live-website.md`. Code: `aab8b04`, review
+fixes `35e6297`. Decision 0020 (the demo faults). The chat half of plan 6W's "Done when" belongs to P4 (step 6E).
 
 ### What was built
 - **Demo faults** (`matrix/farm_runtime.py`): `POST /faults/{scenario_id}` for the four website faults. Each takes
@@ -67,7 +68,7 @@ Spec: `docs/handoff/P1-6W-live-website.md`. Code: `aab8b04`. Decision 0020 (the 
 | No fault click reaches NATS; no hidden truth leaves the farm | `test_injecting_while_paused_publishes_nothing` (4 faults, 0 messages); `test_the_epistemic_wall_holds_for_120_ticks_after_a_demo_fault` (1,200-1,444 messages each, 0 leaks; the one match, the incubators' own `power_status: "overvoltage"`, is a field they publish on a fault-free twin too, so it is telemetry) |
 | A farm reset gives the website and the gateway a clean new run | `test_a_new_farm_run_clears_the_old_one_and_late_messages_are_dropped`; `tests/test_live_map.py` (a reset mid-run: the website's events, activity and nodes start afresh); in the real run each reset showed 0 events and no active scenario |
 | Mapping p95 under 2 ms; bundle growth reported | 1,000 recorded snapshots: mean 0.75 ms, p95 0.80 ms, max 2.40 ms. Bundle: main JS 493 kB after the swap → 584 kB (+18 %); the reason: the zod schemas now enter the app bundle because every live message is checked (Q2). CSS 140.8 kB and the 3D chunk 1,055 kB unchanged |
-| Typecheck, build, pyright, the full suite twice | below, before the tag |
+| Typecheck, build, pyright, the full suite twice | on `35e6297` (the 6C work in progress stashed, so the tree was exactly the commit): the full suite **802 passed, 5 skipped** (the deferred heavy tests) twice, 193 s and 184 s; coverage 88 % overall, `llm/` 88-97 % per module, `comms/` 85-98 %, the gateway 89 %; pyright on the whole project 0 errors; website typecheck and build pass; the full old-name scan (`JARVIS_FULL_NAME_SCAN=1`) passed; `name_guard.py history` clean |
 
 ### Independent review (Q10, 30 Oct) and what was fixed
 
