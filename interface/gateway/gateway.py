@@ -18,6 +18,7 @@ import argparse
 import asyncio
 import contextlib
 import logging
+import re
 import sys
 import time
 import tomllib
@@ -34,12 +35,15 @@ import httpx  # noqa: E402
 import uvicorn  # noqa: E402
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError  # noqa: E402
+from pydantic import (BaseModel, ConfigDict, Field, JsonValue, ValidationError, field_validator,  # noqa: E402
+                      model_validator)
 
 from comms.jsonlog import log, program_logger  # noqa: E402
 from comms.nats_link import NatsLink  # noqa: E402
-from contracts import (FARM_LINKS, FARM_SIM, MACHINES, NODE_IDS, Capabilities, Contract, FarmAssessment,  # noqa: E402
-                       FarmEvent, FarmStatus, Heartbeat, LinkStatus, Machine, NodeId, SimState, farm_subject,
+from contracts import (CLIENT_MSG_ID, CONTROL_CHARACTERS, CONVERSATION_ID, FARM_LINKS, FARM_SIM,  # noqa: E402
+                       MACHINES, NODE_IDS, REQUEST_ID, AuditRecord, Capabilities, ChatChunk, ChatDone, Contract,
+                       FarmAssessment, FarmEvent, FarmStatus, Heartbeat, LinkStatus, LlmFailureSwitches, Machine,
+                       NodeId, OwnerAlert, SimState, VoiceSettings, VoiceSettingsResult, VoiceStatus, farm_subject,
                        jarvis_subject, utc_now)
 
 MAX_SNAPSHOTS_PER_S = 5.0
@@ -81,6 +85,110 @@ class SpeedBody(BaseModel):
 
     model_config = ConfigDict(extra="forbid", strict=True)
     speed: float
+
+
+# --- the website's chat, acknowledgement, mentor and voice messages (6C, 6E; fixed by the senior, see contracts.py) ---
+
+
+class ChatSend(Contract):
+    """`/ws/chat`, website → gateway: one message the owner typed. A null conversation_id starts a new conversation;
+    the website then sends the conversation_id of the ChatDone it received."""
+
+    type: Literal["chat_send"] = "chat_send"
+    client_msg_id: str = Field(pattern=CLIENT_MSG_ID)
+    conversation_id: str | None = Field(default=None, pattern=CONVERSATION_ID)
+    text: str = Field(min_length=1, max_length=2000)
+
+    @field_validator("text")
+    @classmethod
+    def _text_is_printable(cls, value: str) -> str:
+        if re.search(CONTROL_CHARACTERS, value):
+            raise ValueError("control characters are not allowed")
+        return value
+
+
+class ChatAccepted(Contract):
+    """`/ws/chat`, gateway → website: the message was passed to incubator-1 under this request id."""
+
+    type: Literal["chat_accepted"] = "chat_accepted"
+    client_msg_id: str = Field(pattern=CLIENT_MSG_ID)
+    request_id: str = Field(pattern=REQUEST_ID)
+
+
+class ChatError(Contract):
+    """`/ws/chat`, gateway → website: a message could not be handled (one question at a time, an invalid message,
+    incubator-1 not answering within the gateway's deadline...)."""
+
+    type: Literal["chat_error"] = "chat_error"
+    client_msg_id: str | None = Field(default=None, pattern=CLIENT_MSG_ID)
+    request_id: str | None = Field(default=None, pattern=REQUEST_ID)
+    reason: str = Field(min_length=1, max_length=300)
+
+
+class AckBody(BaseModel):
+    """POST /alerts/{node}/{incident_id}/ack: the confirm token of the AckOffer the owner clicked."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+    confirm_token: str = Field(min_length=1, max_length=256)
+
+
+class AckResponse(Contract):
+    """The answer to POST /alerts/{node}/{incident_id}/ack. `stage` says how far it got: refused at the token check
+    (incubator-1), refused or unreachable at the Matrix API, or done."""
+
+    type: Literal["ack_response"] = "ack_response"
+    node: NodeId
+    incident_id: str = Field(min_length=1, max_length=80)
+    ok: bool
+    stage: Literal["token", "matrix", "done"]
+    reason: str = Field(default="", max_length=300)
+
+    @model_validator(mode="after")
+    def _consistent(self) -> AckResponse:
+        if self.ok != (self.stage == "done") or self.ok != (self.reason == ""):
+            raise ValueError("an acknowledgement is done with no reason, or stopped at a stage with a reason")
+        return self
+
+
+class LlmFailureBody(BaseModel):
+    """POST /mentor/llm-failures: the switches to set (the gateway answers with the LlmFailureSwitches it sent)."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+    llm_timeout: list[NodeId]
+    broken_json: list[NodeId]
+    silent_peer: list[NodeId]
+    server_crash: list[NodeId]
+
+
+class PttBody(BaseModel):
+    """POST /voice/ptt: the website's talk button."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+    pressed: bool
+
+
+class OkResponse(Contract):
+    """A plain answer: done, or refused with a reason (POST /voice/ptt)."""
+
+    type: Literal["ok_response"] = "ok_response"
+    ok: bool
+    reason: str = Field(default="", max_length=300)
+
+    @model_validator(mode="after")
+    def _ok_or_reason(self) -> OkResponse:
+        if self.ok != (self.reason == ""):
+            raise ValueError("ok, or refused with a reason")
+        return self
+
+
+#: What the website receives (besides FarmSnapshot) or sends, for the JSON Schema export and the zod test.
+#: Streams: /ws/chat (ChatAccepted, ChatChunk, ChatDone, ChatError, OwnerAlert), /ws/audit (AuditRecord),
+#: /ws/voice (VoiceStatus). Routes: POST /alerts/{node}/{incident_id}/ack → AckResponse; GET and POST
+#: /mentor/llm-failures → LlmFailureSwitches; POST /voice/settings (VoiceSettings) → VoiceSettingsResult;
+#: POST /voice/ptt → OkResponse. The HTTP bodies AckBody, LlmFailureBody and PttBody are plain JSON objects.
+WEBSITE_MODELS: tuple[type[BaseModel], ...] = (ChatSend, ChatAccepted, ChatChunk, ChatDone, ChatError, OwnerAlert,
+                                               AckResponse, AuditRecord, LlmFailureSwitches, VoiceStatus,
+                                               VoiceSettings, VoiceSettingsResult, OkResponse)
 
 
 class FarmView:

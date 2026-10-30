@@ -1,7 +1,8 @@
 """Exports every wire contract as a JSON Schema into interface/contracts/ (plan Q2: defined once, in Python).
 
-The schemas come from the pydantic models: the NATS messages in nodes/incubator-1/contracts.py (`WIRE_MODELS`) and
-the gateway's FarmSnapshot (interface/gateway/gateway.py). The website's zod schemas follow them, and
+The schemas come from the pydantic models: the NATS messages in nodes/incubator-1/contracts.py (`WIRE_MODELS`), the
+gateway's FarmSnapshot and the website's other messages (`WEBSITE_MODELS`, interface/gateway/gateway.py). The
+website's zod schemas follow them, and
 tests/test_contracts_zod.py runs the same samples through both sides. The files are generated: never edit them.
 
 Usage (from the project folder):
@@ -24,12 +25,12 @@ for _path in (ROOT / "nodes" / "incubator-1", ROOT / "interface" / "gateway"):
 from pydantic import BaseModel  # noqa: E402
 
 from contracts import WIRE_MODELS  # noqa: E402
-from gateway import FarmSnapshot  # noqa: E402
+from gateway import WEBSITE_MODELS, FarmSnapshot  # noqa: E402
 
 
 def models() -> list[type[BaseModel]]:
     """Every exported model, in a fixed order."""
-    return [*WIRE_MODELS, FarmSnapshot]
+    return [*WIRE_MODELS, FarmSnapshot, *(model for model in WEBSITE_MODELS if model not in WIRE_MODELS)]
 
 
 def schema_text(model: type[BaseModel]) -> str:

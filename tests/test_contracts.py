@@ -8,9 +8,11 @@ from typing import Any
 import pytest
 
 import export_contracts
-from contracts import (NODE_IDS, AskReply, AskRequest, Capabilities, ContractError, DocumentInfo, FarmAssessment, FarmEvent,
-                       FarmIncident, FarmStatus, Heartbeat, LinkStatus, ProbeRequest, SimState, decode, encode,
-                       farm_subject, jarvis_subject, load_node_config, node_of_subject, utc_now)
+from contracts import (NODE_IDS, AckCommand, AckOffer, AckResult, AskReply, AskRequest, AuditRecord, Capabilities,
+                       ChatChunk, ChatDone, ChatRequest, Citation, ContractError, DocumentInfo, FarmAssessment, FarmEvent,
+                       FarmIncident, FarmStatus, Heartbeat, LinkStatus, LlmFailureSwitches, OwnerAlert, ProbeRequest,
+                       PushToTalk, ReplyTimings, SimState, ToolUse, VoiceSettings, VoiceSettingsResult, VoiceStatus,
+                       decode, encode, farm_subject, jarvis_subject, load_node_config, node_of_subject, utc_now)
 
 ROOT = Path(__file__).resolve().parents[1]
 FARM: dict[str, Any] = dict(node="hvac", tick=12, time_s=12.0, farm_time="06:00", label="live: simulated brains", feed_id="0000000000a1")
@@ -35,6 +37,33 @@ SAMPLES = [
     AskReply(request_id="q-1", sender="hvac", target="incubator-1", topic="readings", ok=True, answer={"a": 1},
              farm_time="06:00", tick=12),
     ProbeRequest(target="hvac", topic="status"),
+    AuditRecord(request_id="q-1", node="hvac", kind="tool_call", tool="get_status", ok=True, error=None,
+                duration_ms=3, farm_time="06:00", tick=12, inputs={"fields": ["online"]}, outputs={"online": True},
+                truncated=False, created_utc=utc_now()),
+    # 6C and 6E (fixed by the senior before they were built)
+    ChatRequest(request_id="c-1", text="What's wrong with the HVAC?", source="chat", sent_utc=utc_now()),
+    ChatChunk(request_id="c-1", seq=0, text="The HVAC's supply fan has stopped (farm time 06:00). "),
+    ChatDone(request_id="c-1", conversation_id="conv-1", text="The HVAC's supply fan has stopped (farm time 06:00). ",
+             chunks=1, outcome="answered", numbers_checked=1, farm_time="06:00", label="live: simulated brains",
+             citations=[Citation(node="hvac", file="hvac_manual.md", section="Supply fan")],
+             tools=[ToolUse(node="hvac", tool="get_status", ok=True, duration_ms=4)],
+             timings=ReplyTimings(first_chunk_ms=900, total_ms=2100, llm_ms=1700, tools_ms=240),
+             confirm=AckOffer(node="hvac", incident_id="hvac-equipment-0001", token="t0k3n", expires_utc=utc_now(),
+                              summary="hvac incident hvac-equipment-0001 (supply fan failure)")),
+    ChatDone(request_id="c-2", conversation_id="conv-1", text="I only talk; the machines act through their safety gate.",
+             chunks=0, outcome="refused", reason="asked for a machine action", numbers_checked=0,
+             timings=ReplyTimings(total_ms=12)),
+    OwnerAlert(alert_id="a-1", node="hvac", level="DANGER", incident_id="hvac-equipment-0001",
+               text="Sir, the HVAC reports DANGER: the supply fan has failed. Farm time 06:00.", farm_time="06:00",
+               feed_id="0000000000a1", label="live: simulated brains", reworded=False, sent_utc=utc_now()),
+    AckCommand(request_id="k-1", node="hvac", incident_id="hvac-equipment-0001", confirm_token="t0k3n",
+               sent_utc=utc_now()),
+    AckResult(request_id="k-1", node="hvac", incident_id="hvac-equipment-0001", ok=False, reason="token already used"),
+    LlmFailureSwitches(llm_timeout=["hvac"], silent_peer=["animal-protection"], set_utc=utc_now()),
+    VoiceStatus(state="listening", mic="ok", voice="bm_george", speed=1.0, push_to_talk=True, sent_utc=utc_now()),
+    VoiceSettings(voice="bm_george", speed=1.1),
+    VoiceSettingsResult(ok=True, voice="bm_george", speed=1.1, voices=["bm_george", "bf_emma"]),
+    PushToTalk(pressed=True, sent_utc=utc_now()),
 ]
 
 
@@ -72,6 +101,31 @@ def test_questions_and_answers_are_consistent() -> None:
         ProbeRequest(target="hvac", topic="status", question="bad\x07bell")
 
 
+def test_chat_replies_and_results_are_consistent() -> None:
+    timings = ReplyTimings(total_ms=5)
+    done: dict[str, Any] = dict(request_id="c-9", conversation_id="conv-9", text="", chunks=0, numbers_checked=0,
+                                timings=timings)
+    with pytest.raises(ValueError, match="has no reason"):
+        ChatDone(**done, outcome="answered", reason="why not", farm_time="06:00", label="live: simulated brains")
+    with pytest.raises(ValueError, match="has no reason"):
+        ChatDone(**done, outcome="error")                                       # every other outcome says why
+    with pytest.raises(ValueError, match="states the farm time"):
+        ChatDone(**done, outcome="fallback", reason="hvac is silent")
+    offer = AckOffer(node="hvac", incident_id="i-1", token="t", expires_utc=utc_now(), summary="hvac incident i-1")
+    with pytest.raises(ValueError, match="only an answered reply"):
+        ChatDone(**done, outcome="refused", reason="no", confirm=offer)
+    with pytest.raises(ValueError, match="ok, or refused"):
+        AckResult(request_id="k-9", node="hvac", incident_id="i-1", ok=True, reason="but")
+    with pytest.raises(ValueError, match="names a node twice"):
+        LlmFailureSwitches(broken_json=["hvac", "hvac"], set_utc=utc_now())
+    with pytest.raises(ValueError, match="control characters"):
+        ChatRequest(request_id="c-9", text="bad\x07bell", source="chat", sent_utc=utc_now())
+    with pytest.raises(ValueError):
+        VoiceSettings(voice="George", speed=1.0)                               # not a Kokoro voice name
+    with pytest.raises(ValueError):
+        VoiceSettings(voice="bm_george", speed=2.5)
+
+
 def test_node_config_rejects_a_wrong_machine_or_server(tmp_path: Path) -> None:
     text = (ROOT / "nodes" / "hvac" / "node.toml").read_text(encoding="utf-8")
     bad = tmp_path / "node.toml"
@@ -86,6 +140,7 @@ def test_node_config_rejects_a_wrong_machine_or_server(tmp_path: Path) -> None:
 def test_subjects() -> None:
     assert farm_subject("hvac", "status") == "farm.hvac.status"
     assert jarvis_subject("*", "heartbeat") == "jarvis.*.heartbeat"
+    assert jarvis_subject("incubator-1", "reply") == "jarvis.incubator-1.reply"
     assert node_of_subject("jarvis.animal-protection.ask") == "animal-protection"
     assert node_of_subject("farm.links") is None
 

@@ -1,13 +1,25 @@
-# Phase 6 plan: the JARVIS LLM layer (v3.1)
+# Phase 6 plan: the JARVIS LLM layer (v3.2)
 
-v3.1, 24 Oct 2026 (v3 was 23 Oct, v2 22 Oct 2026) · Phase 5 v2 training runs until **27 Oct 12:00 at the latest, moved
-back by the owner's pause of 3 h 39 min 31 s** (24 Oct 01:15:49 to 04:55:20) · Hand-in **1 Nov**
+v3.2, 27 Oct 2026 (v3.1 was 24 Oct, v3 23 Oct, v2 22 Oct 2026) · The Phase 5 v2 training **ended on 27 Oct** ·
+Hand-in **1 Nov**
 
 **Reading order:** creating the tree (section 1) is safe at any time. Read the ground rules (section 2) and the engineering standard (section 3) before anything else. Section 10 is the working procedure for whoever builds this.
 
 **The bar:** this project is judged by PhD mentors. Every module meets the engineering standard, every claim in the presentation is backed by a measured number and a script that reproduces it, and the safety-critical path never depends on the LLM.
 
 ## Changelog
+
+**v3.2 (27 Oct 2026), the training is done; the owner's decisions for the last days:**
+1. **The training ended on 27 Oct.** Ground rule 1's limits on RAM, CPU and LLM servers are lifted; never touching the
+   training's folders and processes still holds. The brains to ship are release v3.1 (`hold_calls=True`,
+   `hide_notes=True`). `step-6A` and `step-6B` are tagged.
+2. **Owner decisions:** 6D installs the trained brains inside JARVIS, re-saved as plain weights with a tensor-for-tensor
+   proof (decision 0015); the voice's tone hint is cut (0016, plan section 11's third cut); one llama.cpp server per
+   node stands (0013).
+3. **How the rest is built:** two builders in parallel, each on its own branch and folder, with the
+   contracts between their work fixed beforehand by the senior reviewer (`docs/handoff/`): 6C on one side; 6W, 6D and
+   6E on the other. Only the senior reviews, merges and tags. Proactive alerts move from 6D to 6C (they are the agent's).
+4. **Dates:** the shipped system 31 Oct; hand-in 1 Nov.
 
 **v3.1 (24 Oct 2026), the owner's pause, then the owner's correction:**
 1. **The owner paused the CTM training** from 24 Oct 01:15:49 (the last training work ended) to **04:55:20 (the

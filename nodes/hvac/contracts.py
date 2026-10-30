@@ -12,6 +12,15 @@ Subjects (plan section 4.3), built by the helpers below:
     jarvis.<node>.heartbeat | .capabilities                    every node → all
     jarvis.<node>.ask                                          node → node, request-reply, through the ZigBee rules
     jarvis.<node>.probe                                        tests and diagnostics → node: "ask this peer" (opt-in)
+    jarvis.<node>.audit                                        every node → gateway (6B)
+    jarvis.incubator-1.chat                                    gateway → incubator-1: the owner's message (6C)
+    jarvis.incubator-1.reply                                   incubator-1 → gateway: ChatChunk ..., then ChatDone (6C)
+    jarvis.incubator-1.alert                                   incubator-1 → gateway: a proactive alert to the owner (6C)
+    jarvis.incubator-1.ack                                     gateway → incubator-1, request-reply: a confirmed ack (6C)
+    jarvis.<node>.notice                                       node → node through the ZigBee rules (6C, the agent's own)
+    jarvis.incubator-1.voice                                   incubator-1 → gateway: the voice box's state (6E)
+    jarvis.incubator-1.voice_settings | .ptt                   gateway → incubator-1: voice, speed, talk button (6E)
+    mentor.llm_failures                                        gateway → every node: simulated LLM failures (test only)
 """
 from __future__ import annotations
 
@@ -39,6 +48,10 @@ AskError = Literal["timeout", "link_cut", "unavailable", "no_data", "bad_request
 FARM_TIME = r"^([01][0-9]|2[0-3]):[0-5][0-9]$"
 REQUEST_ID = r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$"
 FEED_ID = r"^[0-9a-f]{12}$"                 # one farm run: new at every farm-runtime start and every reset
+CONVERSATION_ID = r"^[A-Za-z0-9_-]{1,64}$"
+CLIENT_MSG_ID = r"^[A-Za-z0-9_-]{1,64}$"
+VOICE_ID = r"^[a-z]{2}_[a-z]+$"              # a Kokoro voice name, e.g. bm_george
+CONTROL_CHARACTERS = r"[\x00-\x08\x0b\x0c\x0e-\x1f]"   # refused in free text; tab, newline and return are allowed
 MAX_DEADLINE_MS = 30_000
 SPEAKER_MODEL = "Qwen-3.5-2b-roleplay-tuned.Q8_0.gguf"
 
@@ -72,6 +85,14 @@ def _first_reason(error: ValidationError) -> str:
         return f"message: {error}"
     where = ".".join(str(part) for part in errors[0]["loc"]) or "message"
     return f"{where}: {errors[0]['msg']}"
+
+
+def _printable(value: str) -> str:
+    """Free text from outside (the owner, a peer, a test) may not carry control characters (tab, newline, return
+    are fine). The website's zod schemas refuse the same characters."""
+    if re.search(CONTROL_CHARACTERS, value):
+        raise ValueError("control characters are not allowed")
+    return value
 
 
 def encode(message: BaseModel) -> bytes:
@@ -141,9 +162,11 @@ def load_node_config(path: Path) -> NodeConfig:
 # --- subjects --------------------------------------------------------------------------------------------------------
 
 FarmKind = Literal["status", "events", "assessment", "incident"]
-JarvisKind = Literal["heartbeat", "capabilities", "ask", "probe", "audit"]
+JarvisKind = Literal["heartbeat", "capabilities", "ask", "probe", "audit", "chat", "reply", "alert", "ack", "notice",
+                     "voice", "voice_settings", "ptt"]
 FARM_LINKS = "farm.links"
 FARM_SIM = "farm.sim"
+MENTOR_LLM_FAILURES = "mentor.llm_failures"
 
 
 def farm_subject(node: NodeId | Literal["*"], kind: FarmKind) -> str:
@@ -346,10 +369,8 @@ class ProbeRequest(Contract):
 
     @field_validator("question")
     @classmethod
-    def _printable(cls, value: str) -> str:
-        if re.search(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", value):
-            raise ValueError("control characters are not allowed")
-        return value
+    def _text_is_printable(cls, value: str) -> str:
+        return _printable(value)
 
 
 class AuditRecord(Contract):
@@ -377,6 +398,242 @@ class AuditRecord(Contract):
         return self
 
 
+# --- the owner and JARVIS (6C, 6E): chat, alerts, acknowledgement, voice; the mentor's LLM failure switches ---------
+#
+# Fixed by the senior before 6C and 6E were built in parallel (docs/handoff/README.md): the gateway, incubator-1's
+# agent and voice box, and the website's zod schemas all follow these. A change goes through the senior.
+
+
+class Citation(BaseModel):
+    """One approved document passage a reply used (from `search_documents` of that turn)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    node: NodeId                                       # the node whose index held the passage
+    file: str = Field(min_length=1, max_length=200)
+    section: str = Field(max_length=200)
+
+
+class ToolUse(BaseModel):
+    """One tool call a reply made, with its own node, outcome and duration (the audit has the details)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    node: NodeId
+    tool: str = Field(min_length=1, max_length=64)
+    ok: bool
+    duration_ms: int = Field(ge=0)
+
+
+class ReplyTimings(BaseModel):
+    """How long a reply took, measured by incubator-1 from the moment the question arrived (monotonic clock)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    first_chunk_ms: int | None = Field(default=None, ge=0)      # None: no chunk was sent (a refusal or an error)
+    total_ms: int = Field(ge=0)
+    llm_ms: int | None = Field(default=None, ge=0)              # None: no language model was used
+    tools_ms: int | None = Field(default=None, ge=0)            # None: no tool was called
+
+
+class AckOffer(BaseModel):
+    """The owner asked, in their own words, to acknowledge an alert: the website shows a confirm button for it. The
+    token is single-use and expires (ConfirmTokens); only the owner's click sends it back (ground rule 3)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+    node: NodeId                                       # the machine whose incident it is
+    incident_id: str = Field(min_length=1, max_length=80)
+    token: str = Field(min_length=1, max_length=256)
+    expires_utc: str
+    summary: str = Field(min_length=1, max_length=300)   # what a click acknowledges, in words
+
+
+ReplyOutcome = Literal["answered", "fallback", "refused", "error"]
+
+
+class ChatRequest(Contract):
+    """`jarvis.incubator-1.chat`: one message from the owner. The gateway gives it its request_id; a null
+    conversation_id starts a new conversation."""
+
+    type: Literal["chat_request"] = "chat_request"
+    request_id: str = Field(pattern=REQUEST_ID)
+    conversation_id: str | None = Field(default=None, pattern=CONVERSATION_ID)
+    text: str = Field(min_length=1, max_length=2000)
+    source: Literal["chat", "voice"]
+    sent_utc: str
+
+    @field_validator("text")
+    @classmethod
+    def _text_is_printable(cls, value: str) -> str:
+        return _printable(value)
+
+
+class ChatChunk(Contract):
+    """`jarvis.incubator-1.reply`: the next piece of a reply, sent only after verify.py passed it. The pieces of one
+    request, joined in `seq` order with nothing between them, equal its ChatDone.text."""
+
+    type: Literal["chat_chunk"] = "chat_chunk"
+    request_id: str = Field(pattern=REQUEST_ID)
+    seq: int = Field(ge=0)
+    text: str = Field(min_length=1, max_length=2000)
+
+
+class ChatDone(Contract):
+    """`jarvis.incubator-1.reply`: the end of a reply, always exactly one per request.
+
+    `answered`: the language model's verified reply. `fallback`: a reply built from tool results with a fixed
+    template, because the model, a peer or a deadline failed (`reason` says which). `refused`: the request asked for
+    something JARVIS does not do (it talks, it never acts). `error`: no answer could be given. An answered or
+    fallback reply states the farm time its data comes from (ground rule 6), so `farm_time` and `label` are set."""
+
+    type: Literal["chat_done"] = "chat_done"
+    request_id: str = Field(pattern=REQUEST_ID)
+    conversation_id: str = Field(pattern=CONVERSATION_ID)
+    text: str = Field(max_length=8000)
+    chunks: int = Field(ge=0)                          # how many ChatChunks were sent before this, so a gap shows
+    outcome: ReplyOutcome
+    reason: str = Field(default="", max_length=300)
+    numbers_checked: int = Field(ge=0)                 # numbers and times verify.py matched to this turn's tool results
+    farm_time: str | None = Field(default=None, pattern=FARM_TIME)
+    label: FeedLabel | None = None
+    citations: list[Citation] = Field(default_factory=list[Citation], max_length=10)
+    tools: list[ToolUse] = Field(default_factory=list[ToolUse], max_length=40)
+    timings: ReplyTimings
+    confirm: AckOffer | None = None
+
+    @model_validator(mode="after")
+    def _consistent(self) -> ChatDone:
+        if (self.outcome == "answered") != (self.reason == ""):
+            raise ValueError("an answered reply has no reason, and every other outcome says why")
+        if self.outcome in ("answered", "fallback") and (self.farm_time is None or self.label is None):
+            raise ValueError("an answer states the farm time and the label of its data")
+        if self.confirm is not None and self.outcome != "answered":
+            raise ValueError("only an answered reply can offer a confirmation")
+        return self
+
+
+class OwnerAlert(Contract):
+    """`jarvis.incubator-1.alert`: JARVIS tells the owner at once that a machine reached ESCALATE_TO_USER or DANGER.
+    The text comes from a fixed template filled with that node's published output; `reworded` is true only when
+    the language model's wording passed verify.py within the alert deadline."""
+
+    type: Literal["owner_alert"] = "owner_alert"
+    alert_id: str = Field(pattern=REQUEST_ID)
+    node: NodeId
+    level: Literal["ESCALATE_TO_USER", "DANGER"]
+    incident_id: str | None = Field(default=None, min_length=1, max_length=80)
+    text: str = Field(min_length=1, max_length=1000)
+    farm_time: str = Field(pattern=FARM_TIME)
+    feed_id: str = Field(pattern=FEED_ID)
+    label: FeedLabel
+    reworded: bool
+    sent_utc: str
+
+
+class AckCommand(Contract):
+    """`jarvis.incubator-1.ack` (request-reply, gateway → incubator-1): the owner clicked "confirm" on an AckOffer.
+    incubator-1 checks the token (single-use, bound to this node and incident) and audits the decision; only then
+    does the gateway pass the acknowledgement to the Matrix API."""
+
+    type: Literal["ack_command"] = "ack_command"
+    request_id: str = Field(pattern=REQUEST_ID)
+    node: NodeId
+    incident_id: str = Field(min_length=1, max_length=80)
+    confirm_token: str = Field(min_length=1, max_length=256)
+    sent_utc: str
+
+
+class AckResult(Contract):
+    """The answer to an AckCommand: ok, or the reason it was refused (a bad, used or expired token...)."""
+
+    type: Literal["ack_result"] = "ack_result"
+    request_id: str = Field(pattern=REQUEST_ID)
+    node: NodeId
+    incident_id: str = Field(min_length=1, max_length=80)
+    ok: bool
+    reason: str = Field(default="", max_length=300)
+
+    @model_validator(mode="after")
+    def _ok_or_reason(self) -> AckResult:
+        if self.ok != (self.reason == ""):
+            raise ValueError("a result is ok, or refused with a reason")
+        return self
+
+
+class LlmFailureSwitches(Contract):
+    """`mentor.llm_failures` (gateway → every node, test only): the simulated LLM failures that are on, by node.
+    Only a node's failure-injection wrappers read it; its agent, prompts and tools never see it (E7). It never
+    reaches the farm or the reasoning (ground rule 4)."""
+
+    type: Literal["llm_failures"] = "llm_failures"
+    llm_timeout: list[NodeId] = Field(default_factory=list[NodeId])   # the node's LLM calls never answer in time
+    broken_json: list[NodeId] = Field(default_factory=list[NodeId])   # its LLM output is corrupted
+    silent_peer: list[NodeId] = Field(default_factory=list[NodeId])   # it stops answering other nodes
+    server_crash: list[NodeId] = Field(default_factory=list[NodeId])  # its LLM server is treated as down
+    set_utc: str
+
+    @model_validator(mode="after")
+    def _no_repeats(self) -> LlmFailureSwitches:
+        for name in ("llm_timeout", "broken_json", "silent_peer", "server_crash"):
+            nodes = getattr(self, name)
+            if len(set(nodes)) != len(nodes):
+                raise ValueError(f"{name} names a node twice")
+        return self
+
+
+VoiceStateName = Literal["off", "idle", "wake", "listening", "thinking", "speaking", "error"]
+
+
+class VoiceStatus(Contract):
+    """`jarvis.incubator-1.voice`: what the voice box is doing, sent on every change and every 5 s. The website's
+    voice indicator shows this, never a guess."""
+
+    type: Literal["voice_status"] = "voice_status"
+    state: VoiceStateName
+    mic: Literal["ok", "missing", "busy", "off"]
+    voice: str = Field(pattern=VOICE_ID)
+    speed: float = Field(ge=0.5, le=2.0)
+    push_to_talk: bool                                 # true while the owner holds the website's talk button
+    transcript: str | None = Field(default=None, max_length=500)
+    request_id: str | None = Field(default=None, pattern=REQUEST_ID)
+    detail: str = Field(default="", max_length=200)
+    sent_utc: str
+
+
+class VoiceSettings(Contract):
+    """`jarvis.incubator-1.voice_settings` (request-reply): the voice and speed the owner chose; incubator-1 checks
+    them, saves them in llm.sqlite and uses them from the next sentence on."""
+
+    type: Literal["voice_settings"] = "voice_settings"
+    voice: str = Field(pattern=VOICE_ID)
+    speed: float = Field(ge=0.5, le=2.0)
+
+
+class VoiceSettingsResult(Contract):
+    """The answer to VoiceSettings: the settings now in force and every voice the installed model has."""
+
+    type: Literal["voice_settings_result"] = "voice_settings_result"
+    ok: bool
+    reason: str = Field(default="", max_length=300)
+    voice: str = Field(pattern=VOICE_ID)
+    speed: float = Field(ge=0.5, le=2.0)
+    voices: list[str] = Field(max_length=100)
+
+    @model_validator(mode="after")
+    def _ok_or_reason(self) -> VoiceSettingsResult:
+        if self.ok != (self.reason == ""):
+            raise ValueError("a result is ok, or refused with a reason")
+        return self
+
+
+class PushToTalk(Contract):
+    """`jarvis.incubator-1.ptt`: the owner pressed or released the website's talk button."""
+
+    type: Literal["push_to_talk"] = "push_to_talk"
+    pressed: bool
+    sent_utc: str
+
+
 #: Every wire message, for the JSON Schema export.
 WIRE_MODELS: tuple[type[Contract], ...] = (FarmStatus, FarmEvent, FarmAssessment, FarmIncident, LinkStatus, SimState,
-                                           Heartbeat, Capabilities, AskRequest, AskReply, ProbeRequest, AuditRecord)
+                                           Heartbeat, Capabilities, AskRequest, AskReply, ProbeRequest, AuditRecord,
+                                           ChatRequest, ChatChunk, ChatDone, OwnerAlert, AckCommand, AckResult,
+                                           LlmFailureSwitches, VoiceStatus, VoiceSettings, VoiceSettingsResult,
+                                           PushToTalk)

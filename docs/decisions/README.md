@@ -18,3 +18,8 @@ One short record per big decision (Q9): context, decision, alternatives, consequ
 | 0012 | The 6A test feed stubs the snapshot's CTM module and runs rule brains |
 | 0013 | One independent llama.cpp server per node |
 | 0014 | MCP exposes only node-local read tools |
+| 0015 | The trained brains are installed inside JARVIS, re-saved as plain weights |
+| 0016 | The voice's tone hint (emotion2vec+) is cut |
+
+Numbers 0017-0023 are reserved for the builders (`docs/handoff/README.md`): 0017-0019 for 6C, 0020 for the demo
+faults (6W), 0021 for the trained feed (6D), 0022-0023 for voice (6E).

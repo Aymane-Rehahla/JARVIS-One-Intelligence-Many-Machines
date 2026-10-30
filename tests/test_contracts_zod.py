@@ -20,6 +20,17 @@ import gateway as gw
 from contracts import Heartbeat, utc_now
 from test_contracts import SAMPLES
 
+#: Messages that exist only between the website and the gateway (the NATS ones are in test_contracts.SAMPLES).
+WEBSITE_SAMPLES: list[BaseModel] = [
+    gw.ChatSend(client_msg_id="m-1", conversation_id=None, text="What's wrong with the HVAC?"),
+    gw.ChatAccepted(client_msg_id="m-1", request_id="c-1"),
+    gw.ChatError(client_msg_id="m-2", request_id=None, reason="one question at a time"),
+    gw.AckResponse(node="hvac", incident_id="hvac-equipment-0001", ok=False, stage="token", reason="token expired"),
+    gw.OkResponse(ok=True),
+]
+#: Models that the website only ever sees inside another message.
+NESTED_ONLY = {"NodeView", "GateDecision", "Citation", "ToolUse", "ReplyTimings", "AckOffer"}
+
 ROOT = Path(__file__).resolve().parents[1]
 WEB = ROOT / "interface" / "web"
 NODE = Path(os.environ.get("JARVIS_NODE", r"C:\Users\Aymane\node\node-v24.22.1-win-x64\node.exe"))
@@ -59,11 +70,31 @@ def broken(name: str, message: dict[str, Any]) -> list[tuple[str, dict[str, Any]
     if name == "FarmSnapshot":
         node = dict(message["nodes"]["hvac"]) | {"machine": "incubator"}
         cases += [message | {"nodes": message["nodes"] | {"hvac": node | {"alive": "yes"}}}]
+    if name == "ChatDone":
+        cases += [message | {"reason": "why"} if message["outcome"] == "answered" else message | {"reason": ""},
+                  message | {"outcome": "fallback", "reason": "x", "farm_time": None},
+                  message | {"outcome": "error", "reason": "x", "confirm": message["confirm"] or {}},
+                  message | {"citations": [{"node": "hvac", "file": "", "section": ""}]},
+                  message | {"timings": message["timings"] | {"total_ms": 1.5}}]
+    if name == "ChatSend":
+        cases += [message | {"text": "bad\x07bell"}, message | {"text": ""}, message | {"client_msg_id": "has space"}]
+    if name in ("VoiceStatus", "VoiceSettings", "VoiceSettingsResult"):
+        cases += [message | {"voice": "George"}, message | {"speed": 2.5}]
+    if name in ("VoiceSettingsResult", "OkResponse"):
+        cases += [message | {"ok": not message["ok"]}]
+    if name == "AckResponse":
+        cases += [message | {"ok": True}, message | {"stage": "done"}, message | {"reason": ""}]
+    if name == "LlmFailureSwitches":
+        cases += [message | {"server_crash": ["hvac", "hvac"]}, message | {"broken_json": ["barn-9"]}]
+    if name == "OwnerAlert":
+        cases += [message | {"level": "WATCHING"}, message | {"feed_id": "XYZ"}, message | {"text": ""}]
+    if name == "AuditRecord":
+        cases += [message | {"kind": "chat"}, message | {"outputs": {"big": "x" * 5000}}]
     return [(name, case) for case in cases]
 
 
 def pydantic_accepts(name: str, message: dict[str, Any]) -> bool:
-    model: type[BaseModel] = {type(m).__name__: type(m) for m in [*SAMPLES, snapshot()]}[name]
+    model: type[BaseModel] = {type(m).__name__: type(m) for m in [*SAMPLES, *WEBSITE_SAMPLES, snapshot()]}[name]
     try:
         model.model_validate_json(json.dumps(message))
         return True
@@ -72,8 +103,12 @@ def pydantic_accepts(name: str, message: dict[str, Any]) -> bool:
 
 
 def gateway_models() -> set[str]:
-    """What the website receives: FarmSnapshot and every model inside it (JsonValue is a type, not a model)."""
-    return {"FarmSnapshot", *gw.FarmSnapshot.model_json_schema(mode="serialization")["$defs"]} - {"JsonValue"}
+    """What the website receives or sends: FarmSnapshot, gateway.WEBSITE_MODELS and every model inside them (JsonValue
+    is a type, not a model)."""
+    names = {"FarmSnapshot", *gw.FarmSnapshot.model_json_schema(mode="serialization")["$defs"]}
+    for model in gw.WEBSITE_MODELS:
+        names |= {model.__name__, *model.model_json_schema(mode="serialization").get("$defs", {})}
+    return names - {"JsonValue"}
 
 
 def zod(samples: list[tuple[str, Any]], tmp_path: Path) -> list[dict[str, Any]]:
@@ -98,9 +133,9 @@ def test_the_website_has_a_schema_for_everything_the_gateway_sends(tmp_path: Pat
 
 
 def test_zod_and_pydantic_agree_on_every_sample(tmp_path: Path) -> None:
-    valid = [(type(m).__name__, json.loads(m.model_dump_json())) for m in [*SAMPLES, snapshot()]
+    valid = [(type(m).__name__, json.loads(m.model_dump_json())) for m in [*SAMPLES, *WEBSITE_SAMPLES, snapshot()]
              if type(m).__name__ in gateway_models()]
-    assert {name for name, _ in valid} == gateway_models() - {"NodeView", "GateDecision"}   # those two live inside
+    assert {name for name, _ in valid} == gateway_models() - NESTED_ONLY
     samples = valid + [case for name, message in valid for case in broken(name, message)]
     results = zod(samples, tmp_path)
     disagree = [(name, result["ok"], result["issues"], message) for (name, message), result in zip(samples, results)
