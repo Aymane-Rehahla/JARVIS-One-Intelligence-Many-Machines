@@ -12,22 +12,22 @@ Never write the three outside paths (the release folder, the training's Python, 
 | 6C engines: streaming, tool calls, KV cache decision 0017 (keep f16; flash attention works) | `b4c25b3` | decision 0017 |
 | 6C agent, peer minds, alerts, failure switches, node wiring; decisions 0018, 0019 | `77c45b5` | tests/llm/test_agent.py, test_minds_alerts_failures.py, tests/test_node.py |
 | 6C gateway routes (/ws/chat, /ws/audit, mentor switches, ack) + Matrix ack route + tools/chat_cli.py | `f7e0fcd` | tests/test_gateway_chat.py, tests/test_farm_runtime.py |
+| 6C prompt-cache warm-up; the real-model "Done when" test passes (answered, hvac asked, manual cited, farm time) | see `git log` | WORKLOG "Step 6C, part 1" |
+| Website chat, confirm click, alert banner, LLM switches, JARVIS identity; checked on the real stack (-NoLlm) | see `git log` | WORKLOG "Step 6W, part 2 (first piece)" |
 
 Measured on 31 Oct: the snapshot's owner notifications name their sender `jarvis-<node>`, and their incident id is
 the one the runtime publishes (README section 6 unknown, answered for the test feed; P3 must check the trained feed).
 
 ## Next (in order)
 
-1. 6C still open: install the provisional persona from the D2 persona search results (top eligible automatic config;
-   never rate, never open sealed/); the real-model integration test ("What's wrong with the HVAC?" through /ws/chat,
-   real 2B + 0.6B servers, fixture-approved manuals, a synthetic hvac fault); WORKLOG 6C section.
-2. P4 chat, ack, alerts on the website (chat page, confirm button with countdown, alert banner, mentor LLM switches),
-   the identity fix (JARVIS, not "JARVIS Farm"), bundle size report.
-3. P3 (6D): torch into requirements, install_release, equivalence proof, trained feed, ack route on both feeds, E9/E10,
-   decision 0021.
-4. Rest of P2: E7 (real llama-server kill), E8 (draft of 18 attacks in the scratchpad: re-create if lost), E1/E2
-   golden, E4, E5 (>= 40 questions), E6 text; review; tag `step-6C`.
-5. P4 voice; tag `step-6E`. 6. run_all -> docs/results-phase6.md. 7. 6F (bugs, review, 3 rehearsals, docs, tag).
+1. P3 (6D): torch into requirements, install_release, equivalence proof, trained feed, ack route on both feeds,
+   E9/E10, decision 0021.
+2. Rest of P2: E7 (real llama-server kill), E8, E1/E2 golden, E4, E5 (>= 40 questions), E6 text; review; tag `step-6C`.
+3. Website: JARVIS AI page (W7), audit/latency view (A10); then P4 voice; tag `step-6E`.
+4. run_all -> docs/results-phase6.md. 5. 6F (bugs, review, 3 rehearsals, docs, tag).
+
+D2 persona search: 0 of 36 configurations eligible, so no blind sheet and nothing installed (the spec's provisional
+persona stays). The owner has nothing to rate from that run.
 
 ## Open bugs found (to log in WORKLOG and fix)
 
