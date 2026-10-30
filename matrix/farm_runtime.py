@@ -15,7 +15,9 @@ The Matrix API (127.0.0.1, `matrix_api` in launcher/ports.toml) is how the gatew
     GET  /health
     POST /sim/start · /sim/pause · /sim/reset · /sim/speed {"speed": S}
     POST /links/{node}/cut {"seconds": S} · /links/{node}/restore      (robustness tests: the Matrix cuts a radio link)
-Demo faults (POST /faults/{scenario_id}) come in step 6W.
+    POST /faults/{scenario_id}     one of the website's four demo faults, from the next tick (6W; decision 0020):
+                                   404 unknown, 409 when one is already active in this farm run (a reset clears it).
+                                   The answer goes to the caller only; nothing about it is published.
 
 The snapshot's NodeRuntime imports its CTM brain module, which needs torch; this environment has no torch and the test
 feed runs rule brains only, so that one module is replaced by a stub that refuses to build a CTM (decision 0012).
@@ -33,7 +35,7 @@ import sys
 import time
 import tomllib
 import types
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, Literal
 
@@ -51,8 +53,9 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue  # noqa: E402
 
 from comms.jsonlog import log, program_logger  # noqa: E402
 from comms.nats_link import NatsLink  # noqa: E402
-from contracts import (FARM_LINKS, FARM_SIM, NODE_IDS, FarmAssessment, FarmEvent, FarmEventType,  # noqa: E402
-                       FarmIncident, FarmStatus, FeedLabel, GateDecision, LinkStatus, NodeId, SimState, farm_subject)
+from contracts import (FARM_LINKS, FARM_SIM, NODE_IDS, SCENARIO_IDS, FarmAssessment, FarmEvent,  # noqa: E402
+                       FarmEventType, FarmIncident, FarmStatus, FaultResult, FeedLabel, GateDecision, LinkStatus,
+                       NodeId, ScenarioId, SimState, farm_subject)
 
 MAX_PUBLISH_HZ = 10.0
 SEVERITY_RANK = {"info": 0, "warning": 1, "critical": 2}
@@ -134,6 +137,39 @@ class CutRequest(BaseModel):
     seconds: float = Field(default=60.0, gt=0.0, le=86_400.0)
 
 
+VARIANTS_SEARCHED = 500
+
+
+def _first(fault: Mapping[str, Any], **wanted: Any) -> bool:
+    return all(fault.get(key) == value for key, value in wanted.items())
+
+
+#: The website's demo faults (plan 4.4) → the scenario library's family, and which ordinary (not novel) variant to take:
+#: the first one whose fault matches the website's description (decision 0020). Its own parameters are used unchanged.
+DEMO_FAULTS: dict[ScenarioId, tuple[str, Callable[[Any], bool]]] = {
+    "heater_relay_stuck": ("heater_relay_stuck",
+                           lambda spec: _first(spec.faults[0], device="incubator-1", end_tick=None)),
+    "supply_fan_failure": ("supply_fan_failure", lambda spec: _first(spec.faults[0], device="hvac", end_tick=None)),
+    "humidity_sensor_drift": ("sensor_fault",
+                              lambda spec: _first(spec.faults[0], channel="incubator-2.humidity_1", mode="drift",
+                                                  end_tick=None) and float(spec.faults[0]["severity"]) > 0.0),
+    "supply_overvoltage": ("overvoltage", lambda spec: spec.tags.get("pattern") == "shared"),
+}
+
+
+def load_fault_tools() -> tuple[Any, Any]:
+    """The snapshot library's episode builder (`_make`) and its fault injector (`_faults`): the same code that made
+    the training episodes, so a demo fault is one the brains were trained on."""
+    load_snapshot()
+    from farm_poc_snapshot.scenarios.episode import _faults
+    from farm_poc_snapshot.scenarios.library import _make
+    return _make, _faults
+
+
+class DemoFaultRefused(Exception):
+    """A demo fault that cannot start now (one is already active in this farm run)."""
+
+
 class FarmRuntime:
     """The farm, its four brains and their publication (see the module docstring)."""
 
@@ -150,6 +186,8 @@ class FarmRuntime:
         self.running = running
         self.max_publish_hz = max_publish_hz
         self._engine_cls, self._runtime_cls = load_snapshot()
+        self._make_spec, self._inject = load_fault_tools()
+        self._demo_specs: dict[ScenarioId, tuple[int, Any]] = {}
         self.engine: Any = None
         self.runtime: Any = None
         self._publish_lock = asyncio.Lock()
@@ -174,6 +212,7 @@ class FarmRuntime:
         self._links: tuple[tuple[str, ...], tuple[str, ...]] | None = None
         self._speed_samples: list[tuple[float, float]] = []
         self._pending: dict[str, Any] = {}
+        self.demo_fault: FaultResult | None = None            # one demo fault per farm run; a reset clears it
         log(self.logger, logging.INFO, "farm reset", seed=self.seed, episode=self.engine.world.episode_id,
             feed_id=self.feed_id)
 
@@ -393,6 +432,49 @@ class FarmRuntime:
             await self.publish_clock(force=True)
             return self.sim_state()
 
+    def demo_spec(self, scenario_id: ScenarioId) -> tuple[int, Any]:
+        """(variant, EpisodeSpec) of the library episode a demo fault takes its parameters from (DEMO_FAULTS)."""
+        if scenario_id not in self._demo_specs:
+            family, wanted = DEMO_FAULTS[scenario_id]
+            for variant in range(VARIANTS_SEARCHED):
+                spec = self._make_spec(family, variant, False)
+                if wanted(spec):
+                    self._demo_specs[scenario_id] = (variant, spec)
+                    break
+            else:
+                raise LookupError(f"no ordinary {family} variant matches {scenario_id}")
+        return self._demo_specs[scenario_id]
+
+    async def inject_fault(self, scenario_id: ScenarioId) -> FaultResult:
+        """Start a demo fault at the next tick with the library's own parameters, shifted in time only. Publishes
+        nothing: the nodes learn of it only through its physical effects (ground rule 4)."""
+        async with self._publish_lock:
+            if self.demo_fault is not None:
+                raise DemoFaultRefused(f"a demo fault ({self.demo_fault.scenario_id}) is already active in this farm "
+                                       "run; reset the farm to start another")
+            variant, spec = self.demo_spec(scenario_id)
+            start = self.tick                                   # due at the next engine step
+            shift = start - int(spec.faults[0]["inject_tick"])
+            faults = []
+            for fault in spec.faults:
+                moved = dict(fault)
+                moved["inject_tick"] = int(fault["inject_tick"]) + shift
+                if fault.get("end_tick") is not None:
+                    moved["end_tick"] = int(fault["end_tick"]) + shift
+                faults.append(moved)
+            self._inject(self.engine, self.runtime, types.SimpleNamespace(faults=faults))
+            fault = faults[0]
+            devices: list[NodeId] = ([fault["device"]] if "device" in fault else
+                                     ["incubator-1", "incubator-2"] if fault.get("shared") else ["incubator-1"])
+            farm_time, _ = self.farm_time()
+            self.demo_fault = FaultResult(scenario_id=scenario_id, family=DEMO_FAULTS[scenario_id][0],
+                                          variant=variant, devices=devices, tick=start,
+                                          time_s=start * self.step_seconds, farm_time=farm_time, feed_id=self.feed_id)
+            log(self.logger, logging.INFO, "demo fault injected", scenario_id=scenario_id,
+                family=self.demo_fault.family, variant=variant, devices=devices, tick=start, feed_id=self.feed_id,
+                faults=_plain(faults))
+            return self.demo_fault
+
     async def cut(self, node: NodeId, seconds: float) -> LinkStatus:
         async with self._publish_lock:
             ticks = max(1, int(round(seconds / self.step_seconds)))
@@ -422,6 +504,15 @@ def create_api(farm: FarmRuntime) -> FastAPI:
         if action == "speed" and body is None:
             raise HTTPException(422, "speed needs a body: {\"speed\": S}")
         return await farm.control(action, speed=body.speed if body else None)
+
+    @app.post("/faults/{scenario_id}")
+    async def fault(scenario_id: str) -> FaultResult:
+        if scenario_id not in SCENARIO_IDS:
+            raise HTTPException(404, f"unknown demo fault {scenario_id!r}; known: {', '.join(SCENARIO_IDS)}")
+        try:
+            return await farm.inject_fault(scenario_id)  # type: ignore[arg-type]  # checked against SCENARIO_IDS
+        except DemoFaultRefused as error:
+            raise HTTPException(409, str(error)) from error
 
     @app.post("/links/{node}/cut")
     async def cut(node: NodeId, body: CutRequest | None = None) -> LinkStatus:

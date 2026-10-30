@@ -17,7 +17,7 @@ import pytest
 from pydantic import BaseModel, ValidationError
 
 import gateway as gw
-from contracts import Heartbeat, utc_now
+from contracts import FaultResult, Heartbeat, utc_now
 from test_contracts import SAMPLES
 
 #: Messages that exist only between the website and the gateway (the NATS ones are in test_contracts.SAMPLES).
@@ -27,6 +27,8 @@ WEBSITE_SAMPLES: list[BaseModel] = [
     gw.ChatError(client_msg_id="m-2", request_id=None, reason="one question at a time"),
     gw.AckResponse(node="hvac", incident_id="hvac-equipment-0001", ok=False, stage="token", reason="token expired"),
     gw.OkResponse(ok=True),
+    FaultResult(scenario_id="supply_overvoltage", family="overvoltage", variant=1,
+                devices=["incubator-1", "incubator-2"], tick=5, time_s=5.0, farm_time="06:00", feed_id="0000000000a1"),
 ]
 #: Models that the website only ever sees inside another message.
 NESTED_ONLY = {"NodeView", "GateDecision", "Citation", "ToolUse", "ReplyTimings", "AckOffer"}
@@ -84,6 +86,9 @@ def broken(name: str, message: dict[str, Any]) -> list[tuple[str, dict[str, Any]
         cases += [message | {"ok": not message["ok"]}]
     if name == "AckResponse":
         cases += [message | {"ok": True}, message | {"stage": "done"}, message | {"reason": ""}]
+    if name == "FaultResult":
+        cases += [message | {"scenario_id": "fire"}, message | {"devices": []}, message | {"devices": ["barn-9"]},
+                  message | {"family": ""}]
     if name == "LlmFailureSwitches":
         cases += [message | {"server_crash": ["hvac", "hvac"]}, message | {"broken_json": ["barn-9"]}]
     if name == "OwnerAlert":

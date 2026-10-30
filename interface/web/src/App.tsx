@@ -48,7 +48,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/co
 import { Toaster } from "@/components/ui/sonner"
 import { ASSESSMENT_TONES, worstAssessment } from "@/lib/assessment"
 import { cn } from "@/lib/utils"
-import { useDemoFarm } from "@/hooks/use-demo-farm"
+import { useFarm, type Farm } from "@/hooks/use-farm"
 import { AssessmentBadge, EmptyState, Kicker, Notice, PageHeader } from "@/components/farm-ui"
 import { JarvisPage } from "@/components/jarvis/jarvis-page"
 import { JarvisVoice } from "@/components/jarvis-voice"
@@ -88,7 +88,7 @@ const navItems = [
 type PageId = (typeof navItems)[number]["id"]
 
 function App() {
-  const farm = useDemoFarm()
+  const farm = useFarm()
   const [page, setPage] = useState<PageId>("overview")
   const [search, setSearch] = useState("")
   const [selectedDeviceId, setSelectedDeviceId] = useState<DeviceId | null>(null)
@@ -137,7 +137,9 @@ function App() {
 
   const activateVoice = () => {
     if (!farm.voiceDemo()) {
-      toast.info("Voice isn't connected yet", { description: "Use demo mode to preview how JARVIS listens and speaks." })
+      toast.info("Voice isn't connected yet", {
+        description: state.source === "live" ? "Available after 6C/6E. The demo mode previews how JARVIS listens and speaks." : "Use demo mode to preview how JARVIS listens and speaks.",
+      })
     }
   }
 
@@ -208,7 +210,7 @@ function App() {
                 <JarvisVoice state={farm.voice} available={state.source === "demo"} onActivate={activateVoice} />
               </div>
             </div>
-            <SystemBar state={state} isConnecting={farm.isConnecting} onEvents={() => navigate("events")} />
+            <SystemBar state={state} isConnecting={farm.isConnecting} liveAvailable={farm.liveAvailable} onGoLive={farm.goLive} onEvents={() => navigate("events")} />
           </header>
           <main className="px-4 py-8 sm:px-6 md:px-10 md:py-12">
             {page === "overview" && (
@@ -358,12 +360,24 @@ function SiteFooter({
 }
 
 /** The status line under the nav, written like the reference's metadata: LABEL // VALUE. */
-function SystemBar({ state, isConnecting, onEvents }: { state: FarmState; isConnecting: boolean; onEvents: () => void }) {
+function SystemBar({
+  state,
+  isConnecting,
+  liveAvailable,
+  onGoLive,
+  onEvents,
+}: {
+  state: FarmState
+  isConnecting: boolean
+  liveAvailable: boolean
+  onGoLive: () => void
+  onEvents: () => void
+}) {
   const connection =
     state.source === "demo"
       ? "Demo mode"
       : state.source === "live"
-        ? "Connected"
+        ? state.live?.label ?? "Live"
         : isConnecting
           ? "Connecting…"
           : "Not connected"
@@ -374,12 +388,23 @@ function SystemBar({ state, isConnecting, onEvents }: { state: FarmState; isConn
     <div className="flex min-h-[40px] items-stretch overflow-x-auto bg-panel">
       <SystemItem label="Connection" value={connection} tone={state.source === "demo" ? "info" : state.source === "live" ? "good" : "neutral"} />
       <SystemItem label="Simulation" value={state.source === "disconnected" ? "Stopped" : simulationLabel(state)} />
-      <SystemItem label="Farm time" value={formatSimTime(state.simulation.timeS)} />
+      <SystemItem
+        label="Farm time"
+        value={state.source === "live" && state.live ? `${state.live.farmTime} · day ${state.live.day}` : formatSimTime(state.simulation.timeS)}
+      />
+      {state.source === "live" && state.live && (
+        <SystemItem label="Speed" value={`asked ${state.live.targetSpeed}× · reached ${state.live.actualSpeed.toFixed(1)}×`} />
+      )}
       <SystemItem
         label="JARVIS"
-        value={state.source === "demo" ? ASSESSMENT_LABELS[worst] : "Not connected"}
-        tone={state.source !== "demo" ? "neutral" : ASSESSMENT_TONES[worst].status}
+        value={state.source === "disconnected" ? "Not connected" : ASSESSMENT_LABELS[worst]}
+        tone={state.source === "disconnected" ? "neutral" : ASSESSMENT_TONES[worst].status}
       />
+      {state.source === "demo" && liveAvailable && (
+        <button type="button" onClick={onGoLive} className="flex shrink-0 items-stretch hover:bg-secondary">
+          <SystemItem label="Live farm" value="Switch to live" tone="good" />
+        </button>
+      )}
       <button type="button" onClick={onEvents} className="flex shrink-0 items-stretch hover:bg-secondary">
         <SystemItem label="Incidents" value={`${incidents} open`} tone={incidentTone} last />
       </button>
@@ -489,7 +514,7 @@ function Overview({
   onJarvis,
 }: {
   state: FarmState
-  farm: ReturnType<typeof useDemoFarm>
+  farm: Farm
   onDevice: (device: Device) => void
   onEvents: () => void
   onJarvis: () => void
@@ -499,7 +524,7 @@ function Overview({
   const firstAlarm = state.events.find((event) => !event.acknowledged && event.severity !== "Info")
   const retryConnection = async () => {
     await farm.retryConnection()
-    toast.info("Matrix still unreachable. Showing reference data.")
+    toast.info("Trying the gateway again. Live data appears as soon as it answers.")
   }
 
   return (
@@ -537,9 +562,11 @@ function Overview({
         text={
           state.source === "demo"
             ? "Demo mode: values are simulated reference data. No live farm or JARVIS node is connected."
-            : "Matrix isn't connected. Showing reference values. Activate demo mode to explore the interactive simulation."
+            : state.source === "live"
+              ? `${state.live?.label ?? "Live"}: the machines' own readings from the Matrix test bench, farm time ${state.live?.farmTime ?? "--:--"}. Each node's conclusion comes from its reasoning brain, shown apart from any words.`
+              : "Matrix isn't connected. Showing reference values. Activate demo mode to explore the interactive simulation."
         }
-        action={state.source !== "demo" ? "Use demo mode" : undefined}
+        action={state.source === "live" ? "Use demo mode" : state.source !== "demo" ? "Use demo mode" : undefined}
         onAction={state.source !== "demo" ? farm.activateDemo : undefined}
       />
       <div className="grid border-l border-t sm:grid-cols-2 xl:grid-cols-4">
@@ -596,13 +623,15 @@ function SupervisorPanel({ state, onDemo, onOpen }: { state: FarmState; onDemo: 
   return (
     <Panel
       title="JARVIS nodes"
-      meta={state.source === "demo" ? "Demo script" : "Not connected"}
-      action={state.source === "demo" ? <Button variant="link" onClick={onOpen} className="h-auto p-0">Open JARVIS →</Button> : undefined}
+      meta={state.source === "demo" ? "Demo script" : state.source === "live" ? state.live?.label ?? "Live" : "Not connected"}
+      action={state.source !== "disconnected" ? <Button variant="link" onClick={onOpen} className="h-auto p-0">Open JARVIS →</Button> : undefined}
     >
-      {state.source === "demo" ? (
+      {state.source !== "disconnected" ? (
         <div>
           <p className="mb-3 text-[14px] leading-6 text-muted-foreground">
-            Each machine carries its own node; together they form one JARVIS. Here they follow a demo script.
+            {state.source === "demo"
+              ? "Each machine carries its own node; together they form one JARVIS. Here they follow a demo script."
+              : "Each machine carries its own node; together they form one JARVIS. Each conclusion below is its reasoning brain's own output, with its evidence."}
           </p>
           {DEVICE_IDS.map((id) => {
             const node = state.jarvis.nodes[id]
@@ -629,7 +658,7 @@ function SupervisorPanel({ state, onDemo, onOpen }: { state: FarmState; onDemo: 
       )}
       <div className="mt-2 flex justify-between border-t pt-3">
         <span className="label-mono text-muted-foreground">Messages to the owner</span>
-        <span className="font-mono text-[13px] tabular-nums">{state.source === "demo" ? state.jarvis.announcements : "None"}</span>
+        <span className="font-mono text-[13px] tabular-nums">{state.source === "demo" ? state.jarvis.announcements : state.source === "live" ? "available after 6C" : "None"}</span>
       </div>
     </Panel>
   )
@@ -684,7 +713,7 @@ function Simulator({
   onDevice,
 }: {
   state: FarmState
-  farm: ReturnType<typeof useDemoFarm>
+  farm: Farm
   onDevice: (device: Device) => void
 }) {
   const [scenario, setScenario] = useState<ScenarioId>("heater_relay_stuck")
@@ -698,6 +727,11 @@ function Simulator({
     ? state.simulation.timeS - state.simulation.scenarioStartS
     : 0
   const selectedScenario = findScenario(scenario)
+  const live = state.source === "live" ? state.live ?? null : null
+  const speedValue = String(live ? live.targetSpeed : state.simulation.speed)
+  const speedOptions: number[] = live && !(SIMULATION_SPEEDS as readonly number[]).includes(live.targetSpeed)
+    ? [live.targetSpeed, ...SIMULATION_SPEEDS]
+    : [...SIMULATION_SPEEDS]
 
   const handleInject = () => {
     if (activeScenario) {
@@ -707,7 +741,7 @@ function Simulator({
       return
     }
     farm.inject(scenario)
-    if (!state.simulation.running) {
+    if (!state.simulation.running && !live) {
       toast.message("Scenario ready", { description: "Press Start to play its timeline." })
     }
   }
@@ -740,14 +774,22 @@ function Simulator({
             </div>
             <div className="text-right">
               <div className="label-mono text-muted-foreground">Farm time</div>
-              <div className="mt-2 text-[clamp(1.8rem,3vw,2.5rem)] font-semibold leading-none tabular-nums [font-stretch:112%]">{formatSimTime(state.simulation.timeS)}</div>
+              <div className="mt-2 text-[clamp(1.8rem,3vw,2.5rem)] font-semibold leading-none tabular-nums [font-stretch:112%]">{live ? live.farmTime : formatSimTime(state.simulation.timeS)}</div>
+              {live && <div className="label-mono mt-2 text-muted-foreground">day {live.day} · tick {live.tick}</div>}
             </div>
           </div>
+          {live && (
+            <div className="mt-6 grid border-l border-t sm:grid-cols-3">
+              <Metric label="Feed" value={live.label} />
+              <Metric label="Speed asked" value={`${live.targetSpeed}×`} />
+              <Metric label="Speed reached" value={`${live.actualSpeed.toFixed(1)}×`} />
+            </div>
+          )}
           <div className="mt-8 grid border-l border-t sm:grid-cols-3">
             <Metric label="Active scenario" value={activeScenario ? activeScenario.shortLabel : "None"} />
             <Metric
               label="Scenario time"
-              value={activeScenario ? `${formatSimTime(scenarioElapsed)} of ${formatSimTime(activeScenario.durationS)}` : "Not running"}
+              value={activeScenario ? (live ? `${formatSimTime(scenarioElapsed)} since injection` : `${formatSimTime(scenarioElapsed)} of ${formatSimTime(activeScenario.durationS)}`) : "Not running"}
             />
             <Metric label="Recorded events" value={String(state.events.length)} />
           </div>
@@ -755,15 +797,17 @@ function Simulator({
             <div className="grid gap-1.5">
               <label htmlFor="sim-speed" className="label-mono text-muted-foreground">Speed</label>
               <Select
-                value={String(state.simulation.speed)}
+                value={speedValue}
                 onValueChange={(value) => farm.setSpeed(Number(value) as SimulationSpeed)}
               >
                 <SelectTrigger id="sim-speed" className="h-9 w-[190px] font-mono text-[12px]">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {SIMULATION_SPEEDS.map((speed) => (
-                    <SelectItem key={speed} value={String(speed)}>{speedLabel(speed)}</SelectItem>
+                  {speedOptions.map((speed) => (
+                    <SelectItem key={speed} value={String(speed)} disabled={!(SIMULATION_SPEEDS as readonly number[]).includes(speed)}>
+                      {(SIMULATION_SPEEDS as readonly number[]).includes(speed) ? speedLabel(speed as SimulationSpeed) : `${speed}× (as started)`}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -789,13 +833,18 @@ function Simulator({
               />
             </div>
           )}
+          {live?.lastError && (
+            <p role="alert" className="mt-6 border border-l-[3px] border-l-danger bg-panel p-4 text-[14px] leading-6">
+              <span className="font-semibold">Refused by the farm // </span>{live.lastError}
+            </p>
+          )}
           {activeScenario && (
             <div className="mt-6 border border-l-[3px] border-l-signal bg-panel p-4">
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                 <span className="display-sm text-[13px]">{activeScenario.label}</span>
-                <span className="label-mono text-muted-foreground">{formatSimTime(scenarioElapsed)} of {formatSimTime(activeScenario.durationS)}</span>
+                <span className="label-mono text-muted-foreground">{live ? `${formatSimTime(scenarioElapsed)} since injection · until reset` : `${formatSimTime(scenarioElapsed)} of ${formatSimTime(activeScenario.durationS)}`}</span>
               </div>
-              <p className="mt-2 text-[14px] leading-6 text-muted-foreground">{activeScenario.description}</p>
+              <p className="mt-2 text-[14px] leading-6 text-muted-foreground">{live ? "The fault runs in the Matrix test bench with the scenario library's own parameters. The nodes learn of it only through its physical effects." : activeScenario.description}</p>
               {!state.simulation.running && <p className="label-mono mt-3 text-signal-ink">Paused // press Start to advance</p>}
             </div>
           )}
@@ -804,8 +853,9 @@ function Simulator({
           <Kicker>Scenario injection</Kicker>
           <h2 id="inject-title" className="display-sm mt-4 text-[15px]">Inject a fault</h2>
           <p className="mt-3 text-[14px] leading-6 text-muted-foreground">
-            Scripted faults based on the real scenario library. Each one plays out as the simulated clock runs,
-            updating telemetry, events and the JARVIS nodes together.
+            {live
+              ? "Mentor tool, test only. Starts one fault of the real scenario library in the live Matrix test bench, from the next farm second. One fault per farm run; Reset clears it. JARVIS is never told: it has to notice."
+              : "Scripted faults based on the real scenario library. Each one plays out as the simulated clock runs, updating telemetry, events and the JARVIS nodes together."}
           </p>
           <label htmlFor="scenario" className="label-mono mt-6 text-muted-foreground">Scenario</label>
           <Select value={scenario} onValueChange={(value) => setScenario(value as ScenarioId)}>
@@ -841,8 +891,9 @@ function Simulator({
           <AlertDialogHeader>
             <AlertDialogTitle>Inject “{selectedScenario?.label}”?</AlertDialogTitle>
             <AlertDialogDescription>
-              It plays a scripted incident on {selectedScenario?.devices.map(deviceName).join(" and ")}. No real
-              backend action is performed.
+              {live
+                ? `It starts this fault on ${selectedScenario?.devices.map(deviceName).join(" and ")} in the live Matrix test bench. The nodes are not told; they only see its effects.`
+                : `It plays a scripted incident on ${selectedScenario?.devices.map(deviceName).join(" and ")}. No real backend action is performed.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -854,9 +905,11 @@ function Simulator({
       <AlertDialog open={confirmReset} onOpenChange={setConfirmReset}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Reset the demo simulation?</AlertDialogTitle>
+            <AlertDialogTitle>{live ? "Start a new farm run?" : "Reset the demo simulation?"}</AlertDialogTitle>
             <AlertDialogDescription>
-              All devices, events, JARVIS activity and chat return to reference values. This cannot be undone.
+              {live
+                ? "The Matrix restarts the farm from its first second with fresh brains and memory; the website clears this run's events. Any demo fault ends."
+                : "All devices, events, JARVIS activity and chat return to reference values. This cannot be undone."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -954,7 +1007,7 @@ function Devices({
     return (
       <DeviceDetail
         device={selectedDevice}
-        node={state.source === "demo" ? state.jarvis.nodes[selectedDevice.id] : null}
+        node={state.source !== "disconnected" ? state.jarvis.nodes[selectedDevice.id] : null}
         onBack={onBack}
       />
     )
@@ -1144,7 +1197,7 @@ function EventsPage({
   initialQuery = "",
 }: {
   state: FarmState
-  farm: ReturnType<typeof useDemoFarm>
+  farm: Farm
   initialQuery?: string
 }) {
   const [query, setQuery] = useState(initialQuery)
@@ -1176,6 +1229,8 @@ function EventsPage({
     setConfirmAcknowledgeAll(false)
   }
 
+  const isLive = state.source === "live"
+  const doneText = isLive ? "Cleared" : "Acknowledged"
   const openCount = state.events.filter((event) => !event.acknowledged).length
   const acknowledgedInfoCount = state.events.filter((event) => event.severity === "Info" && event.acknowledged).length
   const criticalOpen = state.events.some((event) => event.severity === "Critical" && !event.acknowledged)
@@ -1208,7 +1263,9 @@ function EventsPage({
         kicker="Event log"
         title="Events & alarms"
         action={
-          <>
+          isLive ? (
+            <span className="label-mono text-muted-foreground">Acknowledging alerts: available after 6C (your words + a confirm click)</span>
+          ) : <>
             <Button variant="outline" size="sm" onClick={() => (criticalOpen ? setConfirmAcknowledgeAll(true) : acknowledgeEverything())} disabled={openCount === 0}>
               <CheckCircle2 className="size-3.5" />
               Acknowledge all
@@ -1224,16 +1281,18 @@ function EventsPage({
         text={
           state.source === "demo"
             ? "Demo event log. Entries come from the scripted demo scenarios, not a live Matrix feed."
-            : "Matrix is not connected. Activate demo mode and run a scenario to populate the event log."
+            : isLive
+              ? `Live event log (${state.live?.label ?? "live"}): the machines' own alarms and the safety gate's decisions in this farm run, at farm time. An alarm stays open until its machine clears it.`
+              : "Matrix is not connected. Activate demo mode and run a scenario to populate the event log."
         }
-        action={state.source !== "demo" ? "Use demo mode" : undefined}
-        onAction={state.source !== "demo" ? farm.activateDemo : undefined}
+        action={state.source === "disconnected" ? "Use demo mode" : undefined}
+        onAction={state.source === "disconnected" ? farm.activateDemo : undefined}
       />
       <div className="grid grid-cols-2 border-l border-t lg:grid-cols-4">
         <Summary label="Open critical" value={criticalCount} tone={criticalCount > 0 ? "danger" : "plain"} />
         <Summary label="Open warnings" value={warningCount} tone={warningCount > 0 ? "signal" : "plain"} />
         <Summary label="Total entries" value={totalCount} tone="plain" />
-        <Summary label="Acknowledged" value={ackedCount} tone="plain" />
+        <Summary label={doneText} value={ackedCount} tone="plain" />
       </div>
       <div className="border bg-background">
         <div className="grid gap-3 border-b p-4 lg:grid-cols-[minmax(0,1fr)_170px_190px_170px]">
@@ -1290,7 +1349,9 @@ function EventsPage({
               text={
                 state.source === "demo"
                   ? "No events match the current filters, or the demo simulation hasn't produced any yet."
-                  : "Matrix is not connected, so there is no event history to display."
+                  : isLive
+                    ? "No events match the current filters, or this farm run has none yet."
+                    : "Matrix is not connected, so there is no event history to display."
               }
             />
           </div>
@@ -1337,14 +1398,14 @@ function EventsPage({
                       {event.acknowledged ? (
                         <span className="inline-flex items-center gap-1.5 text-ok-ink">
                           <CheckCircle2 aria-hidden className="size-3.5" />
-                          Acknowledged
+                          {doneText}
                         </span>
                       ) : (
                         <span className="text-muted-foreground">Open</span>
                       )}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      {!event.acknowledged && (
+                      {!event.acknowledged && !isLive && (
                         <Button variant="link" size="sm" onClick={() => farm.acknowledge(event.id)} className="h-auto p-0" aria-label={`Acknowledge ${event.type}`}>
                           Acknowledge
                         </Button>
@@ -1375,10 +1436,10 @@ function EventsPage({
             <DetailRow label="Device" value={selected.device} />
             <DetailRow label="Source" value={selected.source} />
             <DetailRow label="Evidence" value={selected.evidence} />
-            <DetailRow label="Simulated time" value={selected.timestamp} />
-            <DetailRow label="Status" value={selected.acknowledged ? "Acknowledged" : "Open"} />
+            <DetailRow label={isLive ? "Farm time" : "Simulated time"} value={selected.timestamp} />
+            <DetailRow label="Status" value={selected.acknowledged ? doneText : "Open"} />
           </div>
-          {!selected.acknowledged && (
+          {!selected.acknowledged && !isLive && (
             <div className="flex justify-end border-t px-5 py-4">
               <Button size="sm" onClick={() => farm.acknowledge(selected.id)}>
                 <CheckCircle2 className="size-3.5" />

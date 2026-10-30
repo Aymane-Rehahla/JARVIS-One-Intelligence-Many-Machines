@@ -7,6 +7,7 @@ skeleton; chat, audit, voice, demo faults and the mentor switches come in 6W, 6C
     GET  /health          the gateway, its NATS link, the Matrix API and the nodes it hears
     WS   /ws/farm         FarmSnapshot messages (contract below; the website checks each one with zod)
     POST /sim/{action}    start | pause | reset | speed {"speed": S} → the Matrix API (S one of ALLOWED_SPEEDS)
+    POST /faults/{id}     one of the four demo faults → the Matrix API (6W); FaultResult, or its 404/409 with the reason
 
 Mentor fault clicks never go on NATS (ground rule 4). Only the website's own origins may connect (Q7).
 
@@ -42,12 +43,13 @@ from comms.jsonlog import log, program_logger  # noqa: E402
 from comms.nats_link import NatsLink  # noqa: E402
 from contracts import (CLIENT_MSG_ID, CONTROL_CHARACTERS, CONVERSATION_ID, FARM_LINKS, FARM_SIM,  # noqa: E402
                        MACHINES, NODE_IDS, REQUEST_ID, AuditRecord, Capabilities, ChatChunk, ChatDone, Contract,
-                       FarmAssessment, FarmEvent, FarmStatus, Heartbeat, LinkStatus, LlmFailureSwitches, Machine,
-                       NodeId, OwnerAlert, SimState, VoiceSettings, VoiceSettingsResult, VoiceStatus, farm_subject,
-                       jarvis_subject, utc_now)
+                       FarmAssessment, FarmEvent, FarmStatus, FaultResult, Heartbeat, LinkStatus, LlmFailureSwitches,
+                       Machine, NodeId, OwnerAlert, ScenarioId, SimState, VoiceSettings, VoiceSettingsResult,
+                       VoiceStatus, farm_subject, jarvis_subject, utc_now)
 
 MAX_SNAPSHOTS_PER_S = 5.0
 EVENTS_SHOWN = 50
+RETIRED_FEEDS = 16                                         # replaced farm runs remembered, to drop their late messages
 SILENT_AFTER_S = 30.0
 MATRIX_TIMEOUT_S = 5.0
 ALLOWED_SPEEDS = (1.0, 10.0, 30.0, 60.0, 120.0)            # the test feed's 1x and the website's 10x-120x
@@ -183,12 +185,13 @@ class OkResponse(Contract):
 
 #: What the website receives (besides FarmSnapshot) or sends, for the JSON Schema export and the zod test.
 #: Streams: /ws/chat (ChatAccepted, ChatChunk, ChatDone, ChatError, OwnerAlert), /ws/audit (AuditRecord),
-#: /ws/voice (VoiceStatus). Routes: POST /alerts/{node}/{incident_id}/ack → AckResponse; GET and POST
+#: /ws/voice (VoiceStatus). Routes: POST /faults/{scenario_id} → FaultResult; POST /alerts/{node}/{incident_id}/ack →
+#: AckResponse; GET and POST
 #: /mentor/llm-failures → LlmFailureSwitches; POST /voice/settings (VoiceSettings) → VoiceSettingsResult;
 #: POST /voice/ptt → OkResponse. The HTTP bodies AckBody, LlmFailureBody and PttBody are plain JSON objects.
 WEBSITE_MODELS: tuple[type[BaseModel], ...] = (ChatSend, ChatAccepted, ChatChunk, ChatDone, ChatError, OwnerAlert,
                                                AckResponse, AuditRecord, LlmFailureSwitches, VoiceStatus,
-                                               VoiceSettings, VoiceSettingsResult, OkResponse)
+                                               VoiceSettings, VoiceSettingsResult, OkResponse, FaultResult)
 
 
 class FarmView:
@@ -202,11 +205,29 @@ class FarmView:
         self.heartbeats: dict[NodeId, tuple[Heartbeat, float]] = {}
         self.capabilities: dict[NodeId, Capabilities] = {}
         self.events: deque[FarmEvent] = deque(maxlen=EVENTS_SHOWN)
+        self.feed_id: str | None = None                      # the farm run shown (rule 7: never mix runs)
+        self.retired_feeds: deque[str] = deque(maxlen=RETIRED_FEEDS)
         self.version = 0                                     # bumps on every change
         self.sequence = 0
 
     def changed(self) -> None:
         self.version += 1
+
+    def follow(self, feed_id: str) -> bool:
+        """Track the farm run, as node.py does. A message from a new run (a reset or a farm restart) clears the old
+        run's states, assessments and events; a late message from a replaced run is dropped (False)."""
+        if feed_id == self.feed_id:
+            return True
+        if feed_id in self.retired_feeds:
+            return False
+        if self.feed_id is not None:
+            self.retired_feeds.append(self.feed_id)
+        self.feed_id = feed_id
+        self.status.clear()
+        self.assessment.clear()
+        self.events.clear()
+        self.sim = None
+        return True
 
     def alive_nodes(self) -> list[NodeId]:
         """Nodes whose heartbeat arrived within the silence limit."""
@@ -245,20 +266,24 @@ class Gateway:
         view = self.view
 
         async def on_status(message: FarmStatus, subject: str) -> None:
-            view.status[message.node] = message
-            view.changed()
+            if view.follow(message.feed_id):
+                view.status[message.node] = message
+                view.changed()
 
         async def on_assessment(message: FarmAssessment, subject: str) -> None:
-            view.assessment[message.node] = message
-            view.changed()
+            if view.follow(message.feed_id):
+                view.assessment[message.node] = message
+                view.changed()
 
         async def on_event(message: FarmEvent, subject: str) -> None:
-            view.events.append(message)
-            view.changed()
+            if view.follow(message.feed_id):
+                view.events.append(message)
+                view.changed()
 
         async def on_sim(message: SimState, subject: str) -> None:
-            view.sim = message
-            view.changed()
+            if view.follow(message.feed_id):
+                view.sim = message
+                view.changed()
 
         async def on_links(message: LinkStatus, subject: str) -> None:
             view.links = message
@@ -307,6 +332,33 @@ class Gateway:
         log(self.logger, logging.INFO, "farm clock action", action=action, speed=speed)
         return state
 
+    async def inject_fault(self, scenario_id: ScenarioId) -> dict[str, Any]:
+        """Forward one demo fault to the Matrix API (never NATS: ground rule 4). The Matrix's 404 and 409 are passed on
+        with their reason; unreachable is 503; any other answer, or one that is not a FaultResult, is 502."""
+        try:
+            response = await self.matrix.post(f"/faults/{scenario_id}")
+        except httpx.HTTPError as error:
+            raise HTTPException(503, f"the Matrix API is unreachable: {type(error).__name__}") from error
+        if response.status_code in (404, 409):
+            raise HTTPException(response.status_code, _matrix_reason(response))
+        if response.status_code != 200:
+            raise HTTPException(502, f"the Matrix API answered HTTP {response.status_code}")
+        try:
+            result: dict[str, Any] = FaultResult.model_validate_json(response.content).model_dump(mode="json")
+        except ValidationError as error:
+            raise HTTPException(502, "the Matrix API's answer is not a valid FaultResult") from error
+        log(self.logger, logging.INFO, "demo fault forwarded", scenario_id=scenario_id, feed_id=result["feed_id"])
+        return result
+
+
+def _matrix_reason(response: httpx.Response) -> str:
+    """The Matrix API's own reason (FastAPI's {"detail": ...}), or its status."""
+    try:
+        detail = response.json().get("detail")
+    except (ValueError, AttributeError):
+        detail = None
+    return detail if isinstance(detail, str) and detail else f"the Matrix API answered HTTP {response.status_code}"
+
 
 def create_app(gateway: Gateway, *, website_port: int = 5173) -> FastAPI:
     """The gateway's routes (see the module docstring)."""
@@ -329,6 +381,12 @@ def create_app(gateway: Gateway, *, website_port: int = 5173) -> FastAPI:
                 raise HTTPException(422, f"speed must be one of {', '.join(f'{s:g}' for s in ALLOWED_SPEEDS)}")
             speed = body.speed
         return await gateway.sim_action(action, speed)
+
+    # --- 6W routes ---
+
+    @app.post("/faults/{scenario_id}")
+    async def fault(scenario_id: ScenarioId) -> dict[str, Any]:
+        return await gateway.inject_fault(scenario_id)
 
     @app.websocket("/ws/farm")
     async def farm(websocket: WebSocket) -> None:

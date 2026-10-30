@@ -189,14 +189,18 @@ export function JarvisPage({ state, farm }: { state: FarmState; farm: DemoFarm }
       <section aria-labelledby="demo-title" className="space-y-6">
         <header className="grid gap-3 border-b pb-6 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
           <div>
-            <Kicker>In the simulator // demo script</Kicker>
+            <Kicker>{state.source === "live" ? `In the Matrix test bench // ${state.live?.label ?? "live"}` : "In the simulator // demo script"}</Kicker>
             <h2 id="demo-title" className="display mt-4 text-[clamp(1.6rem,3vw,2.4rem)]">What the nodes say now</h2>
           </div>
-          {state.source !== "demo" && <Button variant="outline" size="sm" onClick={farm.activateDemo}>Explore demo mode</Button>}
+          {state.source === "disconnected" && <Button variant="outline" size="sm" onClick={farm.activateDemo}>Explore demo mode</Button>}
         </header>
         <Notice
           tone="warning"
-          text="The simulator's nodes follow a demo script that uses the real rules: the five levels, the diagnoses and the device codes. The trained brains are not installed in the farm yet."
+          text={
+            state.source === "live"
+              ? `Live: each node's conclusion is its own reasoning brain's output (${state.live?.label ?? "live"}), shown with its evidence. Peer messages and the language model's words come with 6C.`
+              : "The simulator's nodes follow a demo script that uses the real rules: the five levels, the diagnoses and the device codes."
+          }
         />
         <div className="grid gap-6 lg:grid-cols-2">
           <PeerLinkLog state={state} />

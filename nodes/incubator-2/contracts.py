@@ -631,6 +631,29 @@ class PushToTalk(Contract):
     sent_utc: str
 
 
+# --- 6W: the website's demo faults (never on NATS) ---
+
+ScenarioId = Literal["heater_relay_stuck", "supply_fan_failure", "humidity_sensor_drift", "supply_overvoltage"]
+SCENARIO_IDS: tuple[ScenarioId, ...] = ("heater_relay_stuck", "supply_fan_failure", "humidity_sensor_drift",
+                                        "supply_overvoltage")
+
+
+class FaultResult(Contract):
+    """The answer to `POST /faults/{scenario_id}` (the Matrix API, passed on by the gateway): which library fault
+    started, on which machines, from which tick of which farm run. It goes only to the HTTP caller and is never
+    published on NATS (ground rule 4), so it is not in WIRE_MODELS."""
+
+    type: Literal["fault_result"] = "fault_result"
+    scenario_id: ScenarioId
+    family: str = Field(min_length=1, max_length=40)
+    variant: int = Field(ge=0)
+    devices: list[NodeId] = Field(min_length=1, max_length=4)
+    tick: int = Field(ge=0)                       # the farm tick at which the fault starts (the next one)
+    time_s: float = Field(ge=0.0)
+    farm_time: str = Field(pattern=FARM_TIME)
+    feed_id: str = Field(pattern=FEED_ID)
+
+
 #: Every wire message, for the JSON Schema export.
 WIRE_MODELS: tuple[type[Contract], ...] = (FarmStatus, FarmEvent, FarmAssessment, FarmIncident, LinkStatus, SimState,
                                            Heartbeat, Capabilities, AskRequest, AskReply, ProbeRequest, AuditRecord,

@@ -210,3 +210,172 @@ def test_a_rising_severity_is_news_and_each_run_has_its_own_feed_id() -> None:
     assert runtime.feed_id != before
     again = runtime._events("hvac", True, {"alarms": [{"code": "X"}]}, {})
     assert again[0].sequence == 1 and again[0].feed_id == runtime.feed_id     # sequences restart, in a new run
+
+
+# --- 6W: the four demo faults (P1 section A; decision 0020) ---------------------------------------------------------
+
+FAULT_LIMIT_TICKS = 600          # an upper bound for the search only; the measured N is printed (run with -s)
+
+
+def _twins() -> tuple[fr.FarmRuntime, fr.FarmRuntime]:
+    one, _ = farm()
+    two, _ = farm()
+    for _ in range(5):
+        one.step()
+        two.step()
+    return one, two
+
+
+def test_twin_farms_stay_identical_without_a_fault() -> None:
+    """The control for the next test: the same seed gives the same public telemetry, tick for tick."""
+    one, two = _twins()
+    for _ in range(FAULT_LIMIT_TICKS):
+        one.step()
+        two.step()
+    assert all(one.engine.device(node) == two.engine.device(node) for node in NODE_IDS)
+
+
+@pytest.mark.parametrize("scenario_id", fr.SCENARIO_IDS)
+@pytest.mark.asyncio
+async def test_each_demo_fault_changes_the_public_telemetry(scenario_id: fr.ScenarioId) -> None:
+    faulted, twin = _twins()
+    result = await faulted.inject_fault(scenario_id)
+    assert result.tick == 5 and result.feed_id == faulted.feed_id and result.devices
+    changed_after = None
+    for ticks in range(1, FAULT_LIMIT_TICKS + 1):
+        faulted.step()
+        twin.step()
+        if any(faulted.engine.device(node) != twin.engine.device(node) for node in result.devices):
+            changed_after = ticks
+            break
+    print(f"\n{scenario_id}: {result.family} variant {result.variant} on {result.devices}; "
+          f"public telemetry changed after N = {changed_after} farm ticks")
+    assert changed_after is not None
+
+
+def test_each_demo_fault_uses_an_ordinary_library_variant_unchanged() -> None:
+    runtime, _ = farm()
+    expected = {"heater_relay_stuck": "heater_relay_stuck", "supply_fan_failure": "supply_fan_failure",
+                "humidity_sensor_drift": "sensor_fault", "supply_overvoltage": "overvoltage"}
+    for scenario_id, family in expected.items():
+        variant, spec = runtime.demo_spec(scenario_id)                     # type: ignore[arg-type]
+        assert spec.family == family and spec.tags["novel"] is False
+        assert spec.as_dict() == runtime._make_spec(family, variant, False).as_dict()   # the library's own spec
+    _, drift = runtime.demo_spec("humidity_sensor_drift")
+    assert drift.faults[0]["channel"] == "incubator-2.humidity_1" and drift.faults[0]["mode"] == "drift"
+
+
+@pytest.mark.asyncio
+async def test_one_demo_fault_per_run_and_a_reset_clears_it() -> None:
+    runtime, _ = farm(running=False)
+    await runtime.inject_fault("supply_fan_failure")
+    with pytest.raises(fr.DemoFaultRefused, match="already active"):
+        await runtime.inject_fault("heater_relay_stuck")
+    await runtime.control("reset")
+    assert runtime.demo_fault is None
+    assert (await runtime.inject_fault("heater_relay_stuck")).feed_id == runtime.feed_id
+
+
+def test_the_matrix_api_demo_faults() -> None:
+    runtime, _ = farm(running=False)
+    with TestClient(fr.create_api(runtime)) as client:
+        assert client.post("/faults/fire_in_the_barn").status_code == 404
+        first = client.post("/faults/supply_overvoltage")
+        assert first.status_code == 200
+        body = first.json()
+        assert body["scenario_id"] == "supply_overvoltage" and body["devices"] == ["incubator-1", "incubator-2"]
+        assert body["feed_id"] == runtime.feed_id and body["farm_time"] == runtime.farm_time()[0]
+        second = client.post("/faults/heater_relay_stuck")
+        assert second.status_code == 409 and "already active" in second.json()["detail"]
+        assert client.post("/sim/reset").status_code == 200
+        assert client.post("/faults/heater_relay_stuck").status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_injecting_while_paused_publishes_nothing() -> None:
+    runtime, link = farm(running=False)
+    await runtime.publish_clock(force=True)
+    link.sent.clear()
+    for scenario_id in fr.SCENARIO_IDS:
+        await runtime.control("reset")
+        link.sent.clear()
+        await runtime.inject_fault(scenario_id)
+        assert link.sent == [], scenario_id
+
+
+def _hidden_words(runtime: fr.FarmRuntime, result: fr.FaultResult) -> set[str]:
+    """Every string the engine keeps about the fault for the evaluator (hidden truth, fault log), plus the website's
+    scenario id, the family and the mode; machine names are public and left out."""
+    words = {result.scenario_id, result.family}
+    _, spec = runtime.demo_spec(result.scenario_id)
+    for fault in spec.faults:
+        words |= {str(v) for k, v in fault.items() if isinstance(v, str) and k not in ("device",)}
+    stack: list[Any] = [runtime.engine.hidden_truth, runtime.engine.fault_log]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, dict):
+            stack.extend(item.values())
+            words |= {str(k) for k in item if k in ("scenario", "fault_label")}
+        elif isinstance(item, list):
+            stack.extend(item)
+        elif isinstance(item, str):
+            words.add(item)
+    return words - set(NODE_IDS) - {"injected", "recovered"}
+
+
+def _strings(value: Any, path: str = "") -> list[tuple[str, str]]:
+    """(path, text) of every string inside a JSON-like value."""
+    if isinstance(value, dict):
+        return [found for key, item in value.items() for found in _strings(item, f"{path}/{key}")]
+    if isinstance(value, list):
+        return [found for item in value for found in _strings(item, f"{path}/*")]
+    return [(path, value)] if isinstance(value, str) else []
+
+
+def _paths(value: Any, path: str = "") -> set[str]:
+    if isinstance(value, dict):
+        return {path} | {found for key, item in value.items() for found in _paths(item, f"{path}/{key}")}
+    if isinstance(value, list):
+        return {path} | {found for item in value for found in _paths(item, f"{path}/*")}
+    return {path}
+
+
+@pytest.mark.parametrize("scenario_id", fr.SCENARIO_IDS)
+@pytest.mark.asyncio
+async def test_the_epistemic_wall_holds_for_120_ticks_after_a_demo_fault(scenario_id: fr.ScenarioId) -> None:
+    """No published message names the fault. The one judgement (as E9's): a word that the machine itself reports in a
+    readings field it also publishes on a fault-free twin farm is that machine's public telemetry (for example the
+    incubator's `power_status` "overvoltage"), a physical effect, not a leak. Such matches are printed."""
+    import re
+    runtime, link = farm()
+    twin, _ = farm()
+    result = await runtime.inject_fault(scenario_id)
+    normal_fields: set[str] = set()
+    for _ in range(120):
+        await runtime.publish(runtime.messages_for_tick(runtime.step(), include_state=True))
+        await runtime.publish_clock(force=True)
+        twin.step()
+        normal_fields |= {f"{node}{path}" for node in NODE_IDS for path in _paths(twin.engine.device(node))}
+    words = _hidden_words(runtime, result)
+    assert result.scenario_id in words and result.family in words and runtime.engine.fault_log
+    patterns = {word: re.compile(rf"(?<![A-Za-z0-9_]){re.escape(word)}(?![A-Za-z0-9_])") for word in sorted(words)}
+    leaks: dict[str, str] = {}
+    telemetry: set[str] = set()
+    for _, message in link.sent:
+        payload = message.model_dump(mode="json")
+        readings = payload.pop("readings", None) if isinstance(message, FarmStatus) else None
+        text = json.dumps(payload)
+        for word, pattern in patterns.items():
+            if (match := pattern.search(text)) is not None:
+                leaks.setdefault(word, text[max(0, match.start() - 60):match.end() + 60])
+        for path, value in _strings(readings or {}):
+            for word, pattern in patterns.items():
+                if pattern.search(value):
+                    field = f"{payload['node']}{path}"
+                    if field in normal_fields:
+                        telemetry.add(f"{field} = {value!r}")
+                    else:
+                        leaks.setdefault(word, f"{field} = {value!r}")
+    print(f"\n{scenario_id}: {len(link.sent)} messages scanned for {sorted(words)}; "
+          f"the machine's own telemetry: {sorted(telemetry) or 'none'}")
+    assert len(link.sent) > 120 * len(NODE_IDS) and leaks == {}

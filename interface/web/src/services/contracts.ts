@@ -134,6 +134,9 @@ export const FarmSnapshot = z.strictObject({
 export type FarmSnapshot = z.infer<typeof FarmSnapshot>
 export type NodeView = z.infer<typeof NodeView>
 export type SimState = z.infer<typeof SimState>
+export type FarmEvent = z.infer<typeof FarmEvent>
+export type FarmStatus = z.infer<typeof FarmStatus>
+export type FarmAssessment = z.infer<typeof FarmAssessment>
 
 // --- chat, acknowledgement, mentor and voice (6C, 6E; fixed by the senior before they were built, see contracts.py) ---
 
@@ -352,6 +355,22 @@ export const OkResponse = z
   .refine((r) => r.ok === (r.reason === ""), { message: "ok, or refused with a reason" })
 
 /** Everything `/ws/chat` sends to the website. */
+export const ScenarioId = z.enum(["heater_relay_stuck", "supply_fan_failure", "humidity_sensor_drift", "supply_overvoltage"])
+
+/** POST /faults/{scenario_id}: which library fault started, on which machines, from which tick of which farm run. */
+export const FaultResult = z.strictObject({
+  schema_version: SchemaVersion,
+  type: z.literal("fault_result"),
+  scenario_id: ScenarioId,
+  family: z.string().min(1).max(40),
+  variant: z.number().int().min(0),
+  devices: z.array(NodeId).min(1).max(4),
+  tick: Tick,
+  time_s: Seconds,
+  farm_time: FarmTime,
+  feed_id: FeedId,
+})
+
 export const ChatServerMessage = z.union([ChatAccepted, ChatChunk, ChatDone, ChatError, OwnerAlert])
 
 export type ChatSend = z.infer<typeof ChatSend>
@@ -361,6 +380,7 @@ export type ChatServerMessage = z.infer<typeof ChatServerMessage>
 export type OwnerAlert = z.infer<typeof OwnerAlert>
 export type AckOffer = z.infer<typeof AckOffer>
 export type AckResponse = z.infer<typeof AckResponse>
+export type FaultResult = z.infer<typeof FaultResult>
 export type AuditRecord = z.infer<typeof AuditRecord>
 export type LlmFailureSwitches = z.infer<typeof LlmFailureSwitches>
 export type VoiceStatus = z.infer<typeof VoiceStatus>
@@ -392,6 +412,7 @@ export const SCHEMAS = {
   VoiceSettings,
   VoiceSettingsResult,
   OkResponse,
+  FaultResult,
   Citation,
   ToolUse,
   ReplyTimings,

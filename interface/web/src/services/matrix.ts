@@ -142,8 +142,29 @@ export type SimulationState = {
   nextBeat: number
 }
 
+/** What only a live farm has (src/services/live-map.ts): shown exactly as the gateway sent it. */
+export type LiveInfo = {
+  /** "live: simulated brains" or "live: trained brains". */
+  label: string
+  /** The farm's own clock, "HH:MM", and its day. */
+  farmTime: string
+  day: number
+  tick: number
+  /** One farm run; a reset starts a new one. */
+  feedId: string
+  /** The speed the website asked for and the speed the farm actually reaches (farm seconds per real second). */
+  targetSpeed: number
+  actualSpeed: number
+  nodesAlive: DeviceId[]
+  /** Snapshots refused by the zod check since the page opened (never shown as data). */
+  invalidMessages: number
+  /** The last refused farm action, with the gateway's reason. */
+  lastError: string | null
+}
+
 export type FarmState = {
   source: "live" | "demo" | "disconnected"
+  live?: LiveInfo
   simulation: SimulationState
   devices: Device[]
   events: EventRecord[]
@@ -969,7 +990,7 @@ export function clearPersistedDemoState(): void {
 // Matrix connection probe (always offline in this phase)
 // ---------------------------------------------------------------------------
 
-const API_URL = import.meta.env.VITE_MATRIX_API_URL
+const API_URL = import.meta.env?.VITE_MATRIX_API_URL
 
 export async function checkMatrixHealth(signal?: AbortSignal): Promise<boolean> {
   if (!API_URL) return false
