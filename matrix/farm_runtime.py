@@ -18,6 +18,10 @@ The Matrix API (127.0.0.1, `matrix_api` in launcher/ports.toml) is how the gatew
     POST /faults/{scenario_id}     one of the website's four demo faults, from the next tick (6W; decision 0020):
                                    404 unknown, 409 when one is already active in this farm run (a reset clears it).
                                    The answer goes to the caller only; nothing about it is published.
+    POST /alerts/{node}/{incident_id}/ack   the owner acknowledged that node's alert (6C, P2 section 4 step 5): the
+                                   Matrix's own owner acknowledgement, on every delivered and not yet acknowledged
+                                   owner notification of this farm run from that node for that incident. 200
+                                   {"node", "incident_id", "acknowledged": N, "farm_time"}; 404 when there is none.
 
 The snapshot's NodeRuntime imports its CTM brain module, which needs torch; this environment has no torch and the test
 feed runs rule brains only, so that one module is replaced by a stub that refuses to build a CTM (decision 0012).
@@ -65,6 +69,12 @@ LINKS_EVERY_S = 10.0
 SPEED_WINDOW_S = 5.0
 MAX_SPEED = 1000.0
 LABEL: FeedLabel = "live: simulated brains"
+
+
+def sent_by(sender: object, node: str) -> bool:
+    """Whether an owner notification's `sender` is this node. The snapshot's safety gate names its caller
+    `jarvis-<node>` (gate.py, `jarvis_id`); the bare node id is accepted too."""
+    return sender in (node, f"jarvis-{node}")
 
 
 class _NoCTM:
@@ -478,6 +488,30 @@ class FarmRuntime:
                 faults=_plain(faults))
             return self.demo_fault
 
+    async def acknowledge(self, node: NodeId, incident_id: str) -> dict[str, Any]:
+        """The owner's acknowledgement (the click the gateway passed on after incubator-1 checked its token): the
+        Matrix's phone service marks that node's delivered owner notifications for this incident as acknowledged now,
+        as its simulated owner would have later. The brains see it only as they always see an acknowledgement.
+        LookupError when this farm run has none to mark."""
+        async with self._publish_lock:
+            comms = self.engine.comms
+            now = float(self.engine.clock.time)
+            marked = []
+            for record in comms.notifications:
+                if (record.get("incident_id") == incident_id and sent_by(record.get("sender"), node)
+                        and record.get("status") == "delivered"):
+                    record["status"], record["acknowledged_s"] = "acknowledged", now
+                    comms.log.append({"time_s": now, "event": "owner_acknowledged",
+                                      "notification_id": record["notification_id"]})
+                    marked.append(record["notification_id"])
+            if not marked:
+                raise LookupError(f"this farm run has no delivered, unacknowledged owner notification from {node} "
+                                  f"for incident {incident_id}")
+            farm_time, _ = self.farm_time()
+            log(self.logger, logging.INFO, "owner acknowledged", node=node, incident_id=incident_id,
+                notifications=marked, tick=self.tick, feed_id=self.feed_id)
+            return {"node": node, "incident_id": incident_id, "acknowledged": len(marked), "farm_time": farm_time}
+
     async def cut(self, node: NodeId, seconds: float) -> LinkStatus:
         async with self._publish_lock:
             ticks = max(1, int(round(seconds / self.step_seconds)))
@@ -534,6 +568,13 @@ def create_api(farm: FarmRuntime) -> FastAPI:
     @app.post("/links/{node}/restore")
     async def restore(node: NodeId) -> LinkStatus:
         return await farm.restore(node)
+
+    @app.post("/alerts/{node}/{incident_id}/ack")
+    async def acknowledge(node: NodeId, incident_id: str) -> dict[str, Any]:
+        try:
+            return await farm.acknowledge(node, incident_id)
+        except LookupError as error:
+            raise HTTPException(404, str(error)) from error
 
     return app
 

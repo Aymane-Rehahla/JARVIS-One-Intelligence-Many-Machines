@@ -1,13 +1,21 @@
 """The gateway: the website's only door into JARVIS (plan section 4.4, W1), on 127.0.0.1 (`gateway` in ports.toml).
 
 It follows NATS and streams the website one farm snapshot at a time, at most MAX_SNAPSHOTS_PER_S per second (the
-latest state wins, nothing queues up), and forwards only the farm-clock actions to the Matrix API. Step 6A builds this
-skeleton; chat, audit, voice, demo faults and the mentor switches come in 6W, 6C and 6E.
+latest state wins, nothing queues up), and forwards only the farm-clock actions to the Matrix API. Step 6A built this
+skeleton, 6W the demo faults, 6C the chat, audit, acknowledgement and mentor routes; voice comes in 6E.
 
     GET  /health          the gateway, its NATS link, the Matrix API and the nodes it hears
     WS   /ws/farm         FarmSnapshot messages (contract below; the website checks each one with zod)
     POST /sim/{action}    start | pause | reset | speed {"speed": S} → the Matrix API (S one of ALLOWED_SPEEDS)
     POST /faults/{id}     one of the four demo faults → the Matrix API (6W); FaultResult, or its 404/409 with the reason
+    WS   /ws/chat         ChatSend in; ChatAccepted, that request's ChatChunks and ChatDone, ChatError, and every
+                          OwnerAlert out (6C; incubator-1 over jarvis.incubator-1.chat / .reply / .alert)
+    WS   /ws/audit        every AuditRecord from jarvis.*.audit, at most AUDIT_PER_S a second (oldest dropped first)
+    GET  /mentor/llm-failures   the current LlmFailureSwitches (test only)
+    POST /mentor/llm-failures   LlmFailureBody → LlmFailureSwitches on mentor.llm_failures, republished every
+                                MENTOR_REPUBLISH_S so a restarted node learns it
+    POST /alerts/{node}/{incident_id}/ack   AckBody (the owner's confirm click) → incubator-1 checks the token
+                                (jarvis.incubator-1.ack) → the Matrix API; AckResponse with the stage reached
 
 Mentor fault clicks never go on NATS (ground rule 4). Only the website's own origins may connect (Q7).
 
@@ -18,15 +26,18 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
+import json
 import logging
 import re
+import secrets
 import sys
 import time
 import tomllib
 from collections import deque
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
+from urllib.parse import quote
 
 ROOT = Path(__file__).resolve().parents[2]
 REFERENCE_NODE = ROOT / "nodes" / "incubator-1"            # the four copies are identical (tests/test_nodes_in_sync.py)
@@ -35,19 +46,21 @@ if str(REFERENCE_NODE) not in sys.path:
 
 import httpx  # noqa: E402
 import uvicorn  # noqa: E402
-from fastapi import FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect  # noqa: E402
+from fastapi import (FastAPI, HTTPException, Path as PathParam, Request, Response, WebSocket,  # noqa: E402
+                     WebSocketDisconnect)
 from fastapi.responses import JSONResponse  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
-from pydantic import (BaseModel, ConfigDict, Field, JsonValue, ValidationError, field_validator,  # noqa: E402
-                      model_validator)
+from pydantic import (BaseModel, ConfigDict, Field, JsonValue, RootModel, ValidationError,  # noqa: E402
+                      field_validator, model_validator)
 
 from comms.jsonlog import log, program_logger  # noqa: E402
-from comms.nats_link import NatsLink  # noqa: E402
+from comms.nats_link import NatsLink, RequestFailed  # noqa: E402
 from contracts import (CLIENT_MSG_ID, CONTROL_CHARACTERS, CONVERSATION_ID, FARM_LINKS, FARM_SIM,  # noqa: E402
-                       MACHINES, NODE_IDS, REQUEST_ID, AuditRecord, Capabilities, ChatChunk, ChatDone, Contract,
+                       FARM_TIME, MACHINES, MENTOR_LLM_FAILURES, NODE_IDS, REQUEST_ID, AckCommand, AckResult,
+                       AuditRecord, Capabilities, ChatChunk, ChatDone, ChatRequest, Contract, ContractError,
                        FarmAssessment, FarmEvent, FarmStatus, FaultResult, Heartbeat, LinkStatus, LlmFailureSwitches,
                        Machine, NodeId, OwnerAlert, ScenarioId, SimState, VoiceSettings, VoiceSettingsResult,
-                       VoiceStatus, farm_subject, jarvis_subject, utc_now)
+                       VoiceStatus, decode, farm_subject, jarvis_subject, utc_now)
 
 MAX_SNAPSHOTS_PER_S = 5.0
 EVENTS_SHOWN = 50
@@ -57,6 +70,16 @@ SILENT_AFTER_S = 30.0
 MATRIX_TIMEOUT_S = 5.0
 ALLOWED_SPEEDS = (1.0, 10.0, 30.0, 60.0, 120.0)            # the test feed's 1x and the website's 10x-120x
 WEBSITE_ORIGINS = ("http://127.0.0.1:{port}", "http://localhost:{port}")
+# 6C: chat, audit, acknowledgement, mentor switches
+CHAT_DEADLINE_S = 30.0                                     # ChatAccepted → ChatDone; the agent's own turn deadline is 25 s
+AUDIT_PER_S = 20.0                                         # audit records sent per second per /ws/audit socket
+AUDIT_QUEUE = 40                                           # audit records waiting per socket (2 s); oldest dropped first
+SOCKET_QUEUE = 256                                         # messages waiting per /ws/chat socket; oldest dropped first
+MAX_CHAT_MESSAGE = 16_384                                  # characters in one /ws/chat message (a ChatSend is far less)
+MENTOR_REPUBLISH_S = 10.0                                  # the current LlmFailureSwitches again, for a restarted node
+ACK_TIMEOUT_S = 5.0                                        # incubator-1's answer to an AckCommand
+IDLE_CHECK_S = 1.0                                         # a socket's sender wakes at least this often
+INCIDENT_ID = r"^[^/\\\x00-\x1f]{1,80}$"                    # a path segment: no slash or backslash, no control character
 
 
 class NodeView(BaseModel):
@@ -197,6 +220,82 @@ WEBSITE_MODELS: tuple[type[BaseModel], ...] = (ChatSend, ChatAccepted, ChatChunk
                                                VoiceSettings, VoiceSettingsResult, OkResponse, FaultResult)
 
 
+# --- 6C: the gateway's own helpers for the chat, audit and acknowledgement routes (not on the wire) ---
+
+
+class ReplyPiece(RootModel[Annotated[ChatChunk | ChatDone, Field(discriminator="type")]]):
+    """What `jarvis.incubator-1.reply` carries: a ChatChunk or a ChatDone (one subscription for both)."""
+
+
+class MatrixAck(BaseModel):
+    """The Matrix API's answer to POST /alerts/{node}/{incident_id}/ack (P2 section 4, step 5)."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+    node: NodeId
+    incident_id: str = Field(min_length=1, max_length=80)
+    acknowledged: int = Field(ge=1)
+    farm_time: str = Field(pattern=FARM_TIME)
+
+
+class Outbox:
+    """One socket's bounded queue: when it is full, the oldest message is dropped and counted."""
+
+    def __init__(self, size: int) -> None:
+        self.items: deque[BaseModel] = deque(maxlen=size)
+        self.dropped = 0
+        self.sent = 0
+        self._ready = asyncio.Event()
+
+    def put(self, message: BaseModel) -> bool:
+        """Queue one message; True when the oldest had to be dropped to make room."""
+        dropped = len(self.items) == self.items.maxlen
+        if dropped:
+            self.dropped += 1
+        self.items.append(message)
+        self._ready.set()
+        return dropped
+
+    async def wait(self, timeout_s: float) -> bool:
+        """Wait at most `timeout_s` for a message; True when one is queued."""
+        if not self.items:
+            self._ready.clear()
+            with contextlib.suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(self._ready.wait(), timeout=timeout_s)
+        return bool(self.items)
+
+
+class ChatSession:
+    """One open /ws/chat socket: its outbox and its one question in flight (request id, client message id, timer)."""
+
+    def __init__(self) -> None:
+        self.outbox = Outbox(SOCKET_QUEUE)
+        self.request_id: str | None = None
+        self.client_msg_id: str | None = None
+        self.timer: asyncio.TimerHandle | None = None
+
+    def finish(self) -> None:
+        """The question in flight is over (answered, timed out, or the socket closed)."""
+        if self.timer is not None:
+            self.timer.cancel()
+        self.request_id = self.client_msg_id = None
+        self.timer = None
+
+
+def _client_msg_id(raw: str) -> str | None:
+    """The client_msg_id of an invalid ChatSend, when it has a valid one, so the website can match the error."""
+    try:
+        value = json.loads(raw)
+    except ValueError:
+        return None
+    found = value.get("client_msg_id") if isinstance(value, dict) else None
+    return found if isinstance(found, str) and re.fullmatch(CLIENT_MSG_ID, found) else None
+
+
+def _short(reason: str, limit: int = 300) -> str:
+    """A reason that fits the contracts' 300 characters."""
+    return reason if len(reason) <= limit else reason[:limit - 3] + "..."
+
+
 class FarmView:
     """The gateway's picture of the farm, updated from NATS."""
 
@@ -263,6 +362,15 @@ class Gateway:
         self.logger = logger
         self.view = FarmView()
         self.matrix = httpx.AsyncClient(base_url=matrix_url.rstrip("/"), timeout=MATRIX_TIMEOUT_S, transport=transport)
+        # 6C
+        self.chats: set[ChatSession] = set()
+        self.pending: dict[str, ChatSession] = {}             # request id → the socket that asked
+        self.audits: set[Outbox] = set()
+        self.switches = LlmFailureSwitches(set_utc=utc_now())
+        self.chat_dropped = 0                                 # messages dropped from full /ws/chat outboxes
+        self.audit_dropped = 0                                # audit records dropped from full /ws/audit outboxes
+        self.late_pieces = 0                                  # reply pieces of no request in flight (late or unknown)
+        self._republisher: asyncio.Task[None] | None = None
 
     async def start(self) -> None:
         """Subscribe to everything the website shows."""
@@ -307,10 +415,156 @@ class Gateway:
         await self.link.subscribe(FARM_LINKS, LinkStatus, on_links)
         await self.link.subscribe(jarvis_subject("*", "heartbeat"), Heartbeat, on_heartbeat)
         await self.link.subscribe(jarvis_subject("*", "capabilities"), Capabilities, on_capabilities)
+        # 6C
+        await self.link.subscribe(jarvis_subject("incubator-1", "reply"), ReplyPiece, self._on_reply)
+        await self.link.subscribe(jarvis_subject("incubator-1", "alert"), OwnerAlert, self._on_alert)
+        await self.link.subscribe(jarvis_subject("*", "audit"), AuditRecord, self._on_audit)
+        self._republisher = asyncio.create_task(self._republish())
 
     async def close(self) -> None:
+        if self._republisher is not None:
+            self._republisher.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._republisher
+        for session in list(self.chats):
+            session.finish()
+        self.pending.clear()
         await self.matrix.aclose()
         await self.link.close()
+
+    # --- 6C: chat ---
+
+    def to_chat(self, session: ChatSession, message: BaseModel) -> None:
+        if session.outbox.put(message):
+            self.chat_dropped += 1
+
+    async def chat_message(self, session: ChatSession, raw: str) -> None:
+        """One message from a /ws/chat socket: a ChatSend becomes a ChatRequest to incubator-1; anything else, a second
+        question while one is in flight, or no NATS is a ChatError on that socket."""
+        try:
+            send = decode(ChatSend, raw)
+        except ContractError as error:
+            self.to_chat(session, ChatError(client_msg_id=_client_msg_id(raw), reason=_short(str(error))))
+            return
+        if session.request_id is not None:
+            self.to_chat(session, ChatError(client_msg_id=send.client_msg_id, reason="one question at a time"))
+            return
+        if not self.link.connected:
+            self.to_chat(session, ChatError(client_msg_id=send.client_msg_id,
+                                            reason="incubator-1 is unreachable: the gateway is not connected to NATS"))
+            return
+        request_id = f"c-{secrets.token_hex(6)}"
+        session.request_id, session.client_msg_id = request_id, send.client_msg_id
+        session.timer = asyncio.get_running_loop().call_later(CHAT_DEADLINE_S, self._chat_expired, session,
+                                                              request_id)
+        self.pending[request_id] = session
+        self.to_chat(session, ChatAccepted(client_msg_id=send.client_msg_id, request_id=request_id))
+        await self.link.publish(jarvis_subject("incubator-1", "chat"),
+                                ChatRequest(request_id=request_id, conversation_id=send.conversation_id, text=send.text,
+                                            source="chat", sent_utc=utc_now()), request_id=request_id)
+        log(self.logger, logging.INFO, "chat question passed to incubator-1", request_id=request_id)
+
+    def _chat_expired(self, session: ChatSession, request_id: str) -> None:
+        """No ChatDone within CHAT_DEADLINE_S: the socket hears why, and later pieces of that request are dropped."""
+        if self.pending.get(request_id) is not session:
+            return
+        del self.pending[request_id]
+        client_msg_id = session.client_msg_id
+        session.finish()
+        self.to_chat(session, ChatError(client_msg_id=client_msg_id, request_id=request_id,
+                                        reason=f"incubator-1 did not answer within {CHAT_DEADLINE_S:g} s"))
+        log(self.logger, logging.WARNING, "chat question timed out", request_id=request_id, deadline_s=CHAT_DEADLINE_S)
+
+    def chat_closed(self, session: ChatSession) -> None:
+        """A /ws/chat socket closed: forget it and its question in flight."""
+        self.chats.discard(session)
+        if session.request_id is not None:
+            self.pending.pop(session.request_id, None)
+        session.finish()
+        if session.outbox.dropped:
+            log(self.logger, logging.WARNING, "chat socket dropped messages", dropped=session.outbox.dropped)
+
+    async def _on_reply(self, message: ReplyPiece, subject: str) -> None:
+        piece = message.root
+        session = self.pending.get(piece.request_id)
+        if session is None:                                   # too late, or another program's request
+            self.late_pieces += 1
+            return
+        if isinstance(piece, ChatDone):
+            del self.pending[piece.request_id]
+            session.finish()
+        self.to_chat(session, piece)
+
+    async def _on_alert(self, message: OwnerAlert, subject: str) -> None:
+        for session in list(self.chats):
+            self.to_chat(session, message)
+        log(self.logger, logging.INFO, "owner alert relayed", alert_id=message.alert_id, sockets=len(self.chats))
+
+    # --- 6C: audit ---
+
+    async def _on_audit(self, message: AuditRecord, subject: str) -> None:
+        for outbox in list(self.audits):
+            if outbox.put(message):
+                self.audit_dropped += 1
+
+    # --- 6C: the mentor's LLM failure switches (test only) ---
+
+    async def set_switches(self, body: LlmFailureBody) -> LlmFailureSwitches:
+        """Publish new switches (ValidationError for a node named twice)."""
+        switches = LlmFailureSwitches(**body.model_dump(), set_utc=utc_now())
+        self.switches = switches
+        await self.link.publish(MENTOR_LLM_FAILURES, switches)
+        log(self.logger, logging.INFO, "LLM failure switches set", **body.model_dump())
+        return switches
+
+    async def _republish(self) -> None:
+        """The current switches again every MENTOR_REPUBLISH_S, so a node that restarted learns them."""
+        while True:
+            await asyncio.sleep(MENTOR_REPUBLISH_S)
+            if self.link.connected:
+                await self.link.publish(MENTOR_LLM_FAILURES, self.switches)
+
+    # --- 6C: acknowledging an alert (ground rule 3: the owner's words, then the owner's click) ---
+
+    async def acknowledge(self, node: NodeId, incident_id: str, confirm_token: str) -> AckResponse:
+        """incubator-1 checks the token; only then is the Matrix API told. The answer says how far it got."""
+
+        def stopped(stage: Literal["token", "matrix"], reason: str) -> AckResponse:
+            log(self.logger, logging.WARNING, "acknowledgement stopped", node=node, incident_id=incident_id,
+                stage=stage, reason=reason)
+            return AckResponse(node=node, incident_id=incident_id, ok=False, stage=stage, reason=_short(reason))
+
+        request_id = f"k-{secrets.token_hex(6)}"
+        command = AckCommand(request_id=request_id, node=node, incident_id=incident_id, confirm_token=confirm_token,
+                             sent_utc=utc_now())
+        try:
+            result = await self.link.request(jarvis_subject("incubator-1", "ack"), command, AckResult,
+                                             timeout_s=ACK_TIMEOUT_S, request_id=request_id)
+        except RequestFailed as error:
+            return stopped("token", f"incubator-1 did not confirm the token ({error.kind}): {error.detail}")
+        if (result.request_id, result.node, result.incident_id) != (request_id, node, incident_id):
+            return stopped("token", "incubator-1 answered for another acknowledgement")
+        if not result.ok:
+            return stopped("token", f"incubator-1 refused: {result.reason}")
+        try:
+            response = await self.matrix.post(f"/alerts/{node}/{quote(incident_id, safe='')}/ack")
+        except httpx.TimeoutException:
+            return stopped("matrix", f"the Matrix API did not answer within {MATRIX_TIMEOUT_S:g} s")
+        except httpx.HTTPError as error:
+            return stopped("matrix", f"the Matrix API is unreachable: {type(error).__name__}")
+        if response.status_code in (404, 409):
+            return stopped("matrix", _matrix_reason(response))
+        if response.status_code != 200:
+            return stopped("matrix", f"the Matrix API answered HTTP {response.status_code}")
+        try:
+            marked = MatrixAck.model_validate_json(response.content)
+        except ValidationError:
+            return stopped("matrix", "the Matrix API's answer is not a valid acknowledgement")
+        if (marked.node, marked.incident_id) != (node, incident_id):
+            return stopped("matrix", "the Matrix API acknowledged another incident")
+        log(self.logger, logging.INFO, "alert acknowledged", node=node, incident_id=incident_id, request_id=request_id,
+            acknowledged=marked.acknowledged, farm_time=marked.farm_time)
+        return AckResponse(node=node, incident_id=incident_id, ok=True, stage="done")
 
     async def matrix_health(self) -> str:
         try:
@@ -422,6 +676,93 @@ def create_app(gateway: Gateway, *, website_port: int = 5173) -> FastAPI:
                 await asyncio.sleep(1.0 / MAX_SNAPSHOTS_PER_S)
         except (WebSocketDisconnect, RuntimeError):
             return
+
+    # --- 6C routes ---
+
+    async def website_socket(websocket: WebSocket) -> bool:
+        origin = websocket.headers.get("origin")
+        if origin is not None and origin not in origins:
+            await websocket.close(code=1008)
+            return False
+        await websocket.accept()
+        return True
+
+    async def pump(websocket: WebSocket, outbox: Outbox, gap_s: float = 0.0) -> None:
+        """Send what the outbox holds, in order; at most one message every `gap_s`."""
+        while True:
+            if await outbox.wait(IDLE_CHECK_S):
+                await websocket.send_text(outbox.items.popleft().model_dump_json())
+                outbox.sent += 1
+                if gap_s:
+                    await asyncio.sleep(gap_s)
+
+    async def both(*work: Awaitable[None]) -> None:
+        """Run a socket's reader and sender until either ends (a closed socket ends both)."""
+        tasks = [asyncio.ensure_future(job) for job in work]
+        try:
+            await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            for task in tasks:
+                task.cancel()
+            for outcome in await asyncio.gather(*tasks, return_exceptions=True):
+                if isinstance(outcome, Exception) and not isinstance(outcome, (WebSocketDisconnect, RuntimeError)):
+                    log(gateway.logger, logging.ERROR, "socket task failed", error=repr(outcome))
+
+    @app.websocket("/ws/chat")
+    async def chat(websocket: WebSocket) -> None:
+        if not await website_socket(websocket):
+            return
+        session = ChatSession()
+        gateway.chats.add(session)
+
+        async def listen() -> None:
+            while True:
+                message = await websocket.receive()
+                if message["type"] == "websocket.disconnect":
+                    return
+                text = message.get("text")
+                if not isinstance(text, str) or len(text) > MAX_CHAT_MESSAGE:
+                    gateway.to_chat(session, ChatError(reason="a chat message is one ChatSend as JSON text"))
+                    continue
+                await gateway.chat_message(session, text)
+
+        try:
+            await both(listen(), pump(websocket, session.outbox))
+        finally:
+            gateway.chat_closed(session)
+
+    @app.websocket("/ws/audit")
+    async def audit(websocket: WebSocket) -> None:
+        if not await website_socket(websocket):
+            return
+        outbox = Outbox(AUDIT_QUEUE)
+        gateway.audits.add(outbox)
+
+        async def listen() -> None:                           # the website sends nothing; this notices the close
+            while (await websocket.receive())["type"] != "websocket.disconnect":
+                pass
+
+        try:
+            await both(listen(), pump(websocket, outbox, 1.0 / AUDIT_PER_S))
+        finally:
+            gateway.audits.discard(outbox)
+
+    @app.get("/mentor/llm-failures")
+    async def current_failures() -> dict[str, Any]:
+        return gateway.switches.model_dump(mode="json")
+
+    @app.post("/mentor/llm-failures")
+    async def set_failures(body: LlmFailureBody) -> dict[str, Any]:
+        try:
+            switches = await gateway.set_switches(body)
+        except ValidationError as error:
+            raise HTTPException(422, _short(str(error))) from error
+        return switches.model_dump(mode="json")
+
+    @app.post("/alerts/{node}/{incident_id}/ack")
+    async def acknowledge(node: NodeId, body: AckBody,
+                          incident_id: Annotated[str, PathParam(pattern=INCIDENT_ID)]) -> dict[str, Any]:
+        return (await gateway.acknowledge(node, incident_id, body.confirm_token)).model_dump(mode="json")
 
     return app
 

@@ -395,3 +395,32 @@ def test_the_matrix_api_refuses_any_browser_origin() -> None:
         assert client.post("/sim/start", headers={"Origin": "http://127.0.0.1:5173"}).status_code == 403
         assert runtime.demo_fault is None and runtime.running is False
         assert client.post("/faults/supply_fan_failure").status_code == 200        # the gateway sends no Origin
+
+
+def test_the_owner_acknowledgement_marks_that_nodes_delivered_notifications() -> None:
+    """6C (P2 section 4 step 5): the Matrix's own owner acknowledgement. The heater fault's rule brain notifies the
+    owner (measured: sender "jarvis-incubator-1", the incident id the runtime publishes); the click marks it now."""
+    runtime, _ = farm(running=False)
+    with TestClient(fr.create_api(runtime)) as client:
+        assert client.post("/faults/heater_relay_stuck").status_code == 200
+        published: set[str] = set()
+        for _ in range(200):
+            published |= {m.incident_id for _, m in runtime.messages_for_tick(runtime.step(), include_state=True)
+                          if isinstance(m, FarmAssessment) and m.incident_id}
+            if runtime.engine.comms.notifications:
+                break
+        notes = runtime.engine.comms.notifications
+        assert len(notes) == 1 and notes[0]["status"] == "delivered"
+        incident = notes[0]["incident_id"]
+        assert incident in published                                  # the published id is the notification's
+        assert client.post(f"/alerts/hvac/{incident}/ack").status_code == 404           # another node's
+        assert client.post("/alerts/incubator-1/no-such-incident/ack").status_code == 404
+        answer = client.post(f"/alerts/incubator-1/{incident}/ack")
+        assert answer.status_code == 200
+        assert answer.json() == {"node": "incubator-1", "incident_id": incident, "acknowledged": 1,
+                                 "farm_time": runtime.farm_time()[0]}
+        assert notes[0]["status"] == "acknowledged" and notes[0]["acknowledged_s"] == runtime.engine.clock.time
+        again = client.post(f"/alerts/incubator-1/{incident}/ack")
+        assert again.status_code == 404 and "no delivered, unacknowledged" in again.json()["detail"]
+        assert client.post("/sim/reset").status_code == 200                              # a new run has none
+        assert client.post(f"/alerts/incubator-1/{incident}/ack").status_code == 404
