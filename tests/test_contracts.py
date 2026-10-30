@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 
 import export_contracts
-from contracts import (NODE_IDS, AckCommand, AckOffer, AckResult, AskReply, AskRequest, AuditRecord, Capabilities,
+from contracts import (NODE_IDS, AckCommand, AlertNotice, AckOffer, AckResult, AskReply, AskRequest, AuditRecord, Capabilities,
                        ChatChunk, ChatDone, ChatRequest, Citation, ContractError, DocumentInfo, FarmAssessment, FarmEvent,
                        FarmIncident, FarmStatus, Heartbeat, LinkStatus, LlmFailureSwitches, OwnerAlert, ProbeRequest,
                        PushToTalk, ReplyTimings, SimState, ToolUse, VoiceSettings, VoiceSettingsResult, VoiceStatus,
@@ -56,6 +56,9 @@ SAMPLES = [
     OwnerAlert(alert_id="a-1", node="hvac", level="DANGER", incident_id="hvac-equipment-0001",
                text="Sir, the HVAC reports DANGER: the supply fan has failed. Farm time 06:00.", farm_time="06:00",
                feed_id="0000000000a1", label="live: simulated brains", reworded=False, sent_utc=utc_now()),
+    AlertNotice(notice_id="n-1", sender="hvac", target="incubator-1", sent_utc=utc_now(),
+                assessment=FarmAssessment(**FARM, assessment="ESCALATE_TO_USER", diagnosis="SUPPLY_FAN_FAULT",
+                                          confidence=0.9, brain="rule")),
     AckCommand(request_id="k-1", node="hvac", incident_id="hvac-equipment-0001", confirm_token="t0k3n",
                sent_utc=utc_now()),
     AckResult(request_id="k-1", node="hvac", incident_id="hvac-equipment-0001", ok=False, reason="token already used"),

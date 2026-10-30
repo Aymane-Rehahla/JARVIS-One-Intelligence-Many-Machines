@@ -28,7 +28,8 @@ WEBSITE_SAMPLES: list[BaseModel] = [
     gw.AckResponse(node="hvac", incident_id="hvac-equipment-0001", ok=False, stage="token", reason="token expired"),
     gw.OkResponse(ok=True),
     FaultResult(scenario_id="supply_overvoltage", family="overvoltage", variant=1,
-                devices=["incubator-1", "incubator-2"], tick=5, time_s=5.0, farm_time="06:00", feed_id="0000000000a1"),
+                devices=["incubator-1", "incubator-2"], tick=5, end_tick=226, time_s=5.0, farm_time="06:00",
+                feed_id="0000000000a1"),
 ]
 #: Models that the website only ever sees inside another message.
 NESTED_ONLY = {"NodeView", "GateDecision", "Citation", "ToolUse", "ReplyTimings", "AckOffer"}
@@ -86,8 +87,10 @@ def broken(name: str, message: dict[str, Any]) -> list[tuple[str, dict[str, Any]
         cases += [message | {"ok": not message["ok"]}]
     if name == "AckResponse":
         cases += [message | {"ok": True}, message | {"stage": "done"}, message | {"reason": ""}]
+    if name == "FarmSnapshot" and message["events"]:
+        cases += [message | {"events": message["events"] * 51}]                  # over the 50 shown
     if name == "FaultResult":
-        cases += [message | {"scenario_id": "fire"}, message | {"devices": []}, message | {"devices": ["barn-9"]},
+        cases += [message | {"end_tick": 0}, message | {"end_tick": "soon"}, message | {"scenario_id": "fire"}, message | {"devices": []}, message | {"devices": ["barn-9"]},
                   message | {"family": ""}]
     if name == "LlmFailureSwitches":
         cases += [message | {"server_crash": ["hvac", "hvac"]}, message | {"broken_json": ["barn-9"]}]

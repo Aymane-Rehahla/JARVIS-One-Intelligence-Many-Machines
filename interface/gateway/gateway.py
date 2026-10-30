@@ -24,6 +24,7 @@ import sys
 import time
 import tomllib
 from collections import deque
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any, Literal
 
@@ -34,7 +35,8 @@ if str(REFERENCE_NODE) not in sys.path:
 
 import httpx  # noqa: E402
 import uvicorn  # noqa: E402
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect  # noqa: E402
+from fastapi import FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect  # noqa: E402
+from fastapi.responses import JSONResponse  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from pydantic import (BaseModel, ConfigDict, Field, JsonValue, ValidationError, field_validator,  # noqa: E402
                       model_validator)
@@ -49,6 +51,7 @@ from contracts import (CLIENT_MSG_ID, CONTROL_CHARACTERS, CONVERSATION_ID, FARM_
 
 MAX_SNAPSHOTS_PER_S = 5.0
 EVENTS_SHOWN = 50
+KEEPALIVE_S = 5.0                                          # a snapshot at least this often, changed or not
 RETIRED_FEEDS = 16                                         # replaced farm runs remembered, to drop their late messages
 SILENT_AFTER_S = 30.0
 MATRIX_TIMEOUT_S = 5.0
@@ -79,7 +82,7 @@ class FarmSnapshot(Contract):
     sim: SimState | None
     links: LinkStatus | None
     nodes: dict[NodeId, NodeView]
-    events: list[FarmEvent]
+    events: list[FarmEvent] = Field(max_length=EVENTS_SHOWN)
 
 
 class SpeedBody(BaseModel):
@@ -337,6 +340,8 @@ class Gateway:
         with their reason; unreachable is 503; any other answer, or one that is not a FaultResult, is 502."""
         try:
             response = await self.matrix.post(f"/faults/{scenario_id}")
+        except httpx.TimeoutException as error:
+            raise HTTPException(504, "the Matrix API did not answer in time; the fault may have started") from error
         except httpx.HTTPError as error:
             raise HTTPException(503, f"the Matrix API is unreachable: {type(error).__name__}") from error
         if response.status_code in (404, 409):
@@ -367,6 +372,16 @@ def create_app(gateway: Gateway, *, website_port: int = 5173) -> FastAPI:
     app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=["GET", "POST"],
                        allow_headers=["Content-Type"])
 
+    @app.middleware("http")
+    async def same_site_only(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
+        """A POST without a body is a CORS "simple request": a browser sends it from any page without asking, and
+        CORS only hides the answer. So a request from a browser page that is not the website is refused here,
+        before anything reaches the farm (Q7). Programs (no Origin header) are not browsers."""
+        origin = request.headers.get("origin")
+        if request.method not in ("GET", "HEAD", "OPTIONS") and origin is not None and origin not in origins:
+            return JSONResponse({"detail": "only the JARVIS website may change the farm"}, status_code=403)
+        return await call_next(request)
+
     @app.get("/health")
     async def health() -> dict[str, JsonValue]:
         alive: list[JsonValue] = list(gateway.view.alive_nodes())
@@ -396,10 +411,13 @@ def create_app(gateway: Gateway, *, website_port: int = 5173) -> FastAPI:
             return
         await websocket.accept()
         sent = -1
+        last_sent = float("-inf")
         try:
             while True:
-                if gateway.view.version != sent:
+                # on every change, and at least every KEEPALIVE_S: the website takes silence for a dead gateway
+                if gateway.view.version != sent or time.monotonic() - last_sent >= KEEPALIVE_S:
                     sent = gateway.view.version
+                    last_sent = time.monotonic()
                     await websocket.send_text(gateway.view.snapshot().model_dump_json())
                 await asyncio.sleep(1.0 / MAX_SNAPSHOTS_PER_S)
         except (WebSocketDisconnect, RuntimeError):

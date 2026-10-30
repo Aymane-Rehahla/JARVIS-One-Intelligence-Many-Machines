@@ -465,7 +465,7 @@ function LoadingOverlay() {
 
 const STATE_LEGEND = [
   { state: "ALIVE", swatch: "bg-ok", meaning: "operating normally" },
-  { state: "ALARM", swatch: "bg-danger", meaning: "scripted warning or fault" },
+  { state: "ALARM", swatch: "bg-danger", meaning: "a warning or fault on the machine" },
   { state: "OFF", swatch: "bg-input", meaning: "stopped or unavailable" },
 ] as const
 
@@ -490,7 +490,7 @@ export function FarmScene3D({ devices, onDevice }: Props) {
         <OrbitControls makeDefault enablePan={!orthographic} minDistance={0.6} maxDistance={40} minZoom={12} maxZoom={400} minPolarAngle={0} maxPolarAngle={1.52} />
         <CameraRig view={view} nonce={nonce} />
       </Canvas>
-      {missing ? <div role="status" className="absolute inset-x-0 top-0 border-b bg-background/95 px-5 py-3 text-[14px] leading-6"><span className="font-semibold">The machine 3D models are not on this computer.</span> They are carried separately from the code (<span className="label-mono">public/assets/farm</span>, listed in <span className="label-mono">assets-manifest.json</span>). The rooms are drawn without them; every reading on this page is unaffected.</div> : <LoadingOverlay />}
+      {missing ? <div role="status" className="absolute inset-x-0 top-0 border-b bg-background/95 px-5 py-3 text-[14px] leading-6"><span className="font-semibold">The machine 3D models could not be loaded (missing or unreadable).</span> They are carried separately from the code (<span className="label-mono">public/assets/farm</span>, listed in <span className="label-mono">assets-manifest.json</span>). The rooms are drawn without them; every reading on this page is unaffected.</div> : <LoadingOverlay />}
     </div>
     <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 border-t px-5 py-3">
       <ul className="flex flex-wrap gap-x-5 gap-y-2">{STATE_LEGEND.map((item) => <li key={item.state} className="label-mono flex items-center gap-2 text-muted-foreground"><span aria-hidden className={`size-2 ${item.swatch}`} /><span className="font-semibold text-foreground">{item.state}</span> {item.meaning}</li>)}</ul>

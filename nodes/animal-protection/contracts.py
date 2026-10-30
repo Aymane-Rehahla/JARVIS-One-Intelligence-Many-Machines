@@ -527,6 +527,27 @@ class OwnerAlert(Contract):
     sent_utc: str
 
 
+class AlertNotice(Contract):
+    """`jarvis.incubator-1.notice` (one way, through the radio's ZigBee rules): a node's own reasoning reached
+    ESCALATE_TO_USER or DANGER. It carries that node's published output unchanged; incubator-1 turns it into an
+    OwnerAlert from a fixed template (P2 section 4, decision 0019)."""
+
+    type: Literal["alert_notice"] = "alert_notice"
+    notice_id: str = Field(pattern=REQUEST_ID)
+    sender: NodeId
+    target: NodeId
+    assessment: FarmAssessment
+    sent_utc: str
+
+    @model_validator(mode="after")
+    def _an_alert_level(self) -> AlertNotice:
+        if self.assessment.assessment not in ("ESCALATE_TO_USER", "DANGER"):
+            raise ValueError("a notice is sent only at ESCALATE_TO_USER or DANGER")
+        if self.assessment.node != self.sender or self.sender == self.target:
+            raise ValueError("a node sends notices about its own machine, to another node")
+        return self
+
+
 class AckCommand(Contract):
     """`jarvis.incubator-1.ack` (request-reply, gateway → incubator-1): the owner clicked "confirm" on an AckOffer.
     incubator-1 checks the token (single-use, bound to this node and incident) and audits the decision; only then
@@ -649,6 +670,7 @@ class FaultResult(Contract):
     variant: int = Field(ge=0)
     devices: list[NodeId] = Field(min_length=1, max_length=4)
     tick: int = Field(ge=0)                       # the farm tick at which the fault starts (the next one)
+    end_tick: int | None = Field(ge=1)            # when the library's fault ends by itself; None: it lasts until reset
     time_s: float = Field(ge=0.0)
     farm_time: str = Field(pattern=FARM_TIME)
     feed_id: str = Field(pattern=FEED_ID)
@@ -657,6 +679,7 @@ class FaultResult(Contract):
 #: Every wire message, for the JSON Schema export.
 WIRE_MODELS: tuple[type[Contract], ...] = (FarmStatus, FarmEvent, FarmAssessment, FarmIncident, LinkStatus, SimState,
                                            Heartbeat, Capabilities, AskRequest, AskReply, ProbeRequest, AuditRecord,
-                                           ChatRequest, ChatChunk, ChatDone, OwnerAlert, AckCommand, AckResult,
+                                           ChatRequest, ChatChunk, ChatDone, OwnerAlert, AlertNotice, AckCommand,
+                                           AckResult,
                                            LlmFailureSwitches, VoiceStatus, VoiceSettings, VoiceSettingsResult,
                                            PushToTalk)

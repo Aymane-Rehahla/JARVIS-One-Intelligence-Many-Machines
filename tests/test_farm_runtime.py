@@ -229,10 +229,10 @@ def _twins() -> tuple[fr.FarmRuntime, fr.FarmRuntime]:
 def test_twin_farms_stay_identical_without_a_fault() -> None:
     """The control for the next test: the same seed gives the same public telemetry, tick for tick."""
     one, two = _twins()
-    for _ in range(FAULT_LIMIT_TICKS):
+    for tick in range(FAULT_LIMIT_TICKS):
         one.step()
         two.step()
-    assert all(one.engine.device(node) == two.engine.device(node) for node in NODE_IDS)
+        assert all(one.engine.device(node) == two.engine.device(node) for node in NODE_IDS), tick   # every tick
 
 
 @pytest.mark.parametrize("scenario_id", fr.SCENARIO_IDS)
@@ -323,6 +323,10 @@ def _hidden_words(runtime: fr.FarmRuntime, result: fr.FaultResult) -> set[str]:
     return words - set(NODE_IDS) - {"injected", "recovered"}
 
 
+#: Readings a machine publishes by itself whose value happens to equal a fault's word (6W review, L2).
+MACHINE_TELEMETRY = {("power_status", "overvoltage")}
+
+
 def _strings(value: Any, path: str = "") -> list[tuple[str, str]]:
     """(path, text) of every string inside a JSON-like value."""
     if isinstance(value, dict):
@@ -343,9 +347,10 @@ def _paths(value: Any, path: str = "") -> set[str]:
 @pytest.mark.parametrize("scenario_id", fr.SCENARIO_IDS)
 @pytest.mark.asyncio
 async def test_the_epistemic_wall_holds_for_120_ticks_after_a_demo_fault(scenario_id: fr.ScenarioId) -> None:
-    """No published message names the fault. The one judgement (as E9's): a word that the machine itself reports in a
-    readings field it also publishes on a fault-free twin farm is that machine's public telemetry (for example the
-    incubator's `power_status` "overvoltage"), a physical effect, not a leak. Such matches are printed."""
+    """No published message names the fault. The one judgement (as E9's): a value that the machine itself reports in
+    a readings field is its public telemetry, a physical effect, not a leak; only the (field, value) pairs listed in
+    MACHINE_TELEMETRY are excused, and only in a field the machine also publishes on a fault-free twin farm. The scan
+    is case-sensitive: the machines' own alarm codes are upper case (e.g. HEATER_RELAY_STUCK) and are telemetry."""
     import re
     runtime, link = farm()
     twin, _ = farm()
@@ -372,10 +377,21 @@ async def test_the_epistemic_wall_holds_for_120_ticks_after_a_demo_fault(scenari
             for word, pattern in patterns.items():
                 if pattern.search(value):
                     field = f"{payload['node']}{path}"
-                    if field in normal_fields:
+                    if field in normal_fields and (field.split("/", 1)[1], value) in MACHINE_TELEMETRY:
                         telemetry.add(f"{field} = {value!r}")
                     else:
                         leaks.setdefault(word, f"{field} = {value!r}")
     print(f"\n{scenario_id}: {len(link.sent)} messages scanned for {sorted(words)}; "
           f"the machine's own telemetry: {sorted(telemetry) or 'none'}")
     assert len(link.sent) > 120 * len(NODE_IDS) and leaks == {}
+
+
+def test_the_matrix_api_refuses_any_browser_origin() -> None:
+    """6W review M1: the Matrix API is called by the gateway only, never by a page; a request carrying an Origin
+    header comes from a browser and is refused before anything changes."""
+    runtime, _ = farm(running=False)
+    with TestClient(fr.create_api(runtime)) as client:
+        assert client.post("/faults/supply_fan_failure", headers={"Origin": "http://evil.example"}).status_code == 403
+        assert client.post("/sim/start", headers={"Origin": "http://127.0.0.1:5173"}).status_code == 403
+        assert runtime.demo_fault is None and runtime.running is False
+        assert client.post("/faults/supply_fan_failure").status_code == 200        # the gateway sends no Origin

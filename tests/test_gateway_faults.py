@@ -21,7 +21,7 @@ from contracts import FarmAssessment, FarmEvent, FarmStatus, FaultResult, SimSta
 LOG = logging.getLogger("test-gateway-faults")
 ROOT = Path(__file__).resolve().parents[1]
 RESULT = FaultResult(scenario_id="supply_fan_failure", family="supply_fan_failure", variant=1, devices=["hvac"],
-                     tick=12, time_s=12.0, farm_time="06:00", feed_id="0000000000a1")
+                     tick=12, end_tick=None, time_s=12.0, farm_time="06:00", feed_id="0000000000a1")
 
 
 def gateway_with(transport: httpx.AsyncBaseTransport) -> gw.Gateway:
@@ -143,3 +143,49 @@ async def test_a_new_farm_run_clears_the_old_one_and_late_messages_are_dropped()
     assert snap.sim is not None and snap.sim.feed_id == second and snap.sim.tick == 1
     status = snap.nodes["hvac"].status
     assert status is not None and status.feed_id == second and status.tick == 1
+
+
+# --- review fixes (6W review, 30 Oct) ----------------------------------------------------------------------------------
+
+@pytest.mark.parametrize("origin", ["http://evil.example", "null"])
+def test_a_foreign_page_cannot_change_the_farm(origin: str) -> None:
+    """M1: a POST with no body is a CORS "simple request": the browser sends it without asking. A foreign origin
+    must be refused before anything is forwarded."""
+    calls: list[str] = []
+    with TestClient(gw.create_app(gateway_with(answering(200, RESULT.model_dump_json().encode(), calls)))) as client:
+        for path in ("/faults/supply_fan_failure", "/sim/reset"):
+            assert client.post(path, headers={"Origin": origin}).status_code == 403
+        assert client.post("/faults/supply_fan_failure", headers={"Origin": "http://127.0.0.1:5173"}).status_code == 200
+    assert calls == ["POST /faults/supply_fan_failure 0"]
+
+
+def test_a_matrix_timeout_says_the_fault_may_have_started() -> None:
+    """L4: a timeout is not "unreachable": the Matrix may have injected the fault."""
+    def slow(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("slow", request=request)
+    with TestClient(gw.create_app(gateway_with(httpx.MockTransport(slow)))) as client:
+        answer = client.post("/faults/heater_relay_stuck")
+    assert answer.status_code == 504 and "may have started" in answer.json()["detail"]
+
+
+def test_the_gateway_publishes_nothing_about_a_fault() -> None:
+    """L6: the fault click never reaches NATS through the gateway either."""
+    sent: list[str] = []
+    gateway = gateway_with(answering(200, RESULT.model_dump_json().encode()))
+
+    async def record(subject: str, message: object, **_: Any) -> None:
+        sent.append(subject)
+    gateway.link.publish = record  # type: ignore[method-assign,assignment]
+    with TestClient(gw.create_app(gateway)) as client:
+        assert client.post("/faults/supply_fan_failure").status_code == 200
+    assert sent == []
+
+
+def test_a_snapshot_holds_at_most_the_events_shown() -> None:
+    """L7: the website's 50-event bound is the contract's own, not the gateway's habit."""
+    from pydantic import ValidationError
+    view = gw.FarmView()
+    snapshot = view.snapshot().model_dump()
+    event = farm_messages("0000000000a1", 1)[2].model_dump()
+    with pytest.raises(ValidationError):
+        gw.FarmSnapshot.model_validate({**snapshot, "events": [event] * (gw.EVENTS_SHOWN + 1)})

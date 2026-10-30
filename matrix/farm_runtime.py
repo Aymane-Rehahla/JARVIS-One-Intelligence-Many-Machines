@@ -35,7 +35,7 @@ import sys
 import time
 import tomllib
 import types
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from pathlib import Path
 from typing import Any, Literal
 
@@ -48,7 +48,8 @@ for _path in (REFERENCE_NODE, SNAPSHOT_PARENT):
 sys.dont_write_bytecode = True                              # the snapshot is read-only: no __pycache__ inside it
 
 import uvicorn  # noqa: E402
-from fastapi import FastAPI, HTTPException  # noqa: E402
+from fastapi import FastAPI, HTTPException, Request, Response  # noqa: E402
+from fastapi.responses import JSONResponse  # noqa: E402
 from pydantic import BaseModel, ConfigDict, Field, JsonValue  # noqa: E402
 
 from comms.jsonlog import log, program_logger  # noqa: E402
@@ -469,6 +470,8 @@ class FarmRuntime:
             farm_time, _ = self.farm_time()
             self.demo_fault = FaultResult(scenario_id=scenario_id, family=DEMO_FAULTS[scenario_id][0],
                                           variant=variant, devices=devices, tick=start,
+                                          end_tick=max((f["end_tick"] for f in faults if f.get("end_tick") is not None),
+                                                       default=None),
                                           time_s=start * self.step_seconds, farm_time=farm_time, feed_id=self.feed_id)
             log(self.logger, logging.INFO, "demo fault injected", scenario_id=scenario_id,
                 family=self.demo_fault.family, variant=variant, devices=devices, tick=start, feed_id=self.feed_id,
@@ -494,6 +497,16 @@ class FarmRuntime:
 def create_api(farm: FarmRuntime) -> FastAPI:
     """The Matrix API (see the module docstring); every route answers with the new farm or link state."""
     app = FastAPI(title="JARVIS Matrix API (farm runtime)", version="0.6.0", docs_url=None, redoc_url=None)
+
+    @app.middleware("http")
+    async def programs_only(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
+        """Only the gateway (a program) calls this API. A request with an Origin header comes from a browser page,
+        which could start a fault or reset the farm without asking (a POST without a body needs no CORS preflight),
+        so it is refused before anything changes (Q7)."""
+        if request.headers.get("origin") is not None:
+            return JSONResponse({"detail": "the Matrix API answers the gateway only, never a browser page"},
+                                status_code=403)
+        return await call_next(request)
 
     @app.get("/health")
     def health() -> dict[str, JsonValue]:

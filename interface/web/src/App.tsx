@@ -377,7 +377,7 @@ function SystemBar({
     state.source === "demo"
       ? "Demo mode"
       : state.source === "live"
-        ? state.live?.label ?? "Live"
+        ? state.live?.label ?? "Live · no farm data yet"
         : isConnecting
           ? "Connecting…"
           : "Not connected"
@@ -390,15 +390,22 @@ function SystemBar({
       <SystemItem label="Simulation" value={state.source === "disconnected" ? "Stopped" : simulationLabel(state)} />
       <SystemItem
         label="Farm time"
-        value={state.source === "live" && state.live ? `${state.live.farmTime} · day ${state.live.day}` : formatSimTime(state.simulation.timeS)}
+        value={
+          state.source === "live" && state.live
+            ? state.live.farmTime === null ? "No data" : `${state.live.farmTime} · day ${state.live.day ?? "?"}`
+            : formatSimTime(state.simulation.timeS)
+        }
       />
       {state.source === "live" && state.live && (
-        <SystemItem label="Speed" value={`asked ${state.live.targetSpeed}× · reached ${state.live.actualSpeed.toFixed(1)}×`} />
+        <SystemItem
+          label="Speed"
+          value={state.live.targetSpeed === null || state.live.actualSpeed === null ? "No data" : `asked ${state.live.targetSpeed}× · reached ${state.live.actualSpeed.toFixed(1)}×`}
+        />
       )}
       <SystemItem
         label="JARVIS"
-        value={state.source === "disconnected" ? "Not connected" : ASSESSMENT_LABELS[worst]}
-        tone={state.source === "disconnected" ? "neutral" : ASSESSMENT_TONES[worst].status}
+        value={state.source === "disconnected" ? "Not connected" : worst === null ? "No conclusion yet" : ASSESSMENT_LABELS[worst]}
+        tone={state.source === "disconnected" || worst === null ? "neutral" : ASSESSMENT_TONES[worst].status}
       />
       {state.source === "demo" && liveAvailable && (
         <button type="button" onClick={onGoLive} className="flex shrink-0 items-stretch hover:bg-secondary">
@@ -563,8 +570,8 @@ function Overview({
           state.source === "demo"
             ? "Demo mode: values are simulated reference data. No live farm or JARVIS node is connected."
             : state.source === "live"
-              ? `${state.live?.label ?? "Live"}: the machines' own readings from the Matrix test bench, farm time ${state.live?.farmTime ?? "--:--"}. Each node's conclusion comes from its reasoning brain, shown apart from any words.`
-              : "Matrix isn't connected. Showing reference values. Activate demo mode to explore the interactive simulation."
+              ? `${state.live?.label ?? "Live"}: the machines' own readings from the Matrix test bench, farm time ${state.live?.farmTime ?? "unknown"}. Each node's conclusion comes from its reasoning brain, shown apart from any words.`
+              : `Not connected to the live farm${farm.liveProblem ? ` (${farm.liveProblem})` : ""}. Nothing shown here is a reading. Activate demo mode to explore the interactive simulation.`
         }
         action={state.source === "live" ? "Use demo mode" : state.source !== "demo" ? "Use demo mode" : undefined}
         onAction={state.source !== "demo" ? farm.activateDemo : undefined}
@@ -728,10 +735,12 @@ function Simulator({
     : 0
   const selectedScenario = findScenario(scenario)
   const live = state.source === "live" ? state.live ?? null : null
-  const speedValue = String(live ? live.targetSpeed : state.simulation.speed)
-  const speedOptions: number[] = live && !(SIMULATION_SPEEDS as readonly number[]).includes(live.targetSpeed)
-    ? [live.targetSpeed, ...SIMULATION_SPEEDS]
+  const liveSpeed = live?.targetSpeed ?? null
+  const speedValue = String(live ? liveSpeed ?? "" : state.simulation.speed)
+  const speedOptions: number[] = liveSpeed !== null && !(SIMULATION_SPEEDS as readonly number[]).includes(liveSpeed)
+    ? [liveSpeed, ...SIMULATION_SPEEDS]
     : [...SIMULATION_SPEEDS]
+  const faultEnded = live !== null && live.faultEndTick !== null && live.tick !== null && live.tick >= live.faultEndTick
 
   const handleInject = () => {
     if (activeScenario) {
@@ -774,22 +783,28 @@ function Simulator({
             </div>
             <div className="text-right">
               <div className="label-mono text-muted-foreground">Farm time</div>
-              <div className="mt-2 text-[clamp(1.8rem,3vw,2.5rem)] font-semibold leading-none tabular-nums [font-stretch:112%]">{live ? live.farmTime : formatSimTime(state.simulation.timeS)}</div>
-              {live && <div className="label-mono mt-2 text-muted-foreground">day {live.day} · tick {live.tick}</div>}
+              <div className="mt-2 text-[clamp(1.8rem,3vw,2.5rem)] font-semibold leading-none tabular-nums [font-stretch:112%]">{live ? live.farmTime ?? "No data" : formatSimTime(state.simulation.timeS)}</div>
+              {live && <div className="label-mono mt-2 text-muted-foreground">day {live.day ?? "?"} · tick {live.tick ?? "?"}</div>}
             </div>
           </div>
           {live && (
             <div className="mt-6 grid border-l border-t sm:grid-cols-3">
-              <Metric label="Feed" value={live.label} />
-              <Metric label="Speed asked" value={`${live.targetSpeed}×`} />
-              <Metric label="Speed reached" value={`${live.actualSpeed.toFixed(1)}×`} />
+              <Metric label="Feed" value={live.label ?? "No data"} />
+              <Metric label="Speed asked" value={live.targetSpeed === null ? "No data" : `${live.targetSpeed}×`} />
+              <Metric label="Speed reached" value={live.actualSpeed === null ? "No data" : `${live.actualSpeed.toFixed(1)}×`} />
             </div>
           )}
           <div className="mt-8 grid border-l border-t sm:grid-cols-3">
             <Metric label="Active scenario" value={activeScenario ? activeScenario.shortLabel : "None"} />
             <Metric
               label="Scenario time"
-              value={activeScenario ? (live ? `${formatSimTime(scenarioElapsed)} since injection` : `${formatSimTime(scenarioElapsed)} of ${formatSimTime(activeScenario.durationS)}`) : "Not running"}
+              value={
+                activeScenario
+                  ? live
+                    ? faultEnded ? "Ended by itself; reset to inject another" : `${formatSimTime(scenarioElapsed)} since injection`
+                    : `${formatSimTime(scenarioElapsed)} of ${formatSimTime(activeScenario.durationS)}`
+                  : "Not running"
+              }
             />
             <Metric label="Recorded events" value={String(state.events.length)} />
           </div>
@@ -842,7 +857,13 @@ function Simulator({
             <div className="mt-6 border border-l-[3px] border-l-signal bg-panel p-4">
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                 <span className="display-sm text-[13px]">{activeScenario.label}</span>
-                <span className="label-mono text-muted-foreground">{live ? `${formatSimTime(scenarioElapsed)} since injection · until reset` : `${formatSimTime(scenarioElapsed)} of ${formatSimTime(activeScenario.durationS)}`}</span>
+                <span className="label-mono text-muted-foreground">
+                  {live
+                    ? faultEnded
+                      ? `ended by itself at tick ${live.faultEndTick}`
+                      : `${formatSimTime(scenarioElapsed)} since injection · ${live.faultEndTick === null ? "until reset" : `ends at tick ${live.faultEndTick}`}`
+                    : `${formatSimTime(scenarioElapsed)} of ${formatSimTime(activeScenario.durationS)}`}
+                </span>
               </div>
               <p className="mt-2 text-[14px] leading-6 text-muted-foreground">{live ? "The fault runs in the Matrix test bench with the scenario library's own parameters. The nodes learn of it only through its physical effects." : activeScenario.description}</p>
               {!state.simulation.running && <p className="label-mono mt-3 text-signal-ink">Paused // press Start to advance</p>}

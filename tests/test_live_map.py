@@ -84,9 +84,27 @@ def check(payload: dict[str, Any], tmp_path: Path) -> dict[str, Any]:
     return json.loads(run.stdout.strip().splitlines()[-1])
 
 
+def churned(snapshots: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The recorded snapshots with a full event window: alarm raises and clears added before the recorded events,
+    so every snapshot carries the 50 events the gateway shows at most (the smoothness case of P1 section E)."""
+    out = []
+    for index, snapshot in enumerate(snapshots):
+        feed = snapshot["sim"]["feed_id"]
+        base = {k: v for k, v in snapshot["events"][0].items()} if snapshot["events"] else None
+        extra = []
+        for n in range(50 - len(snapshot["events"])):
+            sequence = 100_000 + index * 50 + n
+            extra.append({**(base or {}), "node": "hvac", "tick": snapshot["sim"]["tick"], "time_s": snapshot["sim"]["time_s"],
+                          "farm_time": snapshot["sim"]["farm_time"], "label": snapshot["sim"]["label"], "feed_id": feed,
+                          "schema_version": 1, "sequence": sequence, "type": "alarm_raised" if n % 2 else "alarm_cleared",
+                          "severity": "warning" if n % 2 else "info", "data": {"code": f"C{n % 7}", "source": "alarm"}})
+        out.append({**snapshot, "events": extra + snapshot["events"]})
+    return out
+
+
 def test_real_snapshots_map_onto_the_pages_and_a_reset_starts_afresh(tmp_path: Path) -> None:
     run = asyncio.run(record(60, 15, "supply_fan_failure"))
-    bench = asyncio.run(record(1000, 0, "heater_relay_stuck"))
+    bench = churned(asyncio.run(record(1000, 0, "heater_relay_stuck")))
     invalid: list[Any] = ["not json", {"type": "farm_snapshot"}, {**run[-1], "schema_version": 2},
                           {**run[-1], "surprise": True}, []]
     result = check({"runs": [run], "invalid": invalid, "bench": bench}, tmp_path)
@@ -119,4 +137,25 @@ def test_real_snapshots_map_onto_the_pages_and_a_reset_starts_afresh(tmp_path: P
     print(f"\nmapping: {bench_result['snapshots']} snapshots, mean {bench_result['meanMs']:.4f} ms, "
           f"p95 {bench_result['p95Ms']:.4f} ms, max {bench_result['maxMs']:.4f} ms, "
           f"{bench_result['finalEvents']} events at the end")
-    assert bench_result["snapshots"] == 1000 and bench_result["p95Ms"] < 2.0
+    assert bench_result["snapshots"] == 1000 and bench_result["finalEvents"] == 50 and bench_result["p95Ms"] < 2.0
+
+
+def test_no_invented_conclusion_and_an_escalated_alarm_stays_open(tmp_path: Path) -> None:
+    """6W review M2 and L1: a node that has sent no conclusion is shown as such, never as NORMAL; without a farm clock
+    the speed and day are unknown, not 60x and day 0; an alarm raised again at a higher severity is still one open
+    alarm (both raises open) until its machine clears it."""
+    run = asyncio.run(record(3, 0, None))
+    first = run[-1]
+    no_conclusion = {**first, "nodes": {node: {**view, "assessment": None} for node, view in first["nodes"].items()},
+                     "sim": None}
+    events = [e for e in first["events"]][:0]
+    common = {"schema_version": 1, "node": "hvac", "tick": 3, "time_s": 3.0, "farm_time": first["sim"]["farm_time"],
+              "label": first["sim"]["label"], "feed_id": first["sim"]["feed_id"]}
+    events = [{**common, "sequence": 1, "type": "alarm_raised", "severity": "warning", "data": {"code": "F", "source": "alarm"}},
+              {**common, "sequence": 2, "type": "alarm_raised", "severity": "critical", "data": {"code": "F", "source": "fault"}}]
+    escalated = {**first, "events": events}
+    result = check({"runs": [[no_conclusion], [escalated]], "invalid": [], "bench": run}, tmp_path)
+    state = result["runs"][0][0]
+    assert all(node[3] is True for node in state["nodes"].values()), state["nodes"]   # no conclusion yet
+    assert state["worst"] is None and state["targetSpeed"] is None and state["day"] is None
+    assert [e["open"] for e in result["runs"][1][0]["events"]] == [True, True]

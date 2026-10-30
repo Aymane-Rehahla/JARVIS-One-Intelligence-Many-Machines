@@ -89,6 +89,8 @@ export type JarvisNode = {
   /** The last message this node sent to the owner. */
   ownerMessage: string | null
   sinceS: number
+  /** Live only: the node has published no conclusion yet in this farm run (never shown as NORMAL). */
+  noConclusion?: boolean
 }
 
 /** A broadcast over the peer link, sent whenever a node's conclusion changes. */
@@ -144,22 +146,24 @@ export type SimulationState = {
 
 /** What only a live farm has (src/services/live-map.ts): shown exactly as the gateway sent it. */
 export type LiveInfo = {
-  /** "live: simulated brains" or "live: trained brains". */
-  label: string
-  /** The farm's own clock, "HH:MM", and its day. */
-  farmTime: string
-  day: number
-  tick: number
+  /** "live: simulated brains" or "live: trained brains"; null until the farm has said. */
+  label: string | null
+  /** The farm's own clock, "HH:MM", and its day; null until the farm clock has been heard. */
+  farmTime: string | null
+  day: number | null
+  tick: number | null
   /** One farm run; a reset starts a new one. */
   feedId: string
   /** The speed the website asked for and the speed the farm actually reaches (farm seconds per real second). */
-  targetSpeed: number
-  actualSpeed: number
+  targetSpeed: number | null
+  actualSpeed: number | null
   nodesAlive: DeviceId[]
   /** Snapshots refused by the zod check since the page opened (never shown as data). */
   invalidMessages: number
   /** The last refused farm action, with the gateway's reason. */
   lastError: string | null
+  /** When the demo fault started in this run ends by itself (a farm tick); null when it lasts until reset. */
+  faultEndTick: number | null
 }
 
 export type FarmState = {

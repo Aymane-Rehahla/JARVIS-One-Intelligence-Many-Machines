@@ -35,6 +35,91 @@ restarted, with the second review's guard code, at 04:33:39.** Nothing of ours r
 and it stopped nothing, because nothing of ours was registered (it rewrote an empty `logs/guarded.json` at 05:12).
 Since 06:00 the commit headroom has stayed at 5.0 GiB or more. Lesson: start nothing while the training changes phase.
 
+## Step 6W, part 1: the website on live data and the four demo faults (30 Oct 2026)
+
+Spec: `docs/handoff/P1-6W-live-website.md`. Code: `aab8b04`. Decision 0020 (the demo faults).
+
+### What was built
+- **Demo faults** (`matrix/farm_runtime.py`): `POST /faults/{scenario_id}` for the four website faults. Each takes
+  the first ordinary variant of the scenario library that matches the website's description and is injected with the
+  library's own injector from the next tick (table in 0020). One per farm run (409 with the reason); a reset clears it;
+  unknown ids 404. The answer, `FaultResult` (a new contract: pydantic, JSON Schema, zod, a zod-test sample), goes to
+  the HTTP caller only; the injection is logged in the farm runtime's own log.
+- **Humidity-drift name (plan section 12, point 4):** the family is `sensor_fault`, `mode = "drift"`; the engine
+  labels it `sensor_drift`. No separate family exists.
+- **The gateway**: `/faults/{id}` (422 for an id that is not one of the four, 503 unreachable, 502 for a bad answer,
+  the Matrix's 404/409 passed on with their reason). `FarmView.follow()`: a new `feed_id` clears the old run's states,
+  assessments, events and clock; late messages of a replaced run (the last 16) are dropped.
+- **The website**: `src/services/live.ts` (one `/ws/farm` socket, zod on every message, invalid ones counted and logged
+  at most once a minute, reconnect 1, 2, 4 ... 30 s; HTTP actions with an 8 s timeout and the gateway's reason shown),
+  `src/services/live-map.ts` (pure `FarmSnapshot -> FarmState`: the machines' readings formatted, "No data" when
+  missing, farm time and label exactly as received, a new `feed_id` starts afresh, an alarm stays open until its
+  machine clears it), `src/hooks/use-farm.ts` (live whenever the gateway answers, unless the owner chose the demo;
+  "Switch to live" in the status bar). The pages show the feed label, the farm time and day, the asked and the reached
+  speed, and a refused action with its reason; chat, voice and acknowledging are marked "available after 6C".
+
+### "Done when" (P1)
+
+| Check | Evidence |
+|---|---|
+| Live mode shows the test-feed farm labelled "live: simulated brains" | The real run below: the status bar read "CONNECTION // LIVE: SIMULATED BRAINS · FARM TIME // 06:00 · DAY 1 · SPEED // ASKED 1× · REACHED 1.0×"; at 60× "asked 60× · reached 60.3×", at 120× "reached 120.0×" |
+| Each demo fault from the website changes the farm, and the brains react | The real run below (all four injected by clicking the website's Inject button); tests: telemetry changed after N = 1, 1, 15, 1 farm ticks (heater, fan, drift, overvoltage; measured on twin farms, `test_each_demo_fault_changes_the_public_telemetry`) |
+| No fault click reaches NATS; no hidden truth leaves the farm | `test_injecting_while_paused_publishes_nothing` (4 faults, 0 messages); `test_the_epistemic_wall_holds_for_120_ticks_after_a_demo_fault` (1,200-1,444 messages each, 0 leaks; the one match, the incubators' own `power_status: "overvoltage"`, is a field they publish on a fault-free twin too, so it is telemetry) |
+| A farm reset gives the website and the gateway a clean new run | `test_a_new_farm_run_clears_the_old_one_and_late_messages_are_dropped`; `tests/test_live_map.py` (a reset mid-run: the website's events, activity and nodes start afresh); in the real run each reset showed 0 events and no active scenario |
+| Mapping p95 under 2 ms; bundle growth reported | 1,000 recorded snapshots: mean 0.75 ms, p95 0.80 ms, max 2.40 ms. Bundle: main JS 493 kB after the swap → 584 kB (+18 %); the reason: the zod schemas now enter the app bundle because every live message is checked (Q2). CSS 140.8 kB and the 3D chunk 1,055 kB unchanged |
+| Typecheck, build, pyright, the full suite twice | below, before the tag |
+
+### Independent review (Q10, 30 Oct) and what was fixed
+
+A fresh subagent that did not write the code reviewed `93f52a7..aab8b04` against plan sections 2 and 3 and the P1
+spec (42 tests and pyright run by it). **No high-severity finding; 5 medium, 12 low.** Every fix has a test; the tests
+for M1, M2, L1, L4 and L7 were seen to fail before the fix.
+
+| # | Finding | Fix | Test |
+|---|---|---|---|
+| M1 | A foreign web page could inject a demo fault or reset the farm: a POST with no body is a CORS "simple request", sent without a preflight (confirmed by the reviewer) | the gateway refuses a non-GET request whose `Origin` is not the website's (403); the Matrix API refuses any request with an `Origin` header (only the gateway, a program, calls it) | `test_a_foreign_page_cannot_change_the_farm` (2 origins), `test_the_matrix_api_refuses_any_browser_origin` |
+| M2 | The mapping invented "NORMAL" for nodes with no conclusion yet (after every reset), and day 0, speed 0x, label "live" without a farm clock | `noConclusion` nodes, left out of the worst level ("No conclusion yet"); label, farm time, day and speeds are null and shown as "No data" | `test_no_invented_conclusion_and_an_escalated_alarm_stays_open` |
+| M3 | With the gateway down, live mode fell back to the saved demo farm | live mode shows "not connected" with the reason; going live pauses a running demo clock | browser check: no gateway → "Not connected to the live farm (the gateway is not answering; retrying)" |
+| M4 | Nothing detected stale data (a dead farm runtime left "Running" values on screen) | the gateway sends a snapshot at least every 5 s; the website treats 12 s of silence, or a running farm clock that has not moved for 10 s, as not connected | by reading; the browser check above covers the disconnected view |
+| M5 | The smoothness benchmark ended with 2 events, not the 50 asked | every benchmark snapshot carries the full 50-event window | `test_real_snapshots_...`: 50 events, mean 0.79 ms, p95 0.93 ms |
+| L1 | An alarm raised again at a higher severity showed its first raise as "Cleared" | every raise of a still-open alarm stays open | the M2 test |
+| L2 | The wall test excused any hidden word in a field the twin also publishes | only the listed (field, value) pairs are excused (`power_status = "overvoltage"`) | `test_the_epistemic_wall_...` |
+| L3 | A fault that ended by itself (overvoltage, 221 ticks) was still shown "until reset" | `FaultResult.end_tick` (contract on every side); the page says when it ends and that it ended | zod and contract tests |
+| L4 | A Matrix timeout was reported as "unreachable" though the fault may have started; a failed reset forgot the fault | 504 "did not answer in time; the fault may have started"; the website no longer forgets the fault on reset (the feed filter does it) | `test_a_matrix_timeout_says_the_fault_may_have_started` |
+| L5 | An invalid action answer was reported as "unreachable" | zod `safeParse`: "the gateway's answer is not valid" | typecheck |
+| L6 | No gateway-side wall test | the gateway publishes nothing on `/faults` | `test_the_gateway_publishes_nothing_about_a_fault` (a guard: it passed before the fixes too) |
+| L7 | The 50-event bound was the gateway's habit, not the contract's | `FarmSnapshot.events` at most 50 on both sides; the website slices too | `test_a_snapshot_holds_at_most_the_events_shown`, a 51-event zod case |
+| L8 | An old open alarm can fall out of the 50-event window, so "open" can undercount after heavy churn | **not fixed** (the window is the gateway's); written here as a known limit | none |
+| L9 | The voltage flag used a hard-coded 260 V | flagged from the machine's own `power_status == "overvoltage"` | typecheck |
+| L10 | Live mode was built from `...demo` (any future demo member would leak into live); `goLive()` reconnected a healthy socket | the live object is explicit; `goLive()` reconnects only when not connected | typecheck |
+| L11 | The 3D view called any render error "not on this computer"; its legend said "scripted" in live mode | "could not be loaded (missing or unreadable)"; "a warning or fault on the machine" | typecheck |
+| L12 | The twin control compared the farms only at the end | compared at every tick | `test_twin_farms_stay_identical_without_a_fault` |
+
+### The real run (30 Oct, 19:13-19:22 local, `start_all.ps1 -NoLlm`, no language model)
+Ports checked free first (the other session's dev server on 5173 had stopped). Started in 19.9 s. The website was
+opened in the built-in browser at http://127.0.0.1:5173/; a script recorded every change on the gateway's `/ws/farm`
+at the same time. Each fault was injected by clicking "Inject scenario" and confirming; "Reset" (a new farm run)
+between faults.
+
+| Fault (website) | Injected (farm log) | What happened, at farm time |
+|---|---|---|
+| Heater relay stuck (60×) | tick 1909, 06:31 | 06:32: incubator-1 raised `HEATER_RELAY_STUCK` (critical) and went ESCALATE_TO_USER / HEATER_FAULT; the gate allowed `notify_owner` |
+| HVAC supply fan failure (60×) | tick 910, 06:15 | 06:15: hvac raised `SUPPLY_FAN_FAILURE` and went ESCALATE_TO_USER / SUPPLY_FAN_FAULT; gate allowed `notify_owner`; the website showed "Needs the owner · 1 open" |
+| Humidity sensor drift (120×) | tick 824, 06:13 | The website showed incubator-2's sensors drifting apart: 70.9 · 55.4 · 54.2 % at 07:31, 81.2 · 54.8 · 54.7 % at 08:20. The machine raised no alarm (sensor health "good") and **the rule brain stayed NORMAL for the 127 farm minutes watched**. The 6A rule brains do not compare the three sensors; this is reported, not tuned. The trained brains face it in 6D (E10) |
+| Farm supply overvoltage (120×) | tick 6830, 07:53 | 07:53: both incubators raised `OVERVOLTAGE` and `OVERVOLTAGE_PROTECTION` and went HANDLED_BY_MACHINE / SUPPLY_OVERVOLTAGE; 07:59: the surge ended (221 ticks), alarms cleared, both back to NORMAL |
+
+One extra reset happened when a click landed on "Reset" (the page had scrolled); it only started another clean run.
+Stopped with `stop_all.ps1`: no port of 4222, 8000, 8010, 8081-8084, 5173 listening, no JARVIS process left.
+
+### Open, found in this step
+- The rule brains do not detect the humidity drift (above).
+- `documents.py` (found while building E3): a search result's text is cut to 1,200 characters while 4 passages are
+  longer (may hurt E2); the keyword query ORs every word, stopwords included (keyword-only is weak on paraphrases); each
+  document's title becomes its own tiny passage; `_TokenCounter` hides every load error. To fix in 6C.
+- E3 (`logs/eval/E3.json`, first run): hybrid Recall@4 0.909, MRR@8 0.750 overall (keyword 0.818/0.626, vector
+  0.873/0.731): passes overall; per machine, incubator hybrid Recall@4 is 0.889 and on hvac and animal protection
+  vector-only has the better MRR.
+
 ## Step 0 of the last run: the redesigned website swapped in (30 Oct 2026)
 
 The website was redesigned in another session on a separate drive (it could see only its own copy). Its last file was

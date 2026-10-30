@@ -712,6 +712,7 @@
       "items": {
         "$ref": "#/$defs/FarmEvent"
       },
+      "maxItems": 50,
       "title": "Events",
       "type": "array"
     },

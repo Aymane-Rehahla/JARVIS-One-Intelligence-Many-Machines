@@ -27,6 +27,8 @@ import {
 
 /** At most this many conclusion changes are kept in the activity list. */
 export const MAX_LIVE_ACTIVITY = 100
+/** The gateway shows at most this many events; the website keeps the same bound itself. */
+export const MAX_LIVE_EVENTS = 50
 
 const NAMES: Record<DeviceId, { name: string; category: Device["category"]; detail: string }> = {
   "incubator-1": { name: "Incubator 1", category: "Incubator", detail: "Egg incubator. Live readings from its own controller." },
@@ -49,9 +51,6 @@ const EVENT_TYPES: Record<FarmEvent["type"], string> = {
   machine_offline: "Machine offline",
   machine_online: "Machine back online",
 }
-
-/** The overvoltage relay's own threshold (the incubator's controller switches its heater off above it). */
-const OVERVOLTAGE_RELAY_V = 260
 
 type Readings = Record<string, unknown>
 
@@ -84,7 +83,7 @@ function incubatorMetrics(r: Readings): Metric[] {
   return [
     { label: "Temperature", value: show(num(r, "temperature_mean_c"), 1, "°C"), primary: true },
     { label: "Humidity sensors", value: humidities ? `${humidities.map((h) => fixed(h, 1)).join(" · ")} %` : "No data" },
-    { label: "Supply voltage", value: show(voltage, 0, "V"), flagged: voltage !== null && voltage > OVERVOLTAGE_RELAY_V },
+    { label: "Supply voltage", value: show(voltage, 0, "V"), flagged: r.power_status === "overvoltage" },
     { label: "Fans", value: fans ? `${fans.map((f) => fixed(f, 0)).join(" · ")} rpm` : "No data" },
     { label: "Water reservoir", value: show(num(r, "reservoir_pct"), 0, "%") },
     {
@@ -207,14 +206,15 @@ function eventDescription(event: FarmEvent): string {
 /** In live mode `acknowledged` means "no longer open": owners cannot acknowledge before 6C, so an alarm stays open
  *  until its machine clears it, and going offline until it is back online. Other events are records, never open. */
 function stillOpen(events: FarmEvent[]): Set<FarmEvent> {
-  const open = new Map<string, FarmEvent>()
+  // every raise of a still-open alarm stays open (a rise from warning to critical is raised again, not cleared)
+  const open = new Map<string, FarmEvent[]>()
   for (const event of events) {
     const data = event.data as Record<string, unknown>
     const key = event.type === "alarm_raised" || event.type === "alarm_cleared" ? `${event.node}/alarm/${String(data.code)}` : `${event.node}/online`
-    if (event.type === "alarm_raised" || event.type === "machine_offline") open.set(key, event)
+    if (event.type === "alarm_raised" || event.type === "machine_offline") open.set(key, [...(open.get(key) ?? []), event])
     else if (event.type === "alarm_cleared" || event.type === "machine_online") open.delete(key)
   }
-  return new Set(open.values())
+  return new Set([...open.values()].flat())
 }
 
 function mapEvent(event: FarmEvent, open: boolean): EventRecord {
@@ -237,7 +237,17 @@ function mapEvent(event: FarmEvent, open: boolean): EventRecord {
 function mapNode(id: DeviceId, view: NodeView | undefined, before: JarvisNode | undefined): JarvisNode {
   const assessment = view?.assessment ?? null
   if (!assessment) {
-    return { id, assessment: "NORMAL", diagnosis: "NONE", reason: "No conclusion received yet.", action: null, gate: null, ownerMessage: null, sinceS: before?.sinceS ?? 0 }
+    return {
+      id,
+      assessment: "NORMAL",
+      diagnosis: "NONE",
+      reason: "No conclusion received yet in this farm run.",
+      action: null,
+      gate: null,
+      ownerMessage: null,
+      sinceS: 0,
+      noConclusion: true,
+    }
   }
   const level = assessment.assessment as Assessment
   const reason = assessment.evidence.length > 0 ? assessment.evidence.join("; ") : assessment.recommendation || "No evidence given."
@@ -266,7 +276,11 @@ function speedOf(target: number, before: SimulationSpeed | undefined): Simulatio
 export function mapSnapshot(
   snapshot: FarmSnapshot,
   previous: FarmState | null,
-  options: { invalidMessages?: number; lastError?: string | null; injected?: { scenarioId: ScenarioId; feedId: string; startS: number } | null } = {},
+  options: {
+    invalidMessages?: number
+    lastError?: string | null
+    injected?: { scenarioId: ScenarioId; feedId: string; startS: number; endTick: number | null } | null
+  } = {},
 ): FarmState {
   const sim = snapshot.sim
   const anyStatus = DEVICE_IDS.map((id) => snapshot.nodes[id]?.status).find((status) => status != null) ?? null
@@ -276,16 +290,17 @@ export function mapSnapshot(
   const timeS = sim?.time_s ?? anyStatus?.time_s ?? 0
 
   const live: LiveInfo = {
-    label: sim?.label ?? anyStatus?.label ?? "live",
-    farmTime: sim?.farm_time ?? anyStatus?.farm_time ?? "--:--",
-    day: sim?.day ?? 0,
-    tick: sim?.tick ?? anyStatus?.tick ?? 0,
+    label: sim?.label ?? anyStatus?.label ?? null,
+    farmTime: sim?.farm_time ?? anyStatus?.farm_time ?? null,
+    day: sim?.day ?? null,
+    tick: sim?.tick ?? anyStatus?.tick ?? null,
     feedId,
-    targetSpeed: sim?.target_speed ?? 0,
-    actualSpeed: sim?.actual_speed ?? 0,
+    targetSpeed: sim?.target_speed ?? null,
+    actualSpeed: sim?.actual_speed ?? null,
     nodesAlive: DEVICE_IDS.filter((id) => snapshot.nodes[id]?.alive),
     invalidMessages: options.invalidMessages ?? previous?.live?.invalidMessages ?? 0,
     lastError: options.lastError ?? null,
+    faultEndTick: null,
   }
 
   const nodes = {} as Record<DeviceId, JarvisNode>
@@ -294,7 +309,7 @@ export function mapSnapshot(
   for (const id of DEVICE_IDS) {
     const node = mapNode(id, snapshot.nodes[id], before?.jarvis.nodes[id])
     const old = before?.jarvis.nodes[id]
-    if (snapshot.nodes[id]?.assessment && (!old || old.assessment !== node.assessment || old.diagnosis !== node.diagnosis)) {
+    if (snapshot.nodes[id]?.assessment && (!old || old.noConclusion || old.assessment !== node.assessment || old.diagnosis !== node.diagnosis)) {
       activity.unshift({
         id: `ACT-${String(nextActivity++).padStart(6, "0")}`,
         timeS: node.sinceS,
@@ -308,7 +323,8 @@ export function mapSnapshot(
   if (activity.length > MAX_LIVE_ACTIVITY) activity.length = MAX_LIVE_ACTIVITY
 
   const injected = options.injected && options.injected.feedId === feedId ? options.injected : null
-  const runEvents = snapshot.events.filter((event) => event.feed_id === feedId)
+  live.faultEndTick = injected?.endTick ?? null
+  const runEvents = snapshot.events.filter((event) => event.feed_id === feedId).slice(-MAX_LIVE_EVENTS)
   const open = stillOpen(runEvents)
   return {
     source: "live",
@@ -316,7 +332,8 @@ export function mapSnapshot(
     simulation: {
       running: sim?.running ?? false,
       timeS,
-      speed: speedOf(live.targetSpeed, before?.simulation.speed),
+      // the pages' speed menu reads live.targetSpeed; this field only keeps the demo's type
+      speed: speedOf(live.targetSpeed ?? 0, before?.simulation.speed),
       activeScenario: injected?.scenarioId ?? null,
       scenarioStartS: injected?.startS ?? null,
       nextBeat: 0,

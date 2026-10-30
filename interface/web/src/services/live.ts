@@ -118,7 +118,9 @@ export class LiveFarmClient {
 /** A farm action's outcome: ok, or refused with the gateway's reason (shown to the owner, never swallowed). */
 export type ActionResult<T> = { ok: true; value: T } | { ok: false; reason: string }
 
-async function post<T>(url: string, body: unknown, parse: (json: unknown) => T): Promise<ActionResult<T>> {
+type Checked<T> = { success: true; data: T } | { success: false }
+
+async function post<T>(url: string, body: unknown, check: (json: unknown) => Checked<T>): Promise<ActionResult<T>> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), ACTION_TIMEOUT_MS)
   try {
@@ -133,7 +135,8 @@ async function post<T>(url: string, body: unknown, parse: (json: unknown) => T):
       const detail = (json as { detail?: unknown } | null)?.detail
       return { ok: false, reason: typeof detail === "string" ? detail : `the gateway answered HTTP ${response.status}` }
     }
-    return { ok: true, value: parse(json) }
+    const checked = check(json)
+    return checked.success ? { ok: true, value: checked.data } : { ok: false, reason: "the gateway's answer is not valid (zod check failed)" }
   } catch (error) {
     return { ok: false, reason: controller.signal.aborted ? "the gateway did not answer in time" : `the gateway is unreachable (${String(error)})` }
   } finally {
@@ -142,9 +145,9 @@ async function post<T>(url: string, body: unknown, parse: (json: unknown) => T):
 }
 
 export function simAction(base: string, action: "start" | "pause" | "reset" | "speed", speed?: number): Promise<ActionResult<SimState>> {
-  return post(`${base}/sim/${action}`, action === "speed" ? { speed } : undefined, (json) => SimState.parse(json))
+  return post(`${base}/sim/${action}`, action === "speed" ? { speed } : undefined, (json) => SimState.safeParse(json))
 }
 
 export function injectFault(base: string, scenarioId: ScenarioId): Promise<ActionResult<FaultResult>> {
-  return post(`${base}/faults/${scenarioId}`, undefined, (json) => FaultResult.parse(json))
+  return post(`${base}/faults/${scenarioId}`, undefined, (json) => FaultResult.safeParse(json))
 }

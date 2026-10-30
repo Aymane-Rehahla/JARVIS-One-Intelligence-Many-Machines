@@ -128,7 +128,7 @@ export const FarmSnapshot = z.strictObject({
   sim: SimState.nullable(),
   links: LinkStatus.nullable(),
   nodes: z.record(NodeId, NodeView),
-  events: z.array(FarmEvent),
+  events: z.array(FarmEvent).max(50),
 })
 
 export type FarmSnapshot = z.infer<typeof FarmSnapshot>
@@ -366,6 +366,7 @@ export const FaultResult = z.strictObject({
   variant: z.number().int().min(0),
   devices: z.array(NodeId).min(1).max(4),
   tick: Tick,
+  end_tick: z.number().int().min(1).nullable(),
   time_s: Seconds,
   farm_time: FarmTime,
   feed_id: FeedId,

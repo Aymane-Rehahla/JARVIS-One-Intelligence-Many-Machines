@@ -1,4 +1,4 @@
-import { ASSESSMENTS, DEVICE_IDS, type Assessment, type FarmState } from "@/services/matrix"
+import { ASSESSMENTS, DEVICE_IDS, type Assessment, type FarmState } from "../services/matrix.ts"
 
 /** Classes for each of the five conclusions a JARVIS node can reach. Ink colours are text-safe on the sheet;
  *  the dot colours are the signal shades (non-text, 3:1). Danger is the only filled badge. */
@@ -11,8 +11,10 @@ export const ASSESSMENT_TONES: Record<Assessment, { status: "good" | "info" | "w
 }
 
 /** The most serious conclusion across the four nodes (ASSESSMENTS is ordered from calm to danger). */
-export function worstAssessment(state: FarmState): Assessment {
-  return DEVICE_IDS.map((id) => state.jarvis.nodes[id].assessment).reduce<Assessment>(
+export function worstAssessment(state: FarmState): Assessment | null {
+  const known = DEVICE_IDS.map((id) => state.jarvis.nodes[id]).filter((node) => !node.noConclusion)
+  if (known.length === 0) return null
+  return known.map((node) => node.assessment).reduce<Assessment>(
     (worst, assessment) => (ASSESSMENTS.indexOf(assessment) > ASSESSMENTS.indexOf(worst) ? assessment : worst),
     "NORMAL",
   )

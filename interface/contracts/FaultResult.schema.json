@@ -18,6 +18,18 @@
       "title": "Devices",
       "type": "array"
     },
+    "end_tick": {
+      "anyOf": [
+        {
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "End Tick"
+    },
     "family": {
       "maxLength": 40,
       "minLength": 1,
@@ -78,6 +90,7 @@
     "variant",
     "devices",
     "tick",
+    "end_tick",
     "time_s",
     "farm_time",
     "feed_id"

@@ -13,6 +13,7 @@ import { FarmSnapshot } from "../src/services/contracts.ts"
 import { LiveFarmClient } from "../src/services/live.ts"
 import { mapSnapshot } from "../src/services/live-map.ts"
 import type { FarmState } from "../src/services/matrix.ts"
+import { worstAssessment } from "../src/lib/assessment.ts"
 
 type Input = { runs: unknown[][]; invalid: unknown[]; bench: unknown[] }
 
@@ -29,7 +30,9 @@ function summary(state: FarmState) {
     label: state.live?.label,
     farmTime: state.live?.farmTime,
     feedId: state.live?.feedId,
-    targetSpeed: state.live?.targetSpeed,
+    targetSpeed: state.live?.targetSpeed ?? null,
+    day: state.live?.day ?? null,
+    worst: worstAssessment(state),
     actualSpeed: state.live?.actualSpeed,
     running: state.simulation.running,
     timeS: state.simulation.timeS,
@@ -43,7 +46,9 @@ function summary(state: FarmState) {
     events: state.events.map((event) => ({ id: event.id, timestamp: event.timestamp, severity: event.severity, type: event.type, open: !event.acknowledged })),
     eventFeeds: [...new Set(state.events.map((event) => event.id.split("-")[0]))],
     activity: state.activity.length,
-    nodes: Object.fromEntries(Object.entries(state.jarvis.nodes).map(([id, node]) => [id, [node.assessment, node.diagnosis, node.sinceS]])),
+    nodes: Object.fromEntries(
+      Object.entries(state.jarvis.nodes).map(([id, node]) => [id, [node.assessment, node.diagnosis, node.sinceS, node.noConclusion === true]]),
+    ),
     preview: state.chat.some((message) => message.preview),
   }
 }
@@ -83,8 +88,7 @@ for (const message of input.invalid) {
     thrown += 1
   }
 }
-const valid = input.bench[0]
-receive(JSON.stringify(valid))
+if (input.bench.length > 0) receive(JSON.stringify(input.bench[0]))
 console.warn = originalWarn
 
 // The benchmark: map every recorded snapshot in order, as the hook does.
