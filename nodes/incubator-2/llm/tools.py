@@ -1,4 +1,4 @@
-"""Typed, permissioned read-only tools for farm context, approved documents and owner-confirmed alert delivery.
+"""Typed, permissioned read-only tools for farm context, approved documents and owner-confirmed acknowledgement.
 
 In: strict JSON arguments, the node's own published view, its approved-document index and peers. Out: bounded tool
 outcomes carrying source farm time, audit rows and verify.py `ToolResult` values. Every handler is deadline-bound, and
@@ -77,6 +77,7 @@ class RecallArgs(StrictModel):
 
 
 class AcknowledgeArgs(StrictModel):
+    node: NodeId
     incident_id: str = Field(min_length=1)
     confirm_token: str = Field(min_length=1)
 
@@ -211,15 +212,17 @@ class ConfirmTokens:
             raise ValueError("confirmation secret must not be empty")
         self._used: OrderedDict[str, int] = OrderedDict()
 
-    def issue(self, incident_id: str, *, now_s: int | None = None) -> str:
-        """Create a testable token expiring 60 seconds from the supplied or current Unix time."""
+    def issue(self, node: str, incident_id: str, *, now_s: int | None = None) -> str:
+        """Create a testable token for one node's incident, expiring 60 seconds from the supplied or current Unix
+        time."""
         expiry = (int(time.time()) if now_s is None else now_s) + 60
-        message = f"{incident_id}:{expiry}"
+        message = f"{node}:{incident_id}:{expiry}"
         signature = hmac.new(self._secret, message.encode("utf-8"), hashlib.sha256).hexdigest()
         return f"{expiry}.{signature}"
 
-    def verify(self, incident_id: str, token: str, *, now_s: int | None = None) -> bool:
-        """Check signature, incident binding, expiry and single use; reject after the bounded replay set fills."""
+    def verify(self, node: str, incident_id: str, token: str, *, now_s: int | None = None) -> bool:
+        """Check signature, node and incident binding, expiry and single use; reject after the bounded replay set
+        fills."""
         now = int(time.time()) if now_s is None else now_s
         for old_token, expiry in list(self._used.items()):
             if expiry < now:
@@ -233,7 +236,8 @@ class ConfirmTokens:
             return False
         if expiry <= now or expiry > now + 60:
             return False
-        expected = hmac.new(self._secret, f"{incident_id}:{expiry}".encode("utf-8"), hashlib.sha256).hexdigest()
+        expected = hmac.new(self._secret, f"{node}:{incident_id}:{expiry}".encode("utf-8"),
+                            hashlib.sha256).hexdigest()
         if not hmac.compare_digest(signature, expected):
             return False
         self._used[token] = expiry
@@ -245,7 +249,6 @@ class ToolRegistry:
 
     def __init__(self, node_config: NodeConfig, view: Any, store: LlmStore, documents: Documents,
                  peers: Any, auditor: Auditor, confirm: ConfirmTokens,
-                 deliver: Callable[[str], Awaitable[None]] | None = None,
                  *, logger: logging.Logger | None = None) -> None:
         self.node_config = node_config
         self.view = view
@@ -254,7 +257,6 @@ class ToolRegistry:
         self.peers = peers
         self.auditor = auditor
         self.confirm = confirm
-        self.deliver = deliver
         self.logger = logger or logging.getLogger(f"jarvis.tools.{node_config.id}")
         self.tools: dict[str, Tool] = {
             "get_status": Tool("get_status", "read", StatusArgs, StatusOutput, 1.0, self._get_status),
@@ -336,7 +338,7 @@ class ToolRegistry:
                                        f"unavailable: {self.node_config.id} is not the speaking node", given)
         if name == "acknowledge_alert":
             acknowledge = cast(AcknowledgeArgs, parsed)
-            if not self.confirm.verify(acknowledge.incident_id, acknowledge.confirm_token):
+            if not self.confirm.verify(acknowledge.node, acknowledge.incident_id, acknowledge.confirm_token):
                 return await self._refusal(name, request_id, inputs, "invalid confirmation token", given)
         try:
             async with self.auditor.step(request_id, "tool_call", name, _audited(inputs, given)) as step:
@@ -467,12 +469,12 @@ class ToolRegistry:
         return {"turns": turns, **self._farm_fields()}
 
     async def _acknowledge_alert(self, raw: BaseModel, request_id: str, caller: str) -> dict[str, Any]:
+        """The owner's confirmed approval (6C): the token was checked in call(); for this node's own machine the
+        incident must be active. The tool delivers nothing itself: the gateway passes an approval to the Matrix API."""
         args = cast(AcknowledgeArgs, raw)
-        feed_id, _ = self._feed()
-        incident = await self.store.incident(args.incident_id, feed_id=feed_id) if feed_id is not None else None
-        if incident is None or incident.get("state") == "closed":
-            raise _ToolFailure("no active incident to acknowledge")
-        if self.deliver is None:
-            raise _ToolFailure("alert delivery is unavailable")
-        await self.deliver(args.incident_id)
+        if args.node == self.node_config.id:
+            feed_id, _ = self._feed()
+            incident = await self.store.incident(args.incident_id, feed_id=feed_id) if feed_id is not None else None
+            if incident is None or incident.get("state") == "closed":
+                raise _ToolFailure("no active incident to acknowledge")
         return {"acknowledged": True, "incident_id": args.incident_id, **self._farm_fields()}

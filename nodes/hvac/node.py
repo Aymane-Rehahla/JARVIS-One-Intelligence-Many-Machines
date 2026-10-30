@@ -33,13 +33,16 @@ from comms.jsonlog import log
 from comms.mcp import NodeMCP
 from comms.nats_link import NatsLink
 from comms.peer_network import PeerNetwork, RadioRules
-from contracts import (FARM_LINKS, FARM_SIM, NODE_IDS, AskError, AskReply, AskRequest, Capabilities, FarmAssessment, FarmEvent,
-                       FarmIncident, FarmStatus, Heartbeat, LinkStatus, NodeConfig, NodeId, ProbeRequest, SimState, Topic,
-                       farm_subject, jarvis_subject, utc_now)
+from contracts import (FARM_LINKS, FARM_SIM, NODE_IDS, AckCommand, AckResult, AlertNotice, AskError, AskReply,
+                       AskRequest, Capabilities, ChatDone, ChatRequest, FarmAssessment, FarmEvent, FarmIncident,
+                       FarmStatus, Heartbeat, LinkStatus, NodeConfig, NodeId, ProbeRequest, ReplyTimings, SimState,
+                       Topic, farm_subject, jarvis_subject, utc_now)
+from llm.alerts import AlertDesk, AlertWatcher
 from llm.audit import Auditor
 from llm.capabilities import CapabilityRegistry
 from llm.conversation import LlmStore
 from llm.documents import BgeEmbedder, Documents
+from llm.peer_minds import PeerMind, budget_s
 from llm.tools import ConfirmTokens, ToolRegistry
 
 HEARTBEAT_S = 10.0
@@ -47,6 +50,8 @@ SILENT_AFTER_S = 30.0                       # three missed heartbeats: the peer 
 EVENTS_KEPT = 200
 INCIDENTS_KEPT = 20
 DOCUMENT_REFRESH_S = 5.0                     # how often the approved-document index is checked for changes
+MAX_TURNS_AT_ONCE = 2                        # owner turns served at once (the 2B server has one slot)
+MAX_BACKGROUND = 64                          # notices and turns in flight, at most
 
 
 class _PeerAnswerFailure(Exception):
@@ -119,8 +124,8 @@ class Node:
 
     def __init__(self, config: NodeConfig, link: NatsLink, *, logger: logging.Logger, rules: RadioRules | None = None,
                  heartbeat_s: float = HEARTBEAT_S, silent_after_s: float = SILENT_AFTER_S, probe: bool = False,
-                 data_dir: Path | None = None,
-                 deliver: Callable[[str], Awaitable[None]] | None = None,
+                 data_dir: Path | None = None, engine: Any | None = None, switches: Any | None = None,
+                 persona: Any | None = None,
                  mcp_enabled: bool = False, mcp_port: int | None = None, rom_dir: Path | None = None) -> None:
         if heartbeat_s <= 0 or silent_after_s <= heartbeat_s:
             raise ValueError("the silence limit must be longer than the heartbeat period")
@@ -137,7 +142,15 @@ class Node:
         self.node_dir = Path(__file__).resolve().parents[1] / self.id
         self.data_dir = data_dir or self.node_dir / "data"
         self.rom_dir = rom_dir or self.node_dir / "memory" / "rom"
-        self.deliver = deliver
+        self.engine = engine                              # this node's own LLM server (failure-injected), or None
+        self.switches = switches                          # the mentor's LLM failure switches (llm/failure_injection.py)
+        self.persona = persona                            # the speaking node's persona (llm/jarvis_speaker.py)
+        self.agent: Any | None = None                     # incubator-1 only (llm/agent.py)
+        self.peer_mind: PeerMind | None = None            # the three silent nodes
+        self.alert_desk: AlertDesk | None = None          # incubator-1 only
+        self.alert_watcher = AlertWatcher(config.id, self._send_notice)
+        self._turns = asyncio.Semaphore(MAX_TURNS_AT_ONCE)
+        self._background: set[asyncio.Task[Any]] = set()
         self.mcp_enabled = mcp_enabled
         self.mcp_port = mcp_port
         self.mcp: NodeMCP | None = None
@@ -178,7 +191,17 @@ class Node:
             await asyncio.to_thread(self.documents.rebuild)
         self.auditor = Auditor(self.store, self.link, me, logger=self.logger)
         self.tools = ToolRegistry(self.config, self, self.store, self.documents, self.capability_registry,
-                                  self.auditor, self.confirm_tokens, self.deliver, logger=self.logger)
+                                  self.auditor, self.confirm_tokens, logger=self.logger)
+        if self.switches is not None:
+            await self.switches.serve(self.link)
+        if self.config.speaks:
+            if self.engine is not None and self.persona is not None:
+                from llm.agent import Agent
+                self.agent = Agent(self, self.engine, self.persona, logger=self.logger)
+            self.alert_desk = AlertDesk(self.link, logger=self.logger,
+                                        deliver=self.agent.alert if self.agent is not None else None)
+        elif self.engine is not None:
+            self.peer_mind = PeerMind(self.engine)
         if self.mcp_enabled and self.mcp_port is not None:
             self.mcp = NodeMCP(me, self.tools, self.mcp_port, logger=self.logger)
         self.peers[me].capabilities = self.capabilities("start")
@@ -191,7 +214,12 @@ class Node:
         await self.link.subscribe(FARM_SIM, SimState, self._on_sim)
         await self.link.subscribe(jarvis_subject("*", "heartbeat"), Heartbeat, self._on_heartbeat)
         await self.link.subscribe(jarvis_subject("*", "capabilities"), Capabilities, self._on_capabilities)
-        await self.radio.serve(self.answer)
+        await self.radio.serve(self._answer_unless_silent)
+        if self.alert_desk is not None:
+            await self.radio.serve_notices(self.alert_desk.receive)
+            await self.link.serve(jarvis_subject(me, "ack"), AckCommand, self._on_ack)
+        if self.agent is not None:
+            await self.link.subscribe(jarvis_subject(me, "chat"), ChatRequest, self._on_chat)
         if self.probe_enabled:
             await self.link.serve(jarvis_subject(me, "probe"), ProbeRequest, self._on_probe)
         await self.link.publish(jarvis_subject(me, "capabilities"), self.capabilities("start"))
@@ -206,9 +234,11 @@ class Node:
         if self.mcp is not None:
             await self.mcp.stop()
             self.mcp = None
-        for task in self._tasks:
+        for task in [*self._tasks, *self._background]:
             task.cancel()
-        await asyncio.gather(*self._tasks, return_exceptions=True)
+        await asyncio.gather(*self._tasks, *self._background, return_exceptions=True)
+        if self.engine is not None:
+            await self.engine.close()
         await self.link.close()
         if self.documents is not None:
             await asyncio.to_thread(self.documents.close)
@@ -248,6 +278,7 @@ class Node:
 
     async def answer(self, request: AskRequest) -> AskReply:
         """Answer from this node's fixed read-only tool set, never from another machine's feed."""
+        started = time.monotonic()
         auditor, registry = self.auditor, self.tools
         if auditor is None or registry is None:
             return AskReply(request_id=request.request_id, sender=self.id, target=request.sender, topic=request.topic,
@@ -285,12 +316,83 @@ class Node:
                 source = max(timed, key=lambda outcome: outcome.tick or 0, default=None)
                 if source is None:
                     raise _PeerAnswerFailure("no_data", "tool results have no farm time")
+                if self.peer_mind is not None:                 # a verified summary, never at the answer's expense
+                    budget = budget_s(request.deadline_ms, self.radio.latency_s, time.monotonic() - started)
+                    summary, summary_status = await self.peer_mind.summarize(request.question, dict(answer), budget)
+                    if summary is not None:
+                        answer["summary"] = summary
+                    else:
+                        answer["summary_status"] = summary_status
                 audit_step.done(answer, source.farm_time, source.tick)
                 return AskReply(request_id=request.request_id, sender=self.id, target=request.sender, topic=request.topic,
                                 ok=True, answer=answer, farm_time=source.farm_time, tick=source.tick)
         except _PeerAnswerFailure as error:
             return AskReply(request_id=request.request_id, sender=self.id, target=request.sender, topic=request.topic,
                             ok=False, error=cast(AskError, error.kind), detail=error.detail[:500])
+
+    async def _answer_unless_silent(self, request: AskRequest) -> AskReply | None:
+        """The mentor's silent_peer switch (test only): this node stops answering, as a dead one would."""
+        if self.switches is not None and self.switches.on("silent_peer"):
+            log(self.logger, logging.INFO, "question ignored: silent_peer switch", request_id=request.request_id)
+            return None
+        return await self.answer(request)
+
+    # --- the owner: chat, acknowledgements, alerts (incubator-1) ---------------------------------------------------
+
+    def _spawn(self, work: Awaitable[Any]) -> bool:
+        """Run one piece of background work (bounded): False when too much is already in flight."""
+        if len(self._background) >= MAX_BACKGROUND:
+            return False
+        task = asyncio.ensure_future(work)
+        self._background.add(task)
+        task.add_done_callback(self._finished)
+        return True
+
+    def _finished(self, task: asyncio.Future[Any]) -> None:
+        """A background task ended: forget it, and log its failure (a lost exception would hide a lost alert)."""
+        self._background.discard(task)
+        if not task.cancelled() and task.exception() is not None:
+            log(self.logger, logging.ERROR, "background task failed", error=repr(task.exception()))
+
+    async def _on_chat(self, request: ChatRequest, subject: str) -> None:
+        if not self._spawn(self._serve_turn(request)):
+            await self._busy(request, "too many requests in flight")
+
+    async def _busy(self, request: ChatRequest, reason: str) -> None:
+        done = ChatDone(request_id=request.request_id, conversation_id=request.conversation_id or "none", text="",
+                        chunks=0, outcome="error", reason=reason, numbers_checked=0, timings=ReplyTimings(total_ms=0))
+        await self.link.publish(jarvis_subject(self.id, "reply"), done, request_id=request.request_id)
+
+    async def _serve_turn(self, request: ChatRequest) -> None:
+        """One owner turn: every piece the agent yields goes out on jarvis.incubator-1.reply, in order."""
+        agent = self.agent
+        if agent is None:
+            await self._busy(request, "the agent is not running")
+            return
+        if self._turns.locked():
+            await self._busy(request, "JARVIS is already answering two questions")
+            return
+        async with self._turns:
+            async for item in agent.reply(request.text, request_id=request.request_id,
+                                          conversation_id=request.conversation_id, source=request.source):
+                await self.link.publish(jarvis_subject(self.id, "reply"), item, request_id=request.request_id)
+
+    async def _on_ack(self, command: AckCommand, subject: str) -> AckResult:
+        """The owner's confirm click (through the gateway): the token is checked and the approval audited by the
+        acknowledge_alert tool (caller "owner"); only on ok does the gateway tell the Matrix."""
+        registry = self.tools
+        if registry is None:
+            return AckResult(request_id=command.request_id, node=command.node, incident_id=command.incident_id,
+                             ok=False, reason="node tools are not ready")
+        outcome = await registry.call("acknowledge_alert", {"node": command.node, "incident_id": command.incident_id,
+                                                            "confirm_token": command.confirm_token},
+                                      request_id=command.request_id, caller="owner")
+        return AckResult(request_id=command.request_id, node=command.node, incident_id=command.incident_id,
+                         ok=outcome.ok, reason="" if outcome.ok else (outcome.error or "refused")[:300])
+
+    async def _send_notice(self, notice: AlertNotice) -> None:
+        """This node's own alert, through the radio to incubator-1 (incubator-1's own goes to its desk directly)."""
+        await self.radio.notify(notice)
 
     async def _on_probe(self, probe: ProbeRequest, subject: str) -> AskReply:
         return await self.radio.ask(probe.target, probe.topic, probe.question, deadline_s=probe.deadline_ms / 1000)
@@ -330,6 +432,9 @@ class Node:
             return
         self.assessment = assessment
         self.bus.publish("farm.assessment", assessment)
+        if assessment.assessment in ("ESCALATE_TO_USER", "DANGER"):        # the alert path never waits on the feed
+            self._spawn(self.alert_desk.own(assessment) if self.alert_desk is not None
+                        else self.alert_watcher.on_assessment(assessment))
 
     async def _on_event(self, event: FarmEvent, subject: str) -> None:
         if not self._follow_feed(event.feed_id):

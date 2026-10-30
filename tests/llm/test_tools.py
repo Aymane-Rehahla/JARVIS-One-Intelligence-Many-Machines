@@ -61,16 +61,11 @@ async def rig(tmp_path: Path) -> AsyncIterator[dict[str, Any]]:
                                                for i in range(3)], maxlen=7200))
     auditor = Auditor(store, None, "incubator-1")
     confirm = ConfirmTokens(b"test-secret")
-    delivered: list[str] = []
-
-    async def deliver(incident_id: str) -> None:
-        delivered.append(incident_id)
-
     peers = FakePeers()
     registry = ToolRegistry(load_node_config(ROOT / "nodes" / "incubator-1" / "node.toml"), view, store,
-                            documents, peers, auditor, confirm, deliver)
+                            documents, peers, auditor, confirm)
     yield {"store": store, "documents": documents, "view": view, "auditor": auditor, "confirm": confirm,
-           "delivered": delivered, "peers": peers, "registry": registry}
+           "peers": peers, "registry": registry}
     documents.close()
     await store.close()
 
@@ -88,7 +83,7 @@ async def test_each_tool_succeeds_with_typed_data_and_audit(rig: dict[str, Any])
     conversation_id = await store.new_conversation("HVAC")
     await store.add_turn(conversation_id, "history-1", "owner", "Check the airflow")
     confirm: ConfirmTokens = rig["confirm"]
-    token = confirm.issue("incident-1")
+    token = confirm.issue("incubator-1", "incident-1")
     calls = [
         ("get_status", {"fields": ["supply_air_temperature_c"]}),
         ("get_assessment", {}),
@@ -98,7 +93,7 @@ async def test_each_tool_succeeds_with_typed_data_and_audit(rig: dict[str, Any])
         ("search_documents", {"query": "compressor", "k": 4}),
         ("ask_peer", {"node": "animal-protection", "question": "is there smoke or flood?"}),
         ("recall_conversation", {"query": "airflow", "limit": 5}),
-        ("acknowledge_alert", {"incident_id": "incident-1", "confirm_token": token}),
+        ("acknowledge_alert", {"node": "incubator-1", "incident_id": "incident-1", "confirm_token": token}),
     ]
     for index, (name, args) in enumerate(calls):
         result = await registry.call(name, args, request_id=f"tool-{index}", caller="owner")
@@ -110,7 +105,12 @@ async def test_each_tool_succeeds_with_typed_data_and_audit(rig: dict[str, Any])
             assert sum(row["kind"] == "peer_question" for row in rows) == 1
     assert registry.tools["get_status"].permission == "read"
     assert rig["peers"].calls == [("animal-protection", "hazard_check", "tool-6")]
-    assert rig["delivered"] == ["incident-1"]
+    approval = await registry.call("acknowledge_alert", {"node": "incubator-1", "incident_id": "incident-1",
+                                                         "confirm_token": token}, request_id="ack-reused",
+                                   caller="owner")
+    assert not approval.ok and approval.error == "invalid confirmation token"      # the approval above used it up
+    ack_rows = await rig["auditor"].timings(f"tool-{len(calls) - 1}")
+    assert [(row["kind"], row["ok"]) for row in ack_rows] == [("tool_call", 1)]   # one audited approval
 
 
 @pytest.mark.asyncio
@@ -145,8 +145,9 @@ async def test_empty_data_paths_are_explicit(rig: dict[str, Any]) -> None:
     assert events.ok and events.data["events"] == []
     assert documents.ok and documents.data["results"] == [] and documents.data["status"] == "no approved documents"
     assert recall.ok and recall.data["turns"] == []
-    token = rig["confirm"].issue("missing")
-    ack = await registry.call("acknowledge_alert", {"incident_id": "missing", "confirm_token": token},
+    token = rig["confirm"].issue("incubator-1", "missing")
+    ack = await registry.call("acknowledge_alert", {"node": "incubator-1", "incident_id": "missing",
+                                                    "confirm_token": token},
                               request_id="empty-ack", caller="owner")
     assert not ack.ok and ack.error == "no active incident to acknowledge"
 
@@ -158,7 +159,7 @@ async def test_speaker_only_tools_are_refused_on_silent_nodes(rig: dict[str, Any
     for index, (name, args) in enumerate((
             ("ask_peer", {"node": "hvac", "question": "status"}),
             ("recall_conversation", {"query": "past"}),
-            ("acknowledge_alert", {"incident_id": "i1", "confirm_token": "forged"}))):
+            ("acknowledge_alert", {"node": "hvac", "incident_id": "i1", "confirm_token": "forged"}))):
         result = await registry.call(name, args, request_id=f"silent-{index}", caller="owner")
         assert not result.ok and "not the speaking node" in (result.error or "")
         assert (await rig["auditor"].timings(f"silent-{index}"))[0]["kind"] == "refusal"
@@ -167,17 +168,24 @@ async def test_speaker_only_tools_are_refused_on_silent_nodes(rig: dict[str, Any
 @pytest.mark.asyncio
 async def test_confirmation_forgery_expiry_and_reuse_are_refused(rig: dict[str, Any]) -> None:
     confirm: ConfirmTokens = rig["confirm"]
-    token = confirm.issue("incident-1")
-    assert not confirm.verify("other-incident", token)
-    expired = confirm.issue("incident-1", now_s=100)
-    assert not confirm.verify("incident-1", expired, now_s=161)
-    valid = confirm.issue("incident-1")
-    assert confirm.verify("incident-1", valid)
-    assert not confirm.verify("incident-1", valid)
-    result = await rig["registry"].call("acknowledge_alert", {"incident_id": "incident-1", "confirm_token": "bad"},
+    token = confirm.issue("incubator-1", "incident-1")
+    assert not confirm.verify("incubator-1", "other-incident", token)
+    assert not confirm.verify("hvac", "incident-1", token)                    # bound to the node as well
+    expired = confirm.issue("incubator-1", "incident-1", now_s=100)
+    assert not confirm.verify("incubator-1", "incident-1", expired, now_s=161)
+    valid = confirm.issue("incubator-1", "incident-1")
+    assert confirm.verify("incubator-1", "incident-1", valid)
+    assert not confirm.verify("incubator-1", "incident-1", valid)
+    result = await rig["registry"].call("acknowledge_alert", {"node": "incubator-1", "incident_id": "incident-1",
+                                                              "confirm_token": "bad"},
                                         request_id="refused-token", caller="owner")
     assert not result.ok and result.error == "invalid confirmation token"
     assert (await rig["auditor"].timings("refused-token"))[0]["kind"] == "refusal"
+    good = confirm.issue("incubator-1", "incident-1")
+    by_llm = await rig["registry"].call("acknowledge_alert", {"node": "incubator-1", "incident_id": "incident-1",
+                                                              "confirm_token": good},
+                                        request_id="llm-ack", caller="llm")
+    assert not by_llm.ok and (await rig["auditor"].timings("llm-ack"))[0]["kind"] == "refusal"
 
 
 @pytest.mark.asyncio
@@ -188,7 +196,7 @@ async def test_confirmation_forgery_expiry_and_reuse_are_refused(rig: dict[str, 
     ("search_documents", {"query": "manual"}),
     ("ask_peer", {"node": "animal-protection", "question": "is there smoke?"}),
     ("recall_conversation", {"query": "history"}),
-    ("acknowledge_alert", {"incident_id": "incident-1", "confirm_token": "placeholder"}),
+    ("acknowledge_alert", {"node": "incubator-1", "incident_id": "incident-1", "confirm_token": "placeholder"}),
 ])
 async def test_every_tool_deadline_returns_timeout_and_preserves_request_id(rig: dict[str, Any], name: str,
                                                                             args: dict[str, Any]) -> None:
@@ -200,7 +208,7 @@ async def test_every_tool_deadline_returns_timeout_and_preserves_request_id(rig:
 
     registry.tools[name] = replace(registry.tools[name], deadline_s=0.001, handler=slow)
     if name == "acknowledge_alert":
-        args["confirm_token"] = rig["confirm"].issue("incident-1")
+        args["confirm_token"] = rig["confirm"].issue("incubator-1", "incident-1")
         await rig["store"].upsert_incident(FarmIncident(node="incubator-1", tick=7, time_s=120.0, farm_time="06:02",
                                                         label="live: simulated brains", feed_id="0000000000a1", incident_id="incident-1",
                                                         state="opened", summary={}))

@@ -24,7 +24,7 @@ from pydantic import ValidationError
 
 from comms.jsonlog import log
 from comms.nats_link import NatsLink, RequestFailed
-from contracts import (REQUEST_ID, AskError, AskReply, AskRequest, LinkStatus, NodeId, SimState, Topic,
+from contracts import (REQUEST_ID, AlertNotice, AskError, AskReply, AskRequest, LinkStatus, NodeId, SimState, Topic,
                        jarvis_subject, utc_now)
 
 DEFAULT_DEADLINE_S = 3.0                          # tool 7, ask_peer: a 3 s deadline (plan section 6)
@@ -136,8 +136,9 @@ class PeerNetwork:
 
     # --- answering ----------------------------------------------------------------------------------------------
 
-    async def serve(self, answer: Callable[[AskRequest], Awaitable[AskReply]]) -> None:
-        """Answer the questions addressed to this node: the answer travels back under the same rules."""
+    async def serve(self, answer: Callable[[AskRequest], Awaitable[AskReply | None]]) -> None:
+        """Answer the questions addressed to this node: the answer travels back under the same rules. An answer of
+        None is silence: the asker times out, as with a dead node."""
 
         async def handle(request: AskRequest, subject: str) -> AskReply | None:
             if request.target != self.node:
@@ -147,6 +148,8 @@ class PeerNetwork:
                     sender=request.sender)
                 return None
             reply = await answer(request)
+            if reply is None:
+                return None
             await asyncio.sleep(self.latency_s)                         # the answer in the air
             if self.is_cut(self.node) or self.is_cut(request.sender) or self._lost():
                 log(self.logger, logging.INFO, "answer lost on the radio", request_id=request.request_id)
@@ -154,3 +157,32 @@ class PeerNetwork:
             return reply
 
         await self.link.serve(jarvis_subject(self.node, "ask"), AskRequest, handle)
+
+    # --- one-way notices (6C: alerts to incubator-1) ------------------------------------------------------------------
+
+    async def notify(self, notice: AlertNotice) -> bool:
+        """Send one notice under the same rules as a question: it is in the air for one hop, and it is lost when
+        either end's link is cut or the radio drops it. True when it left this node's radio (never a delivery
+        receipt: a notice has no answer)."""
+        if notice.sender != self.node or notice.target == self.node:
+            raise ValueError("a node notifies another node, about itself")
+        if self.is_cut(self.node):
+            log(self.logger, logging.INFO, "notice not sent: own link cut", notice_id=notice.notice_id)
+            return False
+        await asyncio.sleep(self.latency_s)
+        if self.is_cut(notice.target) or self._lost():
+            log(self.logger, logging.INFO, "notice lost on the radio", notice_id=notice.notice_id,
+                target=notice.target)
+            return False
+        await self.link.publish(jarvis_subject(notice.target, "notice"), notice)
+        return True
+
+    async def serve_notices(self, receive: Callable[[AlertNotice], Awaitable[object]]) -> None:
+        """Hear the notices addressed to this node (not while this node's own link is cut)."""
+
+        async def handle(notice: AlertNotice, subject: str) -> None:
+            if notice.target != self.node or self.is_cut(self.node):
+                return
+            await receive(notice)
+
+        await self.link.subscribe(jarvis_subject(self.node, "notice"), AlertNotice, handle)

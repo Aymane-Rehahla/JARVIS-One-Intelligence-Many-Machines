@@ -2,13 +2,16 @@
 
 Usage (from the project folder; the launcher's supervisor normally starts it):
     python nodes/<node>/runtime.py [--nats URL] [--heartbeat-s S] [--latency-ticks N] [--loss P] [--probe]
-                                   [--connect-attempts N] [--ports FILE] [--data-dir DIR] [--no-mcp]
+                                   [--connect-attempts N] [--ports FILE] [--data-dir DIR] [--no-mcp] [--no-llm]
                                    [--logs DIR | --no-logs] [--echo]
 
 The node reads its own `node.toml` (next to this file), connects to NATS (the URL from the ports file, by default
 launcher/ports.toml, unless --nats is given; its MCP port comes from the same file) and runs until it is stopped (Ctrl+C, Ctrl+Break, or the process is ended). Logs go to
 logs/<node>.jsonl. The node serves its six read-only tools over localhost MCP unless --no-mcp is given. --probe lets
 tests and diagnostics make this node ask a peer (`jarvis.<node>.probe`).
+The node talks to its own llama.cpp server (the port from the ports file) through the mentor's failure switches
+(6C): incubator-1 runs the agent, the others their narrow minds. With --no-llm it has no engine at all; without its
+server running, every language-model call fails cleanly and the node answers from its data (fallbacks).
 Exit codes: 0 stopped, 2 bad configuration or NATS unreachable.
 """
 from __future__ import annotations
@@ -32,6 +35,9 @@ from comms.jsonlog import log, program_logger  # noqa: E402 - the node folder is
 from comms.nats_link import CONNECT_ATTEMPTS, NatsLink  # noqa: E402
 from comms.peer_network import RadioRules  # noqa: E402
 from contracts import ContractError, load_node_config  # noqa: E402
+from llm.engines import EngineClient, server_spec  # noqa: E402
+from llm.failure_injection import FailureSwitches, FaultyEngine  # noqa: E402
+from llm.jarvis_speaker import load_persona  # noqa: E402
 from node import HEARTBEAT_S, Node  # noqa: E402
 from nats.errors import NoServersError  # noqa: E402
 
@@ -55,6 +61,7 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--connect-attempts", type=int, default=CONNECT_ATTEMPTS,
                         help=f"tries to reach NATS before giving up (default {CONNECT_ATTEMPTS})")
     parser.add_argument("--no-mcp", action="store_true", help="do not serve the six read-only tools over MCP")
+    parser.add_argument("--no-llm", action="store_true", help="no language model at all (no engine, no agent)")
     data_root = os.environ.get("JARVIS_DATA_ROOT")
     default_data_dir = Path(data_root) / NODE_DIR.name if data_root else NODE_DIR / "data"
     parser.add_argument("--data-dir", type=Path, default=default_data_dir, help="node data folder (default: data/)")
@@ -75,8 +82,14 @@ async def run(args: argparse.Namespace) -> int:
         await link.connect(attempts=max(1, args.connect_attempts))
     except NoServersError:
         return 2
+    switches = FailureSwitches(config.id, logger=logger)
+    engine = None
+    if not args.no_llm:
+        spec = server_spec(config.id, args.ports)
+        engine = FaultyEngine(EngineClient(spec.url, slot=0, model=spec.alias), switches)
     node = Node(config, link, logger=logger, heartbeat_s=args.heartbeat_s, probe=args.probe,
                 rules=RadioRules(latency_ticks=args.latency_ticks, loss=args.loss), data_dir=args.data_dir,
+                engine=engine, switches=switches, persona=load_persona() if config.speaks and engine else None,
                 mcp_enabled=not args.no_mcp, mcp_port=mcp_port)
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()

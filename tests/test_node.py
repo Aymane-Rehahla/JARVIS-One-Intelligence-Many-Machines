@@ -22,7 +22,7 @@ import runtime
 from conftest import fixture_approved_rom
 from comms.nats_link import NatsLink
 from comms.peer_network import RadioRules
-from contracts import (NODE_IDS, AskReply, Capabilities, DocumentInfo, FarmAssessment, FarmIncident, FarmStatus, Heartbeat, NodeId,
+from contracts import (NODE_IDS, AskReply, Capabilities, DocumentInfo, FarmAssessment, FarmIncident, FarmStatus, Heartbeat, NodeId, OwnerAlert,
                        ProbeRequest, SimState, load_node_config, utc_now)
 from node import Node
 
@@ -292,3 +292,32 @@ async def test_the_document_refresh_survives_a_failed_rebuild(farm: Farm, monkey
     await until(lambda: calls["n"] >= 3, timeout_s=5.0)
     own = hvac.peers["hvac"].capabilities
     assert own is not None and own.reason == "change"
+
+
+@pytest.mark.asyncio
+async def test_alerts_reach_the_owner_from_incubator_1s_own_machine_and_through_the_radio(farm: Farm) -> None:
+    """6C (decision 0019): incubator-1 alerts on its own machine directly and on a peer's notice; once per level."""
+    alerts: list[OwnerAlert] = []
+
+    async def heard(alert: OwnerAlert, subject: str) -> None:
+        alerts.append(alert)
+    await farm.link.subscribe("jarvis.incubator-1.alert", OwnerAlert, heard)
+    await farm.start("incubator-1")
+    await farm.start("hvac")
+    await until(lambda: farm.nodes["incubator-1"].known() == ["incubator-1", "hvac"])
+
+    def escalate(node: NodeId, level: str = "ESCALATE_TO_USER", tick: int = 9) -> FarmAssessment:
+        return FarmAssessment(node=node, tick=tick, time_s=float(tick), farm_time="06:09", label="live: simulated brains",
+                              feed_id="0000000000a1", assessment=level, diagnosis="HEATER_FAULT", confidence=0.9,  # type: ignore[arg-type]
+                              brain="rule", incident_id=f"{node}-equipment-0001", evidence=["HEATER_FAULT"])
+    await farm.link.publish("farm.incubator-1.assessment", escalate("incubator-1"))
+    await until(lambda: len(alerts) == 1)
+    await farm.link.publish("farm.hvac.assessment", escalate("hvac"))
+    await until(lambda: len(alerts) == 2)
+    await farm.link.publish("farm.hvac.assessment", escalate("hvac", tick=10))              # the same level: no alert
+    await farm.link.publish("farm.hvac.assessment", escalate("hvac", "DANGER", tick=11))     # a rising level
+    await until(lambda: len(alerts) == 3)
+    await asyncio.sleep(0.3)
+    assert [(a.node, a.level) for a in alerts] == [("incubator-1", "ESCALATE_TO_USER"), ("hvac", "ESCALATE_TO_USER"),
+                                                   ("hvac", "DANGER")]
+    assert all(a.text.endswith("Farm time 06:09.") and not a.reworded for a in alerts)
