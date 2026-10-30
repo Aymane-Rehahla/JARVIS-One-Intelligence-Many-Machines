@@ -9,6 +9,7 @@ content is not read are model weights of 50 MB or more: they are byte-identical 
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -69,7 +70,7 @@ def test_no_file_content_contains_it() -> None:
         if path == CACHE or key.startswith(SKIPPED):
             continue
         stat = path.stat()
-        if stat.st_size >= BIG_BYTES:
+        if stat.st_size >= BIG_BYTES and key.startswith("models/"):
             continue                                      # model weights, proven identical to upstream by MANIFEST.json
         fingerprint = [stat.st_size, stat.st_mtime_ns]
         if cached.get(key) == fingerprint:
@@ -98,11 +99,21 @@ def _save_cache(clean: dict[str, list[int]]) -> None:
 
 
 def test_big_files_are_only_manifest_checked_model_weights() -> None:
+    """Big files are model weights listed in models/MANIFEST.json, or the website's 3D models (kept out of git, and
+    copied into the build) listed with their SHA-256 in interface/web/assets-manifest.json; the latter are also read
+    by the content scan above."""
     manifest = json.loads((ROOT / "models" / "MANIFEST.json").read_text(encoding="utf-8"))["files"]
+    web = ROOT / "interface" / "web"
+    assets = {f"interface/web/{folder}/{entry['path']}": entry["sha256"]      # public/, and its copy in the build
+              for entry in json.loads((web / "assets-manifest.json").read_text(encoding="utf-8"))["files"]
+              for folder in ("public", "dist")}
     _, files = _walk(ROOT)
     big = [p for p in files if not p.relative_to(ROOT).as_posix().startswith(SKIPPED) and p.stat().st_size >= BIG_BYTES]
     for path in big:
         rel = path.relative_to(ROOT).as_posix()
+        if rel in assets:
+            assert hashlib.sha256(path.read_bytes()).hexdigest() == assets[rel], f"{rel} differs from its manifest"
+            continue
         assert rel.startswith("models/") and rel.removeprefix("models/") in manifest, f"{rel} is big but not a model"
 
 

@@ -37,12 +37,12 @@ export function JarvisVoice({
       aria-label={available ? `${SPOKEN[state]}. Simulate saying hey JARVIS.` : "JARVIS voice is not connected"}
       data-state={available ? state : "off"}
       className={cn(
-        "jarvis-voice flex h-8 shrink-0 items-center gap-2 rounded-full border px-1.5 text-xs font-medium transition-colors sm:pr-3",
+        "jarvis-voice flex h-9 shrink-0 items-center gap-2 border px-2.5 font-mono text-[11px] uppercase tracking-[0.08em] transition-colors duration-150",
         !available
-          ? "border-slate-200 bg-secondary/50 text-muted-foreground"
+          ? "border-border text-muted-foreground"
           : state === "idle"
-            ? "border-emerald-200 bg-emerald-50/60 text-emerald-800 hover:bg-emerald-50"
-            : "border-emerald-300 bg-emerald-50 text-emerald-800",
+            ? "border-input bg-panel text-foreground hover:border-foreground"
+            : "border-foreground bg-foreground text-background",
       )}
     >
       <span className="jarvis-voice-orb relative grid size-5 place-items-center" aria-hidden>

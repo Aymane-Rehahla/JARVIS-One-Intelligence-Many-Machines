@@ -1,12 +1,13 @@
 import { ASSESSMENTS, DEVICE_IDS, type Assessment, type FarmState } from "@/services/matrix"
 
-/** Light-theme classes for each of the five conclusions a JARVIS node can reach. */
+/** Classes for each of the five conclusions a JARVIS node can reach. Ink colours are text-safe on the sheet;
+ *  the dot colours are the signal shades (non-text, 3:1). Danger is the only filled badge. */
 export const ASSESSMENT_TONES: Record<Assessment, { status: "good" | "info" | "warning" | "critical"; badge: string; dot: string; card: string }> = {
-  NORMAL: { status: "good", badge: "border-emerald-200 bg-emerald-50 text-emerald-700", dot: "bg-emerald-500", card: "border-slate-200" },
-  HANDLED_BY_MACHINE: { status: "info", badge: "border-teal-200 bg-teal-50 text-teal-700", dot: "bg-teal-500", card: "border-teal-200" },
-  WATCHING: { status: "warning", badge: "border-amber-200 bg-amber-50 text-amber-700", dot: "bg-amber-500", card: "border-amber-300" },
-  ESCALATE_TO_USER: { status: "warning", badge: "border-orange-200 bg-orange-50 text-orange-700", dot: "bg-orange-500", card: "border-orange-300" },
-  DANGER: { status: "critical", badge: "border-red-200 bg-red-50 text-red-700", dot: "bg-red-500", card: "border-red-300" },
+  NORMAL: { status: "good", badge: "border-ok/50 bg-panel text-ok-ink", dot: "bg-ok", card: "border-border" },
+  HANDLED_BY_MACHINE: { status: "info", badge: "border-info/50 bg-panel text-info", dot: "bg-info", card: "border-info/50" },
+  WATCHING: { status: "warning", badge: "border-watch bg-panel text-watch-ink", dot: "bg-watch", card: "border-watch" },
+  ESCALATE_TO_USER: { status: "warning", badge: "border-signal bg-panel text-signal-ink", dot: "bg-signal", card: "border-signal" },
+  DANGER: { status: "critical", badge: "border-danger bg-danger text-white", dot: "bg-danger", card: "border-danger" },
 }
 
 /** The most serious conclusion across the four nodes (ASSESSMENTS is ordered from calm to danger). */

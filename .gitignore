@@ -19,3 +19,5 @@ interface/web/dist/
 .hypothesis/
 .coverage.*
 htmlcov/
+interface/web/public/assets/farm/
+.claude/

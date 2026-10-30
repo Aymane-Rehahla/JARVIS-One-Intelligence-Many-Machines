@@ -35,6 +35,26 @@ restarted, with the second review's guard code, at 04:33:39.** Nothing of ours r
 and it stopped nothing, because nothing of ours was registered (it rewrote an empty `logs/guarded.json` at 05:12).
 Since 06:00 the commit headroom has stayed at 5.0 GiB or more. Lesson: start nothing while the training changes phase.
 
+## Step 0 of the last run: the redesigned website swapped in (30 Oct 2026)
+
+The website was redesigned in another session on a separate drive (it could see only its own copy). Its last file was
+written at 14:36; the swap started at 14:57.
+
+| Check | Evidence |
+|---|---|
+| The data layer is unchanged | `src/services/contracts.ts`, `src/services/matrix.ts`, `src/hooks/use-demo-farm.ts`, `scripts/check-contracts.ts`, `package.json` and `package-lock.json` were byte-identical (`cmp`) before the copy, so nothing needed merging |
+| What was copied | everything except `node_modules`, `dist`, `.bolt`, `.tastemaker`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`; the other session's gateway and contracts copies were not taken (JARVIS's own are authoritative) |
+| The 3D models stay out of git | `interface/web/public/assets/farm/` is in `.gitignore`; `interface/web/assets-manifest.json` lists the 7 files (277,421,171 bytes) with their SHA-256; README note. **The hand-in must carry that folder separately.** |
+| A missing model shows a message, not a crash | `FarmScene3D.tsx` wraps the models in an error boundary. With `hvac.glb` moved away, the Simulator page rendered (1 canvas) with the status "The machine 3D models are not on this computer..."; with it back, no message |
+| The mind data | `public/mind/` (3.5 MB of JSON, 11 files) committed; `interface/MIND.md` moved here with its paths fixed; `tools/export_mind.py` moved here (runs only under the training's Python, excluded from pyright) |
+| Typecheck and build | pass. Bundle before → after: CSS 131.88 → 140.78 kB; main JS 475.07 → 493.32 kB (+3.8 %); 3D chunk 1,095.38 → 1,055.47 kB |
+| `tests/test_contracts_zod.py`, `tests/test_tree.py` | 2 passed; 58 passed |
+| The full old-name scan (`JARVIS_FULL_NAME_SCAN=1`) | content clean; the big-file rule failed on the 3D models (big, not model weights). The rule now also accepts big files listed in the asset manifest (public/ and its build copy) **only if their SHA-256 matches**, and those files are now read by the content scan too (all 7 clean); then 7 passed |
+
+Not yet done from the owner's identity fix (MIND.md section 0): the logo still says "JARVIS Farm"; it comes with the
+website's live wiring. Another session's dev server (on the other drive's copy) held port 5173 at 14:57; it was not
+started here and was left running.
+
 ## Step 6B: tools, documents and memory (27 Oct 2026)
 
 Status: **done and tagged `step-6B` (27 Oct)**, after the senior review below. The owner reported the training finished

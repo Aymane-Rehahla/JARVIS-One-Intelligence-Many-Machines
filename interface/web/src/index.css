@@ -4,9 +4,12 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-  --radius-sm: 0.25rem;
-  --radius-md: 0.375rem;
-  --radius-lg: 0.5rem;
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --font-sans: "Archivo", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Archivo", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -21,6 +24,7 @@
   --color-muted-foreground: var(--muted-foreground);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--danger);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -32,32 +36,56 @@
   --color-scope: var(--scope);
   --color-scope-raised: var(--scope-raised);
   --color-scope-line: var(--scope-line);
+  --color-frame: var(--frame);
+  --color-frame-raised: var(--frame-raised);
+  --color-panel: var(--panel);
+  --color-signal: var(--signal);
+  --color-signal-ink: var(--signal-ink);
+  --color-ok: var(--ok);
+  --color-ok-ink: var(--ok-ink);
+  --color-info: var(--info);
+  --color-watch: var(--watch);
+  --color-watch-ink: var(--watch-ink);
+  --color-danger: var(--danger);
 }
 
+/* Technical brutalism: one light sheet on a dark striped frame, hairline grids, zero radius, no shadows.
+   Orange is a signal, never a text colour on the sheet (3.3:1); its text-safe partner is --signal-ink. */
 :root {
-  --radius: 0.375rem;
-  --background: oklch(0.968 0.012 245);
-  --foreground: oklch(0.22 0.035 250);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.22 0.035 250);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.22 0.035 250);
-  --primary: oklch(0.54 0.19 253);
-  --primary-foreground: oklch(0.99 0.01 250);
-  --secondary: oklch(0.94 0.018 245);
-  --secondary-foreground: oklch(0.34 0.05 250);
-  --muted: oklch(0.94 0.018 245);
-  --muted-foreground: oklch(0.49 0.06 250);
-  --accent: oklch(0.93 0.035 245);
-  --accent-foreground: oklch(0.25 0.07 250);
-  --border: oklch(0.88 0.035 240);
-  --input: oklch(0.62 0.03 245);
-  --ring: oklch(0.57 0.19 253);
-  --sidebar: oklch(1 0 0);
-  --sidebar-foreground: oklch(0.3 0.04 250);
-  --sidebar-accent: oklch(0.94 0.035 245);
-  --sidebar-accent-foreground: oklch(0.46 0.16 253);
-  --sidebar-border: oklch(0.88 0.035 240);
+  --radius: 0px;
+  --frame: #181818;
+  --frame-raised: #232323;
+  --background: #f2f2f2;
+  --foreground: #0a0a0a;
+  --panel: #ffffff;
+  --card: #f2f2f2;
+  --card-foreground: #0a0a0a;
+  --popover: #ffffff;
+  --popover-foreground: #0a0a0a;
+  --primary: #0a0a0a;
+  --primary-foreground: #ffffff;
+  --secondary: #e6e6e6;
+  --secondary-foreground: #0a0a0a;
+  --muted: #e6e6e6;
+  --muted-foreground: #5a5a5a;
+  --accent: #e6e6e6;
+  --accent-foreground: #0a0a0a;
+  --border: #d1d1d1;
+  --input: #8c8c8c;
+  --ring: #ff4500;
+  --signal: #ff4500;
+  --signal-ink: #b83200;
+  --ok: #1f8a4c;
+  --ok-ink: #17663a;
+  --info: #2f5d8a;
+  --watch: #e09500;
+  --watch-ink: #8a5a00;
+  --danger: #c8102e;
+  --sidebar: #f2f2f2;
+  --sidebar-foreground: #0a0a0a;
+  --sidebar-accent: #181818;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: #d1d1d1;
   /* Brain view: the one dark instrument panel, on the Jarvis page. */
   --scope: #081322;
   --scope-raised: #0b1a2f;
@@ -70,8 +98,26 @@
 @layer base {
   * { @apply border-border; }
   html, body, #root { min-height: 100%; }
-  body { @apply bg-background text-foreground antialiased; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+  html { scroll-padding-top: 112px; }
+  body { @apply bg-frame text-foreground antialiased; font-family: var(--font-sans); }
   button, input, select, textarea { font: inherit; }
+  ::selection { background: var(--signal); color: #0a0a0a; }
+}
+/* Sharp corners everywhere. A deliberate round shape opts out with data-round. */
+*, *::before, *::after { border-radius: 0 !important; }
+[data-round] { border-radius: 9999px !important; }
+
+@layer components {
+  /* Wide grotesk display: page titles and statement lines. */
+  .display { font-family: var(--font-display); font-stretch: 125%; font-weight: 750; text-transform: uppercase; line-height: 0.95; letter-spacing: -0.01em; }
+  .display-sm { font-family: var(--font-display); font-stretch: 118%; font-weight: 700; text-transform: uppercase; line-height: 1.1; letter-spacing: 0.01em; }
+  /* Micro metadata: always uppercase mono with wide tracking. */
+  .label-mono { font-family: var(--font-mono); font-size: 11px; line-height: 1.45; text-transform: uppercase; letter-spacing: 0.08em; }
+  .marker { display: inline-block; width: 10px; height: 10px; background: var(--signal); flex: none; }
+  /* The dark outer frame with its diagonal bands. */
+  .frame-stripes { background: repeating-linear-gradient(118deg, var(--frame) 0 150px, #262626 150px 300px); }
+  /* Hatched band used as a section transition. */
+  .hatch { background-image: repeating-linear-gradient(130deg, transparent 0 22px, var(--border) 22px 23px); }
 }
 .font-mono { font-variant-numeric: tabular-nums; }
 
@@ -182,3 +228,17 @@
   .jarvis-voice[data-state="speaking"] .jarvis-voice-bar:nth-child(odd) { height: 90%; }
   .jarvis-voice[data-state="speaking"] .jarvis-voice-bar:nth-child(even) { height: 50%; }
 }
+
+/* JARVIS cloud: a slow float and a shadow that tightens as it rises; nothing moves under reduced motion. */
+.cloud-shadow { transform-box: view-box; transform-origin: 290px 286px; }
+.cloud-hit .cloud-outline { transition: stroke 150ms cubic-bezier(0.2, 0, 0, 1), stroke-width 150ms cubic-bezier(0.2, 0, 0, 1); }
+.cloud-hit:hover .cloud-outline { stroke-width: 2.25; }
+.cloud-hit:focus-visible .cloud-outline { stroke: var(--signal); stroke-width: 3; }
+@media (prefers-reduced-motion: no-preference) {
+  .cloud-float { animation: cloud-float 6.5s cubic-bezier(0.45, 0, 0.55, 1) infinite; }
+  .cloud-shadow { animation: cloud-shadow 6.5s cubic-bezier(0.45, 0, 0.55, 1) infinite; }
+  .mind-enter { animation: mind-enter 300ms cubic-bezier(0.2, 0, 0, 1) both; }
+}
+@keyframes cloud-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+@keyframes cloud-shadow { 0%, 100% { transform: scaleX(1); opacity: 1; } 50% { transform: scaleX(0.9); opacity: 0.7; } }
+@keyframes mind-enter { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }

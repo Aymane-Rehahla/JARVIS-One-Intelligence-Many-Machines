@@ -1,0 +1,42 @@
+{
+  "about": "The website's 3D models. They are kept out of git (too large) and carried separately with the hand-in; copy them to interface/web/public/assets/farm/ and check each SHA-256.",
+  "root": "interface/web/public",
+  "total_bytes": 277421171,
+  "files": [
+    {
+      "path": "assets/farm/chicken/source/Chicken.glb",
+      "bytes": 23703088,
+      "sha256": "e9b68c16b740c5f4097bec57c2c8d4f8e4be594c7010d6e88105c162514a2f52"
+    },
+    {
+      "path": "assets/farm/chicken/textures/gltf_embedded_0.png",
+      "bytes": 6556180,
+      "sha256": "76774a44085890eafe47919fd59664f2016470577c884076b5eee520d4962cd5"
+    },
+    {
+      "path": "assets/farm/chicken/textures/gltf_embedded_1@channels=A.png",
+      "bytes": 1419968,
+      "sha256": "6e4f857bb8c02704651fb333e535863389c4323a0ac74a22b496cbad45d2f3a0"
+    },
+    {
+      "path": "assets/farm/chicken/textures/gltf_embedded_1@channels=RGB.png",
+      "bytes": 1264259,
+      "sha256": "4e46ecbf2532c7a4475e71d7aededa6e42004688b336e962ee9b5f5106aab58c"
+    },
+    {
+      "path": "assets/farm/grain_silo_-_low_poly_game_ready.glb",
+      "bytes": 27750604,
+      "sha256": "7c3ab7fa1724894bf3ede07722835c019eb90fcb48fdfd1a4136e0a1cc72e469"
+    },
+    {
+      "path": "assets/farm/hvac.glb",
+      "bytes": 120360732,
+      "sha256": "49dc8c10d3f0fbc4c7d9d6571a9926e182edec9a0589d4cf0f71b7eb167148dc"
+    },
+    {
+      "path": "assets/farm/incubatormodel.glb",
+      "bytes": 96366340,
+      "sha256": "df14263505244751be80953c0c847baf857e7c5a403986c4c8e4b752f1f340c6"
+    }
+  ]
+}
