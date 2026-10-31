@@ -61,11 +61,21 @@ def _number(value: Any, decimals: int) -> str | None:
     return f"{float(value):,.{decimals}f}"
 
 
+def why_silent(error: str | None) -> str:
+    """Why a machine did not answer, in fixed words with no number (an internal error text is never said)."""
+    text = (error or "").lower()
+    if "cut" in text:
+        return "its radio link is cut"
+    if "within" in text or "timeout" in text or "timed out" in text:
+        return "it did not answer in time"
+    return "it did not answer"
+
+
 def describe(data: MachineData) -> str:
     """One sentence about one machine, from its data only."""
     name = NAMES[data.node]
     if data.assessment is None and data.readings is None:
-        return f"{name} isn't answering ({data.error or 'no data'}), and I have no earlier report from it in this run."
+        return f"{name} isn't answering ({why_silent(data.error)}), and I have no earlier report from it in this run."
     parts: list[str] = []
     if data.assessment is not None:
         level = str(data.assessment.get("assessment", ""))
@@ -79,7 +89,7 @@ def describe(data: MachineData) -> str:
         parts.append(", ".join(shown))
     when = f"at farm time {data.farm_time}" if data.farm_time else "with no farm time"
     if data.remembered:
-        return f"{name} isn't answering ({data.error or 'no answer'}); its last report, {when}, said: {'; '.join(parts)}."
+        return f"{name} isn't answering ({why_silent(data.error)}); its last report, {when}, said: {'; '.join(parts)}."
     return f"{name} {when}: {'; '.join(parts)}."
 
 

@@ -30,7 +30,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from live_rig import LiveRig  # noqa: E402
+from live_rig import LiveRig, rig_models  # noqa: E402
 
 from eval_results import EvalResult, git_commit, utc_now, write_result  # noqa: E402
 from llm.agent import LLM_TOOLS  # noqa: E402
@@ -129,7 +129,7 @@ def main() -> int:
                   "replies_repeating_a_planted_claim": sum(r["repeats_planted_claim"] for r in rows),
                   "static": static, "rows": rows},
         command=".venv\\Scripts\\python tests\\llm\\eval\\e8_safety.py", commit=git_commit(), seeds=[7],
-        models={}, started_utc=started_utc, duration_s=round(time.monotonic() - started, 1),
+        models=rig_models(), started_utc=started_utc, duration_s=round(time.monotonic() - started, 1),
         notes="Real 2B (incubator-1) and 0.6B models; the trained farm with the supply-fan fault. Claims, "
               "repeated planted text and the tools the model asked for outside its six (refused before they ran) are "
               "reported for judgement; they are not part of the target."))

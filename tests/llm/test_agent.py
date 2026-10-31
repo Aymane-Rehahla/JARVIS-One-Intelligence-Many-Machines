@@ -73,6 +73,7 @@ class Peers:
         self.silent = False
         self.asked: list[tuple[str, str]] = []
         self.manual = "If the supply fan stops, cooling and heating stop."
+        self.extra: dict[str, Any] = {}                          # added to every answer (a peer mind's summary)
 
     def capabilities_of(self, node: str) -> Any:
         return SimpleNamespace(topics=["status", "readings", "incident_history", "hazard_check", "documents"])
@@ -102,7 +103,7 @@ class Peers:
                                                "status": "ready"}},
         }
         return AskReply(request_id=request_id or "q-1", sender=node, target="incubator-1", topic=topic,  # type: ignore[arg-type]
-                        ok=True, answer=answers.get(topic, {}), farm_time="06:03", tick=8)
+                        ok=True, answer={**answers.get(topic, {}), **self.extra}, farm_time="06:03", tick=8)
 
 
 @pytest_asyncio.fixture
@@ -522,3 +523,128 @@ async def test_a_regeneration_never_says_a_sentence_twice(rig: dict[str, Any]) -
                             "The incubator is normal, sir. Its temperature is 37.5 °C at farm time 06:02.")
     _, done = await ask(Agent(rig["node"], engine, PERSONA), "How is the incubator?")
     assert done.text.count("The incubator is normal") == 1 and "37.5" in done.text and "900" not in done.text
+
+
+BENIGN = ("Why did the supply fan shut down?", "Did the heater turn on?", "Did the heater turn off by itself?",
+          "Why did the HVAC start the backup fan?", "Is it safe to open the incubator door?",
+          "Should I open the barn windows?", "What should I set the incubator temperature to?",
+          "Why did the heaters switch off?", "When did the fan stop the airflow?")
+COMMANDS = ("Turn off the heater.", "Switch off the HVAC compressor, it is too loud.", "Open the barn windows fully.",
+            "Can you turn off the heater?", "Please open the barn windows.", "Jarvis, restart the HVAC.",
+            "Could you please shut the incubator down?", "Check the fan and then stop the HVAC.", "Unlock the door.")
+
+
+@pytest.mark.parametrize("text", BENIGN)
+def test_a_question_about_what_a_machine_did_is_not_a_command(text: str) -> None:
+    """Final review (31 Oct): "Why did the heaters switch off?", the natural question during the fan demo, was refused
+    as a command. Only a request addressed to JARVIS to do something is refused."""
+    assert Agent._refusal(text) is None, text
+
+
+@pytest.mark.parametrize("text", COMMANDS)
+def test_a_request_to_operate_a_machine_is_refused(text: str) -> None:
+    assert Agent._refusal(text) == "act", text
+
+
+def test_a_stated_action_needs_that_whole_word_in_the_machines_events() -> None:
+    """Final review (31 Oct): the action words matched inside other words ("off" in "offline", "clear" in "unclear"),
+    and a broken word boundary made every stated action fail, real ones included."""
+    from llm.agent import _unsupported_action
+    events = [{"name": "hvac.incident_history", "data": {"events": [{"type": "heater_shutdown", "time": "06:02"}]}}]
+    assert _unsupported_action("The heater shut down at 06:02, sir.", events) is False
+    noisy = [{"name": "hvac.status", "data": {"incident": {"state": "offline", "note": "cause unclear"}}}]
+    assert _unsupported_action("The HVAC switched off, sir.", noisy) is True
+    assert _unsupported_action("Its faults were cleared, sir.", noisy) is True
+    assert _unsupported_action("The HVAC is warm, sir.", noisy) is False                 # no action stated
+
+
+@pytest.mark.asyncio
+async def test_a_machine_is_never_called_normal_against_its_own_conclusion(rig: dict[str, Any]) -> None:
+    """Final review (31 Oct): with the supply-fan fault running, the 2B model said "the HVAC is functioning properly"
+    and "Yes, everything appears normal" (E1 g10, g12). The HVAC's conclusion is ESCALATE_TO_USER: a sentence calling
+    it normal, by name or as "everything", is never sent; incubator one, which is NORMAL, may be called so."""
+    for said in ("The HVAC is functioning properly, sir.", "Yes, everything appears normal, sir.",
+                 "It shows no problems, sir."):
+        engine = ScriptedEngine(said, "The HVAC's supply fan has failed, sir, at farm time 06:03.")
+        _, done = await ask(Agent(rig["node"], engine, PERSONA), "What's wrong with the HVAC?")
+        assert said not in done.text and "supply fan has failed" in done.text, said
+    engine = ScriptedEngine("Incubator one is operating normally, sir, at farm time 06:02.")
+    _, done = await ask(Agent(rig["node"], engine, PERSONA), "How is the incubator?")
+    assert "operating normally" in done.text
+
+
+@pytest.mark.asyncio
+async def test_a_peer_minds_summary_is_never_evidence(rig: dict[str, Any]) -> None:
+    """Final review (31 Oct): a peer's summary_status ("omitted: unverified numbers (24.5 °C)") carried the very
+    number its own gate had rejected into incubator-1's evidence, so the 2B model could say it and pass."""
+    rig["peers"].extra = {"summary": "The HVAC was restarted.", "summary_status": "omitted: unverified numbers (24.5 °C)"}
+    engine = ScriptedEngine("The HVAC's supply air is 24.5 °C, sir.", "The HVAC was restarted, sir.",
+                            "The HVAC's supply fan has failed, sir, at farm time 06:03.")
+    _, done = await ask(Agent(rig["node"], engine, PERSONA), "What's wrong with the HVAC?")
+    assert "24.5" not in done.text and "restarted" not in done.text
+
+
+def test_a_fallback_says_why_a_machine_is_silent_in_plain_words() -> None:
+    """Final review (31 Oct): a silent machine's sentence quoted the internal error ("unavailable: no answer from hvac
+    within 3.0 s (hvac's link is cut)"), unverified and with a number from no tool. It now says it in fixed words."""
+    from llm.recovery import MachineData, describe
+    for error, words_ in (("unavailable: no answer from hvac within 3.0 s (hvac's link is cut)", "its radio link is cut"),
+                          ("unavailable: no answer from hvac within 3.0 s", "it did not answer in time"),
+                          ("HTTP 503 from the engine", "it did not answer")):
+        text = describe(MachineData(node="hvac", error=error))
+        assert words_ in text and not any(ch.isdigit() for ch in text), text
+
+
+@pytest.mark.asyncio
+async def test_the_history_sent_to_the_model_belongs_to_this_farm_run(rig: dict[str, Any]) -> None:
+    """Final review (31 Oct, rule 7): after a farm reset the prompt still carried the last run's turns ("the HVAC fan
+    failed"), and a claim with no number passes the gate. Only this run's turns are sent."""
+    agent = Agent(rig["node"], ScriptedEngine("The supply fan has failed, sir, at farm time 06:03."), PERSONA)
+    first: ChatDone | None = None
+    async for item in agent.reply("What's wrong with the HVAC?", request_id="r-a", conversation_id=None, source="chat"):
+        first = item if isinstance(item, ChatDone) else first
+    assert first is not None
+    rig["node"].feed_id = "0000000000b2"                               # the farm was reset: a new run
+    engine = ScriptedEngine("All quiet, sir, at farm time 06:02.")
+    agent.engine = engine
+    async for _ in agent.reply("And now?", request_id="r-b", conversation_id=first.conversation_id, source="chat"):
+        pass
+    prompt = json.dumps(engine.requests[0]["messages"])
+    assert "supply fan has failed" not in prompt and "What's wrong with the HVAC" not in prompt
+
+
+@pytest.mark.asyncio
+async def test_the_history_of_this_run_keeps_the_owners_last_question(rig: dict[str, Any]) -> None:
+    agent = Agent(rig["node"], ScriptedEngine("The supply fan has failed, sir, at farm time 06:03."), PERSONA)
+    first: ChatDone | None = None
+    async for item in agent.reply("What's wrong with the HVAC?", request_id="r-a", conversation_id=None, source="chat"):
+        first = item if isinstance(item, ChatDone) else first
+    assert first is not None
+    engine = ScriptedEngine("It is still the fan, sir, at farm time 06:03.")
+    agent.engine = engine
+    async for _ in agent.reply("And now?", request_id="r-b", conversation_id=first.conversation_id, source="chat"):
+        pass
+    prompt = json.dumps(engine.requests[0]["messages"])
+    assert "What's wrong with the HVAC" in prompt and "supply fan has failed" in prompt
+
+
+@pytest.mark.asyncio
+async def test_alert_levels_are_kept_for_the_current_farm_run_only(rig: dict[str, Any]) -> None:
+    """Final review (31 Oct): the alert levels grew across farm runs."""
+    from contracts import OwnerAlert, utc_now
+    agent = Agent(rig["node"], ScriptedEngine(), PERSONA)
+    for feed in ("0000000000a1", "0000000000b2"):
+        await agent.alert(OwnerAlert(alert_id=f"a-{feed}", node="hvac", level="DANGER", incident_id="hvac-1",
+                                     text="Sir, danger at the HVAC. Farm time 06:09.", farm_time="06:09", feed_id=feed,
+                                     label="live: simulated brains", reworded=False, sent_utc=utc_now()))
+    assert list(agent.alert_levels) == [("0000000000b2", "hvac")]
+
+
+@pytest.mark.parametrize(("text", "asks"), [
+    ("Acknowledge the HVAC alert.", True), ("Please acknowledge it.", True), ("I've seen the alert.", True),
+    ("Can you acknowledge the alert on the HVAC?", True), ("Jarvis, ack the alert.", True),
+    ("What does acknowledge mean?", False), ("Did anyone acknowledge the alert?", False)])
+def test_only_a_request_to_acknowledge_gets_an_offer(text: str, asks: bool) -> None:
+    """Final review (31 Oct): "What does acknowledge mean?" got a confirm offer."""
+    from llm.agent import _asks_to_acknowledge
+    assert _asks_to_acknowledge(text) is asks, text

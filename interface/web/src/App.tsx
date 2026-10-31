@@ -148,7 +148,7 @@ function App() {
   const activateVoice = () => {
     if (!farm.voiceDemo()) {
       toast.info("Voice isn't connected yet", {
-        description: state.source === "live" ? "The voice comes in step 6E; ask in writing on the Chat page. The demo mode previews how JARVIS listens and speaks." : "Use demo mode to preview how JARVIS listens and speaks.",
+        description: state.source === "live" ? "The voice box is not answering yet; push-to-talk is on the Chat page once it is, and you can always ask in writing there." : "Use demo mode to preview how JARVIS listens and speaks.",
       })
     }
   }

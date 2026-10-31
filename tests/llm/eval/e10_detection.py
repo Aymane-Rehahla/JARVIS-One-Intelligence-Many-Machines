@@ -32,7 +32,7 @@ for _extra in (ROOT / "tools", ROOT / "nodes" / "incubator-1", ROOT / "matrix"):
         sys.path.insert(0, str(_extra))
 
 import farm_runtime as fr  # noqa: E402
-from eval_results import EvalResult, git_commit, utc_now, write_result  # noqa: E402
+from eval_results import EvalResult, file_sha256, git_commit, utc_now, write_result  # noqa: E402
 
 TICKS = 900
 WARMUP = 30
@@ -124,17 +124,23 @@ def main(argv: list[str] | None = None) -> int:
                         for scenario, rows in by.items()} for brains, by in runs.items()}
     path = write_result(EvalResult(
         id="E10", title="Detection of the four demo faults: trained brains vs the rule brains",
-        target="each demo fault caught by the trained brains (reported, not tuned)", passed=None,
+        target="every fault caught and correctly explained, reported per fault (plan section 8); judged here: every "
+               "demo fault caught by the trained brains in every seed", passed=all(
+                   row["caught"] == row["of"] for row in summary.get("trained", {}).values()) if "trained" in summary
+        else None,
         measured=json.loads(json.dumps({"summary": summary, "seeds": [str(s) for s in seeds], "library_seeds_checked": checked,
                   "ticks_after_injection": args.ticks, "warmup_ticks": WARMUP,
                   "fault_diagnoses": {k: sorted(v) for k, v in FAULT_DIAGNOSES.items()},
                   "runs": runs})),
         command=f".venv\\Scripts\\python tests\\llm\\eval\\e10_detection.py --ticks {args.ticks}",
-        commit=git_commit(), seeds=[int(s) for s in seeds], models={}, started_utc=started_utc,
+        commit=git_commit(), seeds=[int(s) for s in seeds], models={f"matrix/release_v31/brains/{m}/{e}": file_sha256(fr.RELEASE / "brains" / m / e)
+                for m, e in sorted(fr.ENGINE_FILES.items())}, started_utc=started_utc,
         duration_s=round(time.monotonic() - started, 1),
-        notes="Detection part only; the explanation part (the agent's words) is measured with the agent. "
+        notes="Detection part only: the explanation part (machine, cause, verified numbers in the agent's words) is "
+              "not measured by any script (the rehearsals in WORKLOG.md show replies by hand). The fault variants are "
+              "the scenario library's own; only the engine's noise seeds are new (checked unused in training). "
               "Trained feed with renamed random seeds (decision 0021). A fault ending before detection counts as "
-              "not caught."))
+              "not caught. Not tuned."))
     print(f"E10 written -> {path}")
     return 0
 

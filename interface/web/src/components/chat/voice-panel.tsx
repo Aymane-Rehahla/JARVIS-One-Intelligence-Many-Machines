@@ -32,6 +32,7 @@ export function VoicePanel({ voice }: { voice: Voice }) {
           voice.press()
         }}
         onPointerUp={() => voice.release()}
+        onPointerCancel={() => voice.release()}
         onKeyDown={(event) => {
           if ((event.key === " " || event.key === "Enter") && !event.repeat) {
             event.preventDefault()

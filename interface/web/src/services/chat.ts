@@ -12,7 +12,9 @@ import { backoffMs, type ActionResult, type LiveConnection } from "./live.ts"
 export const MAX_ENTRIES = 200
 /** Alerts kept for the banner (newest first). */
 export const MAX_BANNER = 5
-const ACTION_TIMEOUT_MS = 8_000
+// longer than the gateway's whole acknowledgement (incubator-1 5 s, then the Matrix 5 s): a click that succeeded late
+// is never shown as failed (final review, 31 Oct)
+const ACTION_TIMEOUT_MS = 12_000
 
 /** One reply as it arrives: its pieces by seq, then its ChatDone. */
 export type Reply = {

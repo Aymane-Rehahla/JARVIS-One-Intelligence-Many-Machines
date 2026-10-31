@@ -23,7 +23,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from live_rig import LiveRig  # noqa: E402
+from live_rig import LiveRig, rig_models  # noqa: E402
 
 from eval_results import OUT, EvalResult, git_commit, utc_now, write_result  # noqa: E402
 
@@ -89,9 +89,10 @@ def main(argv: list[str] | None = None) -> int:
     measured["text_passed"] = None if first_p50 is None else first_p50 <= 1500.0
     path = write_result(EvalResult(
         id="E6", title="Latency", target="first chunk <= 1.5 s p50 (text); voice: see the voice keys",
-        passed=None if first_p50 is None else first_p50 <= 1500.0, measured=measured,
+        passed=None if first_p50 is None or measured.get("voice_passed") is None else bool(
+            first_p50 <= 1500.0 and measured["voice_passed"]), measured=measured,
         command=f".venv\\Scripts\\python tests\\llm\\eval\\e6_text.py --runs {args.runs}", commit=git_commit(),
-        seeds=[7], models={}, started_utc=started_utc, duration_s=round(time.monotonic() - started, 1),
+        seeds=[7], models=rig_models(), started_utc=started_utc, duration_s=round(time.monotonic() - started, 1),
         notes="Text part through the gateway on this PC (RX 580, Vulkan; f16 KV cache; warm prompt cache). The first "
               "chunk is a whole verified sentence, not a first token. The latencies are of answered replies; "
               "first_chunk_ms_every_outcome counts fallbacks and refusals too."))

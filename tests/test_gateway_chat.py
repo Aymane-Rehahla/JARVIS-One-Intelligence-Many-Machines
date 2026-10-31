@@ -401,3 +401,15 @@ async def test_voice_settings_and_push_to_talk_reach_incubator_1(rig: Rig) -> No
             break
         await asyncio.sleep(0.02)
     assert pressed == [True, False]
+
+
+def test_the_websites_click_waits_longer_than_the_gateways_acknowledgement() -> None:
+    """Final review (31 Oct, rule 9): the website gave up on a confirm click after 8 s while the gateway may take
+    5 s (incubator-1) + 5 s (the Matrix); the single-use token was then spent and the click shown as failed."""
+    import re
+    from pathlib import Path
+    source = (Path(__file__).resolve().parents[1] / "interface" / "web" / "src" / "services" / "chat.ts").read_text(
+        encoding="utf-8")
+    found = re.search(r"const ACTION_TIMEOUT_MS = ([0-9_]+)", source)
+    assert found is not None
+    assert int(found.group(1).replace("_", "")) / 1000 > gw.ACK_TIMEOUT_S + gw.MATRIX_TIMEOUT_S + 1.0

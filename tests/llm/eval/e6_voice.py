@@ -34,6 +34,7 @@ for _extra in (ROOT / "tools", ROOT / "nodes" / "incubator-1", Path(__file__).re
 
 from contracts import OwnerAlert, PushToTalk, VoiceStatus, utc_now  # noqa: E402
 from e6_text import stats  # noqa: E402
+from live_rig import rig_models  # noqa: E402
 from eval_results import OUT, EvalResult, git_commit, write_result  # noqa: E402
 from voice.pipeline import SAMPLE_RATE, FileAudio, VoiceBox  # noqa: E402
 from voice_check import fixed_answer, models  # noqa: E402
@@ -152,11 +153,15 @@ def main(argv: list[str] | None = None) -> int:
         id="E6", title="Latency", target="first chunk <= 1.5 s p50 (text); voice <= 2.5 s p50 simple, <= 4 s with "
         "peers; alert <= 3 s (p95)", passed=passed, measured=measured,
         command=(old or {}).get("command", "") + " ; .venv\\Scripts\\python tests\\llm\\eval\\e6_voice.py"
-        + (f" --real {args.real}" if args.real else ""), commit=git_commit(), seeds=[7], models={},
+        + (f" --real {args.real}" if args.real else ""), commit=git_commit(), seeds=[7],
+        models=rig_models("voice/kokoro-multi-lang-v1_0/model.onnx", "voice/parakeet-tdt-0.6b-v2-int8/encoder.int8.onnx",
+                          "voice/silero-vad/silero_vad.onnx"),
         started_utc=(old or {}).get("started_utc", started_utc),
         duration_s=round((old or {}).get("duration_s", 0.0) + time.monotonic() - started, 1),
         notes=((old or {}).get("notes", "") + " Voice: Kokoro-synthesised questions fed as files; end of speech = "
-               "the button's release; first audio = the first sentence ready to play.").strip()))
+               "the button's release; first audio = the first sentence ready to play. The alert figure is from the "
+               "voice box's announce() to audio (not farm -> watcher -> radio -> desk). The live rig runs every node, "
+               "the farm and the gateway in one process, unlike the launcher.").strip()))
     print(json.dumps(measured["voice"], indent=1))
     return 0
 

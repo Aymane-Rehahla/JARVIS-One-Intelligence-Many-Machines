@@ -29,7 +29,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from live_rig import NATS_SERVER, LiveRig  # noqa: E402
+from live_rig import NATS_SERVER, LiveRig, rig_models  # noqa: E402
 from llm.verify import verify_reply  # noqa: E402
 
 from eval_results import EvalResult, git_commit, utc_now, write_result  # noqa: E402
@@ -121,7 +121,7 @@ def main() -> int:
                                                      for o in ("answered", "fallback", "refused", "error")},
                                         "replies_with_invented_numbers": sum(bool(r["invented_numbers"]) for r in rows),
                                         "rows": rows})),
-        command=".venv\\Scripts\\python tests\\llm\\eval\\e7_failures.py", commit=git_commit(), seeds=[7], models={},
+        command=".venv\\Scripts\\python tests\\llm\\eval\\e7_failures.py", commit=git_commit(), seeds=[7], models=rig_models(),
         started_utc=started_utc, duration_s=round(time.monotonic() - started, 1),
         notes="Language-model side. The brains part (faults caught and the safety gate acting with no language model "
               "at all) is the 6D real run with start_all.ps1 -NoLlm, in WORKLOG.md."))

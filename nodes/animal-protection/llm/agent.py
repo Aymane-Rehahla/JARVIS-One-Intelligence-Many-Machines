@@ -70,6 +70,39 @@ _I = re.IGNORECASE
 _ACT = re.compile(r"\b(?:turn|switch|shut|power)\s+(?:it\s+|that\s+|the\s+\w+(?:\s+\w+)?\s+)?(?:off|on|down)\b|"
                   r"\b(?:stop|start|restart|reboot|disable|enable|open|close|lower|raise|increase|decrease|"
                   r"set|adjust|reset)\s+(?:the|its|that|my|all)\b|\bcut (?:the )?power\b|\bunlock\b", _I)
+# _ACT counts only as a request addressed to JARVIS: at the start of a clause, after an optional "jarvis,", "please",
+# "can you", "I want you to"... A question about what a machine did ("Why did the heaters switch off?") is not one
+# (final review, 31 Oct).
+_COMMAND_LEAD = re.compile(r"\s*(?:(?:hey\s+)?jarvis\s*[,:]?\s*)?(?:(?:please|now|just|quickly|so)\s+)*"
+                           r"(?:(?:can|could|would|will)\s+you\s+(?:please\s+)?|i\s+(?:want|need)\s+you\s+to\s+|"
+                           r"go\s+ahead\s+and\s+)?(?:please\s+)?", _I)
+_CLAUSES = re.compile(r"[.!?;,]+|\b(?:and|then|also)\b", _I)
+
+
+_SEEN = re.compile(r"\bi(?:'ve| have) seen (?:the|that) alert\b", _I)
+
+
+def _asks_to_acknowledge(text: str) -> bool:
+    """The owner asks JARVIS to acknowledge an alert: _ACK at the start of a clause (after "please", "can you"...),
+    or "I've seen the alert". "What does acknowledge mean?" is a question, not a request (final review)."""
+    if _SEEN.search(text):
+        return True
+    for clause in _CLAUSES.split(text):
+        lead = _COMMAND_LEAD.match(clause)
+        if _ACK.match(clause, lead.end() if lead else 0):
+            return True
+    return False
+
+
+def _commands(text: str) -> bool:
+    """True when a clause of the text asks JARVIS to operate something (see _ACT and _COMMAND_LEAD)."""
+    for clause in _CLAUSES.split(text):
+        lead = _COMMAND_LEAD.match(clause)
+        if _ACT.match(clause, lead.end() if lead else 0):
+            return True
+    return False
+
+
 _EMERGENCY = re.compile(r"\bcall\s+(?:the\s+)?(?:fire\s*(?:brigade|department|service)|police|ambulance|"
                         r"civil\s+protection|emergency|112|911|999|firefighters)\b|\bdial\s+(?:112|911|999)\b", _I)
 _CMM = re.compile(r"\bcmm\b|\bcognitive memory\b|\bworking memory\b|\bcmm\.sqlite\b|\byour (?:memory )?database\b", _I)
@@ -98,12 +131,14 @@ _TOOL_TALK = re.compile(r"\b(?:" + "|".join(("get_status", "get_assessment", "ge
 # A machine action said as a fact (E8: "Incubator one is shutting down now."), sent only when this turn's data names
 # that action: each pattern, with the word that must then appear in the data.
 _STATED_ACTIONS = (
-    (re.compile(r"\bshut(?:s|ting)?\s+(?:it\s+)?down\b|\bshutdown\b", _I), "shut"),
-    (re.compile(r"\brestart(?:s|ed|ing)?\b|\breboot(?:s|ed|ing)?\b", _I), "restart"),
-    (re.compile(r"\b(?:switch|turn)(?:s|ed|ing)?\s+(?:it\s+)?off\b", _I), "off"),
-    (re.compile(r"\b(?:faults?|alarms?|alerts?)\s+(?:\w+\s+){0,3}(?:cleared|silenced)\b", _I), "clear"),
+    (re.compile(r"\bshut(?:s|ting)?\s+(?:it\s+)?down\b|\bshutdown\b", _I), r"\bshut(?:s|ting)?\b|\bshutdown\b"),
+    (re.compile(r"\brestart(?:s|ed|ing)?\b|\breboot(?:s|ed|ing)?\b", _I),
+     r"\brestart(?:s|ed|ing)?\b|\breboot(?:s|ed|ing)?\b"),
+    (re.compile(r"\b(?:switch|turn)(?:s|ed|ing)?\s+(?:it\s+)?off\b", _I), r"\boff\b"),
+    (re.compile(r"\b(?:faults?|alarms?|alerts?)\s+(?:\w+\s+){0,3}(?:cleared|silenced)\b", _I),
+     r"\bclear(?:s|ed|ing)?\b|\bsilenced\b"),
     (re.compile(r"\b(?:called|calling|phoned|dialled|dialed)\b[^.!?]{0,40}\b(?:brigade|civil|police|ambulance)\b",
-                _I), "call"),
+                _I), r"\bcall(?:s|ed|ing)?\b"),
 )
 # JARVIS talks and never acts (ground rule 3): a sentence in which it says it did something is never sent.
 _CLAIMED_ACTION = re.compile(
@@ -148,6 +183,56 @@ def _machine_words(evidence: list[dict[str, Any]]) -> str:
         if "documents" not in str(entry.get("name", "")):
             walk(entry.get("data"))
     return " ".join(words).lower().replace("_", " ")
+
+
+#: A sentence calling a machine (or "everything") normal (final review, 31 Oct: "the HVAC is functioning properly"
+#: with its supply-fan fault running).
+_NORMAL_CLAIM = re.compile(
+    r"\b(?:operating|functioning|working|running|performing)\s+(?:normally|properly|fine|well|as\s+expected)\b|"
+    r"\b(?:is|are|seems?|appears?|looks?)\s+(?:to\s+be\s+)?(?:all\s+)?(?:normal|fine|ok(?:ay)?|healthy|in\s+order)\b|"
+    r"\bno\s+(?:problems?|issues?|anomal(?:y|ies)|faults?|concerns?)\b|\ball\s+(?:is\s+)?(?:well|fine|normal|good)\b|"
+    r"\beverything\s+(?:is\s+|seems\s+|appears\s+|looks\s+)?(?:fine|normal|ok(?:ay)?|good|well|in\s+order)\b|"
+    r"\bwithin\s+(?:acceptable|normal|safe)\s+(?:parameters|ranges?|limits)\b", _I)
+
+
+def _contradicts_a_conclusion(sentence: str, turn: Turn) -> NodeId | None:
+    """The machine a "normal" sentence is about whose own published conclusion is not NORMAL, or None. The machines
+    named in the sentence; with none named, those the question is about (or every machine of the turn)."""
+    if not _NORMAL_CLAIM.search(sentence):
+        return None
+    named = [node for node, patterns in ALIASES.items() if any(p.search(sentence) for p in patterns)]
+    about = named or [node for node in turn.focus if node in turn.machines] or list(turn.machines)
+    for node in about:
+        machine = turn.machines.get(node)  # type: ignore[call-overload]
+        level = (machine.assessment or {}).get("assessment") if machine is not None else None
+        if level is not None and level != "NORMAL":
+            return node  # type: ignore[return-value]
+    return None
+
+
+#: A peer mind's words in a peer's answer: read by the 2B model, never evidence (final review: "summary_status" carried
+#: the very numbers the peer's own gate had rejected; a summary is the 0.6B model's words).
+NOT_EVIDENCE = frozenset({"summary", "summary_status"})
+
+
+def _facts(data: Any) -> Any:
+    """A tool result as evidence: a peer answer without its mind's summary."""
+    answer = data.get("answer") if isinstance(data, dict) else None
+    if isinstance(answer, dict) and NOT_EVIDENCE & set(answer):
+        return {**data, "answer": {k: v for k, v in answer.items() if k not in NOT_EVIDENCE}}
+    return data
+
+
+def _unsupported_action(sentence: str, evidence: list[dict[str, Any]]) -> bool:
+    """True when the sentence states a machine action that the machines' own events, incidents and decisions in this
+    turn's data do not name as a whole word (final review: "off" is not "offline", "clear" is not "unclear")."""
+    actions: str | None = None
+    for pattern, word in _STATED_ACTIONS:
+        if pattern.search(sentence):
+            actions = _machine_words(evidence) if actions is None else actions
+            if not re.search(word, actions):
+                return True
+    return False
 
 
 def _cut(text: str, limit: int) -> str:
@@ -215,6 +300,7 @@ class Turn:
     unverified_sentences: int = 0                                   # sentences the gate stopped (E1's "before")
     regenerated: bool = False
     focus: tuple[str, ...] = ()                                  # the machines the question is about
+    history_since: str = ""                                      # the farm run's first turn here (ISO, UTC)
 
     def newest(self) -> tuple[str | None, FeedLabel | None]:
         """The farm time and label of the newest data of this turn (the highest tick). A silent peer's remembered
@@ -247,6 +333,15 @@ class Agent:
         self.tool_schemas = self._tool_schemas()
         self._warming: asyncio.Future[float | None] | None = None
         self.warm_ms: float | None = None                              # the last successful warm-up, measured
+        self._run_seen: tuple[str | None, str] = (None, "")            # (feed_id, when this agent first saw it, UTC)
+
+    def _run_started_utc(self) -> str:
+        """When this agent first saw the current farm run (ISO, UTC): the history it sends starts there (rule 7; a
+        restarted agent starts a fresh history too)."""
+        feed = self.node.feed_id
+        if self._run_seen[0] != feed:
+            self._run_seen = (feed, datetime.now(timezone.utc).isoformat(timespec="milliseconds"))
+        return self._run_seen[1]
 
     # --- the server's prompt cache ----------------------------------------------------------------------------
 
@@ -286,6 +381,8 @@ class Agent:
 
     async def alert(self, alert: OwnerAlert) -> None:
         """Hand one OwnerAlert to every listener (the gateway's publication is the node's; see alerts.py)."""
+        for key in [key for key in self.alert_levels if key[0] != alert.feed_id]:
+            del self.alert_levels[key]                                  # an earlier farm run's (bounded, rule 7)
         self.alert_levels[(alert.feed_id, alert.node)] = alert.level
         for listener in list(self._listeners):
             try:
@@ -358,6 +455,7 @@ class Agent:
 
         try:
             store = self.node.store
+            turn.history_since = self._run_started_utc()             # before this turn's own words are stored
             turn.conversation_id = conversation_id or await store.new_conversation(text[:60])
             try:
                 await store.add_turn(turn.conversation_id, turn.request_id, "owner", text)
@@ -371,7 +469,7 @@ class Agent:
                 return
             where = route(text, self_node=self.node.id)
             turn.focus = tuple(where.machines)
-            if _ACK.search(text):
+            if _asks_to_acknowledge(text):
                 if source == "voice":                  # a spoken reply has no Confirm button: no offer, no token
                     turn.outcome, turn.reason = "refused", "acknowledging needs the chat page's Confirm click"
                     await send("To acknowledge an alert, please use the chat page, sir: it needs your Confirm click.")
@@ -396,7 +494,7 @@ class Agent:
     @staticmethod
     def _refusal(text: str) -> str | None:
         for name, pattern in (("emergency", _EMERGENCY), ("cmm", _CMM), ("rules", _RULES), ("act", _ACT)):
-            if pattern.search(text):
+            if _commands(text) if name == "act" else pattern.search(text):
                 return {"emergency": "emergency", "cmm": "cmm", "rules": "rules", "act": "act"}[name]
         return None
 
@@ -419,7 +517,7 @@ class Agent:
         turn.tools.append(ToolUse(node=node, tool=f"ask_peer:{topic}", ok=outcome.ok,
                                   duration_ms=int(elapsed * 1000)))
         if outcome.ok:
-            turn.evidence.append({"name": f"{node}.{topic}", "data": outcome.data})
+            turn.evidence.append({"name": f"{node}.{topic}", "data": _facts(outcome.data)})
             if self.node.feed_id:
                 self.peer_memory.remember(self.node.feed_id, node, topic, dict(outcome.data["answer"]),
                                           outcome.farm_time, outcome.tick)
@@ -464,8 +562,8 @@ class Agent:
                         answer, farm_time, tick = remembered
                         self._absorb(node, topic, {"answer": answer}, farm_time, tick, data)
                         data.remembered = True
-                        turn.evidence.append({"name": f"{node}.{topic}.remembered", "data": {"answer": answer,
-                                                                                          "farm_time": farm_time}})
+                        turn.evidence.append({"name": f"{node}.{topic}.remembered",
+                                              "data": _facts({"answer": answer, "farm_time": farm_time})})
 
     @staticmethod
     def _absorb(node: NodeId, topic: str, payload: dict[str, Any], farm_time: str | None, tick: int | None,
@@ -535,7 +633,8 @@ class Agent:
     async def _speak(self, text: str, turn: Turn, style: Style, send: Callable[[str], Awaitable[None]]) -> None:
         farm_time, label = turn.newest()
         try:
-            history = await self.node.store.recent_turns(turn.conversation_id, 8, exclude_request=turn.request_id)
+            history = await self.node.store.recent_turns(turn.conversation_id, 8, exclude_request=turn.request_id,
+                                                         since_utc=turn.history_since)
         except Exception:                                           # no history is a smaller prompt, not a failure
             history = []
         messages = [*fixed_start(self.persona), *history_messages(history),
@@ -635,14 +734,14 @@ class Agent:
         if _TOOL_TALK.search(sentence):
             turn.unverified_sentences += 1
             return "it named a tool, which is not for the owner"
-        actions = None
-        for pattern, word in _STATED_ACTIONS:
-            if pattern.search(sentence):
-                if actions is None:
-                    actions = _machine_words(turn.evidence)
-                if not re.search(rf"{word}", actions):
-                    turn.unverified_sentences += 1
-                    return "it stated a machine action that is not in the data"
+        if _unsupported_action(sentence, turn.evidence):
+            turn.unverified_sentences += 1
+            return "it stated a machine action that is not in the data"
+        contradicted = _contradicts_a_conclusion(sentence, turn)
+        if contradicted is not None:
+            turn.unverified_sentences += 1
+            level = (turn.machines[contradicted].assessment or {}).get("assessment")
+            return f"it called {in_sentence(contradicted)} normal, but its own conclusion is {level}"
         report = verify_reply(sentence, turn.evidence)
         if not report.ok:
             turn.unverified_sentences += 1
@@ -676,7 +775,7 @@ class Agent:
         turn.tools.append(ToolUse(node=self.node.id, tool=name, ok=outcome.ok,
                                   duration_ms=int((time.monotonic() - started) * 1000)))
         if outcome.ok and name not in WORDS_NOT_DATA:
-            turn.evidence.append({"name": f"{self.node.id}.{name}", "data": outcome.data})
+            turn.evidence.append({"name": f"{self.node.id}.{name}", "data": _facts(outcome.data)})
             if name == "search_documents":
                 machine = turn.machines.setdefault(self.node.id, MachineData(node=self.node.id))
                 machine.documents += [r for r in outcome.data.get("results", []) if isinstance(r, dict)]

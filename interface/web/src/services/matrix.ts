@@ -221,7 +221,7 @@ export const SCENARIOS: Scenario[] = [
     label: "Incubator humidity sensor drift",
     shortLabel: "Sensor drift",
     description:
-      "One of Incubator 2's three humidity sensors drifts upward while the air itself doesn't change. The other two keep reading normal, so JARVIS treats it as a sensor fault, not a humidity problem.",
+      "One of Incubator 2's three humidity sensors drifts upward while the air itself doesn't change. The other two keep reading normal. In our test runs (E10) neither the trained nor the rule brains caught this drift within 15 farm minutes.",
     devices: ["incubator-2"],
     durationS: 1500,
   },
@@ -230,7 +230,7 @@ export const SCENARIOS: Scenario[] = [
     label: "Farm supply overvoltage",
     shortLabel: "Overvoltage",
     description:
-      "The farm's mains rise to 263 V. Both incubators' overvoltage relays trip above 260 V and switch their heaters off. The two incubator nodes compare notes over the peer link and conclude it's the farm supply, not one machine.",
+      "The farm's mains rise to 263 V. Both incubators' overvoltage relays trip above 260 V and switch their heaters off.",
     devices: ["incubator-1", "incubator-2"],
     durationS: 900,
   },

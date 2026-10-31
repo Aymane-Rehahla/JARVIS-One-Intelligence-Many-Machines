@@ -25,8 +25,10 @@ class Style:
 
 
 STYLES: dict[Mode, Style] = {
-    "calm": Style("calm", "Something on the farm needs the owner. Be calm and brief: what is happening, on which "
-                  "machine, and what the owner should do. No humour.", 90, 0.3),
+    # final review (31 Oct): "what is happening, on which machine" pushed the model to name a problem for a machine
+    # the question was about even when its data was normal; the facts asked about come first, from the data only
+    "calm": Style("calm", "Something on the farm needs the owner. Be calm and brief. Answer the question from the "
+                  "data only; name a problem only where the data shows one. No humour.", 90, 0.3),
     "plain": Style("plain", "A machine is being watched. Be attentive and measured. No jokes.", 110, 0.6),
     "dry": Style("dry", "All is normal. A touch of dry wit is allowed, but the facts come first.", 120, 0.7),
 }

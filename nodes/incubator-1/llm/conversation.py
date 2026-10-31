@@ -223,19 +223,22 @@ class LlmStore:
         self._require_owner_conversations()
         return await self._run(self._add_turn, conversation_id, request_id, role, text, farm_time)
 
-    def _recent_turns(self, conversation_id: str, limit: int, exclude_request: str | None) -> list[tuple[str, str]]:
+    def _recent_turns(self, conversation_id: str, limit: int, exclude_request: str | None,
+                      since_utc: str) -> list[tuple[str, str]]:
         rows = self._db.execute("SELECT role,text FROM turns WHERE conversation_id = ? AND request_id IS NOT ? "
-                                "ORDER BY id DESC LIMIT ?", (conversation_id, exclude_request, limit)).fetchall()
+                                "AND created_utc >= ? ORDER BY id DESC LIMIT ?",
+                                (conversation_id, exclude_request, since_utc, limit)).fetchall()
         return [(str(row[0]), str(row[1])) for row in reversed(rows)]
 
-    async def recent_turns(self, conversation_id: str, limit: int = 8, *,
-                           exclude_request: str | None = None) -> list[tuple[str, str]]:
+    async def recent_turns(self, conversation_id: str, limit: int = 8, *, exclude_request: str | None = None,
+                           since_utc: str = "") -> list[tuple[str, str]]:
         """The newest `limit` turns of one conversation, oldest first, as (role, text); `exclude_request` leaves out
-        the turn being answered (6C: the agent's recent history)."""
+        the turn being answered (6C: the agent's recent history); `since_utc` (ISO, UTC) leaves out older turns (the
+        agent: the turns of earlier farm runs, rule 7)."""
         self._require_owner_conversations()
         if limit < 1:
             return []
-        return await self._run(self._recent_turns, conversation_id, limit, exclude_request)
+        return await self._run(self._recent_turns, conversation_id, limit, exclude_request, since_utc)
 
     @staticmethod
     def _fts_query(query: str) -> str:

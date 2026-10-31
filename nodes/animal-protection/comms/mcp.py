@@ -46,7 +46,7 @@ class NodeMCP:
         async def get_status(fields: list[str] | None = None) -> dict[str, Any]:
             return await self._call("get_status", {"fields": fields})
 
-        @self.server.tool(description="Read this node's latest rule-brain assessment.")
+        @self.server.tool(description="Read this node's latest published reasoning assessment (rule or trained brains).")
         async def get_assessment() -> dict[str, Any]:
             return await self._call("get_assessment", {})
 

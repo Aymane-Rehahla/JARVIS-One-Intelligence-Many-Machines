@@ -28,7 +28,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from live_rig import LiveRig  # noqa: E402
+from live_rig import LiveRig, rig_models  # noqa: E402
 
 from eval_results import EvalResult, git_commit, utc_now, write_result  # noqa: E402
 from llm import agent as agent_module  # noqa: E402
@@ -40,6 +40,10 @@ SUPPORT_WORDS = 3
 STOP = set("this that with from have what when where which about there their they them then than into your sir "
            "farm time incubator incubators hvac animal protection machine machines manual says should would could "
            "will been were also only more most some such very just".split())
+
+
+def sentences(text: str) -> list[str]:
+    return [piece for piece in re.split(r"(?<=[.!?])\s+|\n+", text) if piece.strip()]
 
 
 def words(text: str) -> set[str]:
@@ -89,7 +93,10 @@ async def run() -> dict[str, Any]:
                     for citation in done.get("citations") or []:
                         texts = [p["text"] for p in passages(evidence) if p.get("file") == citation["file"]
                                  and p.get("section") == citation["section"]]
-                        shared = sorted(words(text) & words(" ".join(texts)))
+                        # stricter than the agent's own rule (the whole passage): one sentence of the passage must
+                        # share SUPPORT_WORDS words with one sentence of the reply (final review, 31 Oct)
+                        shared = max((sorted(words(said) & words(line)) for said in sentences(text)
+                                      for passage in texts for line in sentences(passage)), key=len, default=[])
                         cited.append({"file": citation["file"], "section": citation["section"],
                                       "found": bool(texts), "shared": shared[:12],
                                       "supported": len(shared) >= SUPPORT_WORDS})
@@ -123,7 +130,7 @@ def main() -> int:
     after_ok = after_total - sum(r["after_unmatched"] for r in rows)
     citations = [c for r in rows for c in r["citations"]]
     supported = sum(c["supported"] for c in citations)
-    common: dict[str, Any] = dict(commit=git_commit(), seeds=[7], models={}, started_utc=started_utc,
+    common: dict[str, Any] = dict(commit=git_commit(), seeds=[7], models=rig_models(), started_utc=started_utc,
                   duration_s=round(time.monotonic() - started, 1),
                   command=".venv\\Scripts\\python tests\\llm\\eval\\e1_e2_golden.py")
     after_share = after_ok / after_total if after_total else 1.0
@@ -145,8 +152,10 @@ def main() -> int:
         measured={"citations": len(citations), "supported": supported,
                   "share": round(share, 4) if share is not None else None, "support_words": SUPPORT_WORDS,
                   "rows": [{"id": r["id"], "citations": r["citations"]} for r in rows]}, **common,
-        notes="Judged automatically and lexically (a citation is supported when its passage shares at least "
-              f"{SUPPORT_WORDS} content words with the reply), not by a person."))
+        notes="Judged automatically and lexically, not by a person: a citation is supported when one sentence of "
+              f"its passage shares at least {SUPPORT_WORDS} content words with one sentence of the reply. The agent "
+              "itself cites a passage only when the whole passage shares 3 distinctive words with the reply, so this "
+              "judge is stricter than the agent's rule but of the same kind; the number of citations is small."))
     print(f"E1 before {before_ok}/{before_total} after {after_ok}/{after_total}; E2 {supported}/{len(citations)}")
     return 0
 

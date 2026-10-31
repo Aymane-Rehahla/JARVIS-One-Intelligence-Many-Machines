@@ -48,6 +48,18 @@ NATS_SERVER = ROOT / "third_party" / "nats-server" / "bin" / "nats-server.exe"
 LOG = logging.getLogger("live-rig")
 
 
+def rig_models(*extra: str) -> dict[str, str]:
+    """The SHA-256 of what the live rig runs (plan section 8: every result names its models): the two GGUFs and the
+    embedding model from models/MANIFEST.json, any `extra` manifest names, and the installed brain engines."""
+    from eval_results import file_sha256, model_hashes
+    found = model_hashes(["Qwen-3.5-2b-roleplay-tuned.Q8_0.gguf", "Qwen3-0.6B-Q8_0.gguf",
+                          "embeddings/bge-small-en-v1.5/model.onnx", *extra])
+    for machine, engine in sorted(fr.ENGINE_FILES.items()):
+        path = fr.RELEASE / "brains" / machine / engine
+        found[f"matrix/release_v31/brains/{machine}/{engine}"] = file_sha256(path)
+    return found
+
+
 def free_port() -> int:
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
