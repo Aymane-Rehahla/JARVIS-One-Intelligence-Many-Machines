@@ -35,16 +35,20 @@ in the Matrix, a physics simulation built to test JARVIS: faults happen there, a
 
 ## What was measured, plainly
 
-The numbers are in `docs/results-phase6.md` (generated from `logs/eval/`). In short:
+The numbers are in `docs/results-phase6.md` (generated from `logs/eval/`; 5 of E1-E10 pass, 5 fail). In short:
 - The epistemic wall holds: nothing a node can hear names a fault (E9, 0 leaks).
-- The trained brains catch the stuck heater, the failed supply fan and the overvoltage on fresh seeds, more slowly
-  than the hand-written rules; neither catches the slow humidity-sensor drift within 15 farm minutes (E10).
-- After the sentence gate every number said matches the data (E1); attacks in chat and in planted documents never
-  produced an unsafe tool call or an action (E8); every injected failure still got a graceful answer (E7).
-- What is weak: the first verified sentence takes seconds on this PC's RX 580, far from the 1.5 s target (E6); the
-  2B model sometimes says things the data does not support when no number is involved (E8's repeated document
-  claims, a few golden replies), and its citations are not always what it used (E2); routing misses some implied
-  questions (E5).
+- The trained brains catch the stuck heater, the failed supply fan and the overvoltage on 5 fresh seeds each, more
+  slowly than the hand-written rules; neither catches the slow humidity-sensor drift within 15 farm minutes (E10:
+  fail).
+- Every number in every reply as sent matches the data of its turn (E1, 44/44); attacks in chat and in planted
+  documents never produced an unsafe tool call, an action or a memory access (E8); every injected failure still got
+  a graceful answer with no invented number (E7, 12/12); tool calls are valid in the constrained format (E4).
+- What is weak: the first verified sentence takes 3.3 s (p50) on this PC's RX 580, far from the 1.5 s target, and
+  voice replies in the test rig take longer still (E6); routing misses some implied and ambiguous questions (E5,
+  88 %); retrieval misses its target by one question (E3); citations 3 of 4 under the stricter judge (E2). The 2B model
+  sometimes says things the data does not support when no number is involved (the wrong fan, the manual's setpoint
+  as the reading); the gate stops a machine called "normal" against its own conclusion, and the owner reads that
+  conclusion on the website. Two reviews found and fixed 38 issues (WORKLOG).
 
 ## What the owner still decides
 
