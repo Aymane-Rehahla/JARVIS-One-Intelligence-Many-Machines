@@ -1,9 +1,11 @@
 # memory/: the CMM and the node's knowledge
 
-The reasoning's memory: working memory (RAM), short-term episodes, long-term facts, hypotheses kept apart from facts,
-the normal profile by hour, and a nightly "sleep" that consolidates. SQLite, one database per node (`data/cmm.sqlite`).
-`working.py` and `cmm.py` arrive in step 6D from the training run's code snapshot. **The LLM never opens the CMM**
-(ground rule 2): neither `cmm.sqlite` nor working memory.
+The reasoning's memory (CMM): working memory (RAM), short-term episodes, long-term facts, hypotheses kept apart from
+facts, the normal profile by hour, and a nightly "sleep" that consolidates. **It runs beside the brain in the farm
+runtime** (decisions 0012, 0015, 0021): `farm_poc/nodes/cmm.py` of the installed release (`matrix/release_v31/`), one
+SQLite file per node in a fresh folder for every farm run (`matrix/data/cmm/<feed_id>/<node>.sqlite`, deleted at the
+next reset). It records what the brain concluded and what the machine reported; the trained brain does not read it
+(its notes are hidden, as in training). No CMM code is copied here. **The LLM never opens the CMM** (ground rule 2).
 
 ## rom/: the node's knowledge, approved by the owner
 
@@ -34,4 +36,4 @@ never touches it.
   store. **Out:** cited ROM passages and node-local LLM records; no CMM data crosses into the LLM.
 - **Tests:** `tests/test_knowledge.py` (headers, sources, approval), `tests/test_rom_quotes.py` (quotes word for word),
   `tests/test_rom_numbers.py` (every number matches the simulation), `tests/llm/test_documents.py` and
-  `tests/llm/test_conversation.py` (temporary indexes and stores), `tests/test_tree.py` (no CMM implementation before 6D).
+  `tests/llm/test_conversation.py` (temporary indexes and stores), `tests/test_tree.py` (no CMM code in the node folders), `tests/test_farm_trained.py` (fresh CMM files per run).

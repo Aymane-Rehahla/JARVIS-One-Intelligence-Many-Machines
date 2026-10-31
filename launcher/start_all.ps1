@@ -6,6 +6,9 @@ supervisor starts NATS, the LLM servers unless -NoLlm, the farm runtime, nodes, 
 .PARAMETER NoLlm
 Leave out the two llama.cpp servers. While the Phase 5 training runs, no LLM server may be started.
 
+.PARAMETER Feed
+The farm's brains: trained (default, the release's CTMs, decision 0021) or simulated (the snapshot's rule brains).
+
 .PARAMETER NoWebsite
 Do not start the website and do not open the browser.
 
@@ -26,6 +29,8 @@ powershell -ExecutionPolicy Bypass -File launcher\start_all.ps1 -NoLlm
 #>
 param(
     [switch]$NoLlm,
+    [ValidateSet("trained", "simulated")]
+    [string]$Feed = "trained",
     [switch]$NoWebsite,
     [string]$Ports = "",
     [string]$Logs = "",
@@ -132,6 +137,8 @@ if ($NoMonitor) {
 $onlyNames = @($Only -split "," | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 $arguments = @("`"$supervisor`"", "--ports", "`"$Ports`"", "--logs", "`"$Logs`"")
 if ($NoLlm) { $arguments += "--no-llm" }
+$arguments += "--feed"
+$arguments += $Feed
 if (-not $NoWebsite) { $arguments += "--website" }
 if ($onlyNames.Count -gt 0) {
     $arguments += "--only"

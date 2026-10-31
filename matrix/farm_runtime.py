@@ -1,8 +1,10 @@
 """The farm runtime: ticks the Matrix and the four reasoning brains, and publishes what each node may see on NATS.
 
-Step 6A (now) runs the **test feed**: the read-only snapshot of the farm (`_dev/farm_poc_snapshot/`) with its rule
-brains, labelled "live: simulated brains". Step 6D switches it to the copied farm and the trained CTMs ("live: trained
-brains"). Published (contracts.py; plan section 4.3):
+Two feeds (`--feed`, decision 0021). `simulated` (step 6A, the fast tests' default) is the read-only snapshot of the
+farm (`_dev/farm_poc_snapshot/`) with its rule brains, labelled "live: simulated brains". `trained` (step 6D, the
+launcher's default) is the release installed in `matrix/release_v31/` (decision 0015): its own Matrix code and the four
+trained CTM brains built exactly as the release's exam built them, each node keeping a CMM in a fresh SQLite file per
+farm run, labelled "live: trained brains". Published (contracts.py; plan section 4.3):
     farm.<node>.status, .assessment   every tick, at most MAX_PUBLISH_HZ times per real second (the latest wins)
     farm.<node>.events                every alarm raised or cleared, every safety-gate decision, offline/online
     farm.<node>.incident              when the node's reasoning opens, changes or closes an incident
@@ -26,13 +28,16 @@ The Matrix API (127.0.0.1, `matrix_api` in launcher/ports.toml) is how the gatew
 The snapshot's NodeRuntime imports its CTM brain module, which needs torch; this environment has no torch and the test
 feed runs rule brains only, so that one module is replaced by a stub that refuses to build a CTM (decision 0012).
 
-Usage: python matrix/farm_runtime.py [--seed N] [--speed S] [--paused] [--nats URL] [--port P] [--logs DIR | --no-logs]
+Usage: python matrix/farm_runtime.py [--feed simulated|trained] [--seed N] [--speed S] [--paused] [--nats URL]
+                                      [--port P] [--logs DIR | --no-logs]
 """
 from __future__ import annotations
 
 import argparse
 import asyncio
 import contextlib
+import copy
+import shutil
 import logging
 import secrets
 import sys
@@ -69,6 +74,16 @@ LINKS_EVERY_S = 10.0
 SPEED_WINDOW_S = 5.0
 MAX_SPEED = 1000.0
 LABEL: FeedLabel = "live: simulated brains"
+Feed = Literal["simulated", "trained"]
+LABELS: dict[str, FeedLabel] = {"simulated": "live: simulated brains", "trained": "live: trained brains"}
+RELEASE = ROOT / "matrix" / "release_v31"
+DATA = ROOT / "matrix" / "data"                         # gitignored: each farm run's CMM files (trained feed)
+#: The trained feed's farm: an ordinary library day (decision 0021): "normal" variant 1, a training-split mild day whose
+#: weather starts at 06:52 (start_hour 6.87); the brains get that start_hour, as in the exam.
+DAY_FAMILY, DAY_VARIANT = "normal", 1
+TORCH_THREADS = 1                                        # the exam's setting (decision 0021: measured, kept)
+ENGINE_FILES = {"incubator": "reasoning_engine_INCv3.1.pt", "hvac": "reasoning_engine_HVACv3.1.pt",
+                "animal_protection": "reasoning_engine_APv3.1.pt"}
 
 
 def sent_by(sender: object, node: str) -> bool:
@@ -177,6 +192,29 @@ def load_fault_tools() -> tuple[Any, Any]:
     return _make, _faults
 
 
+def load_release(release: Path = RELEASE) -> types.SimpleNamespace:
+    """The installed release's own classes (decision 0015), imported from `matrix/release_v31` (its packages are
+    `farm_poc` and `ctm_training`; the snapshot's is `farm_poc_snapshot`, so the two never mix)."""
+    if not (release / "PROVENANCE.json").is_file():
+        raise FileNotFoundError(f"the release is not installed in {release} (tools/install_release.py)")
+    if str(release) not in sys.path:
+        sys.path.insert(0, str(release))
+    import torch
+    from ctm_training.decide import Decider
+    from ctm_training.live import TrainedNodeBrain
+    from ctm_training.train import load_brain
+    from farm_poc.matrix.engine import MatrixEngine
+    from farm_poc.nodes.cmm import CognitiveMemory
+    from farm_poc.nodes.contracts import MACHINE_TYPES
+    from farm_poc.nodes.runtime import NodeRuntime
+    from farm_poc.scenarios.episode import _faults
+    from farm_poc.scenarios.library import _make
+    return types.SimpleNamespace(torch=torch, Decider=Decider, TrainedNodeBrain=TrainedNodeBrain, load_brain=load_brain,
+                                 MatrixEngine=MatrixEngine, CognitiveMemory=CognitiveMemory,
+                                 MACHINE_TYPES=MACHINE_TYPES, NodeRuntime=NodeRuntime, faults=_faults, make=_make,
+                                 brains=release / "brains")
+
+
 class DemoFaultRefused(Exception):
     """A demo fault that cannot start now (one is already active in this farm run)."""
 
@@ -186,18 +224,38 @@ class FarmRuntime:
 
     def __init__(self, link: NatsLink, *, logger: logging.Logger, seed: int = 7, speed: float = 1.0,
                  running: bool = True, config: Mapping[str, Any] | None = None,
-                 max_publish_hz: float = MAX_PUBLISH_HZ) -> None:
+                 max_publish_hz: float = MAX_PUBLISH_HZ, feed: Feed = "simulated", release: Path = RELEASE,
+                 data_dir: Path = DATA, threads: int = TORCH_THREADS) -> None:
         if not 0 < speed <= MAX_SPEED or max_publish_hz <= 0:
             raise ValueError("speed and publish rate must be positive")
+        if feed not in LABELS or threads < 1:
+            raise ValueError("the feed is simulated or trained, with at least one torch thread")
         self.link = link
         self.logger = logger
         self.seed = seed
-        self.config = dict(config or {})
         self.speed = speed
         self.running = running
         self.max_publish_hz = max_publish_hz
-        self._engine_cls, self._runtime_cls = load_snapshot()
-        self._make_spec, self._inject = load_fault_tools()
+        self.feed: Feed = feed
+        self.label: FeedLabel = LABELS[feed]
+        self.data_dir = data_dir
+        self._memories: list[Any] = []
+        self._memory_folder: Path | None = None
+        if feed == "trained":
+            self._release = load_release(release)
+            self._release.torch.set_num_threads(threads)
+            self._engine_cls, self._runtime_cls = self._release.MatrixEngine, self._release.NodeRuntime
+            self._make_spec, self._inject = self._release.make, self._release.faults
+            day = self._make_spec(DAY_FAMILY, DAY_VARIANT, False)
+            self.config = copy.deepcopy(dict(config or day.config))
+            self.start_hour = float(self.config.get("weather", {}).get("start_hour", 0.0))
+            self._loaded = {machine: self._release.load_brain(self._release.brains / machine / name,
+                                                               self._release.brains, "cpu")
+                            for machine, name in ENGINE_FILES.items()}
+        else:
+            self.config = dict(config or {})
+            self._engine_cls, self._runtime_cls = load_snapshot()
+            self._make_spec, self._inject = load_fault_tools()
         self._demo_specs: dict[ScenarioId, tuple[int, Any]] = {}
         self.engine: Any = None
         self.runtime: Any = None
@@ -209,9 +267,14 @@ class FarmRuntime:
     def reset(self) -> None:
         """A fresh farm and fresh brains, as a new farm run with its own feed_id (ticks, event sequences and incident
         ids start again, so the nodes must not mix them with the previous run's)."""
-        self.engine = self._engine_cls(seed=self.seed, config=self.config or None)
-        self.runtime = self._runtime_cls(self.engine)
         self.feed_id = secrets.token_hex(6)
+        self.close_memories()
+        if self.feed == "trained":
+            self.engine = self._engine_cls(seed=self.seed, config=copy.deepcopy(self.config))
+            self.runtime = self._trained_runtime()
+        else:
+            self.engine = self._engine_cls(seed=self.seed, config=self.config or None)
+            self.runtime = self._runtime_cls(self.engine)
         self._alarms: dict[str, dict[str, tuple[Literal["alarm", "fault"], Literal["info", "warning", "critical"]]]] = {
             node: {} for node in NODE_IDS}
         self._online: dict[str, bool] = {node: True for node in NODE_IDS}
@@ -234,6 +297,38 @@ class FarmRuntime:
     @property
     def time_s(self) -> float:
         return float(self.engine.clock.time)
+
+    def _trained_runtime(self) -> Any:
+        """The four trained brains as the release's exam built them (`ctm_training.practice.CheckpointBrains`): one
+        loaded copy per machine, a deep copy per node (each incubator its own), the tuned decision layer,
+        hide_notes=True, hold_calls=True, the day's start_hour; each node's CMM in this run's own folder."""
+        release = self._release
+        brains = {}
+        for node in NODE_IDS:
+            machine = release.MACHINE_TYPES[node]
+            decider = release.Decider.for_checkpoint(release.brains / machine / ENGINE_FILES[machine])
+            brains[node] = release.TrainedNodeBrain(copy.deepcopy(self._loaded[machine]), self.start_hour, decider,
+                                                    False, True, True)
+        folder = self.data_dir / "cmm" / self.feed_id
+        folder.mkdir(parents=True, exist_ok=True)
+        self._memory_folder = folder
+
+        def memory(node: str) -> Any:
+            made = release.CognitiveMemory(node, folder / f"{node}.sqlite")
+            self._memories.append(made)
+            return made
+        return self._runtime_cls(self.engine, modes={node: "real" for node in NODE_IDS}, brains=brains,
+                                 memory_factory=memory)
+
+    def close_memories(self) -> None:
+        """Close this run's CMM files and delete their folder (a reset is a new run with fresh memories)."""
+        for memory in self._memories:
+            with contextlib.suppress(Exception):
+                memory.close()
+        self._memories = []
+        if self._memory_folder is not None:
+            shutil.rmtree(self._memory_folder, ignore_errors=True)
+            self._memory_folder = None
 
     @property
     def step_seconds(self) -> float:
@@ -273,7 +368,7 @@ class FarmRuntime:
 
     def _common(self, node: NodeId) -> dict[str, Any]:
         farm_time, _ = self.farm_time()
-        return {"node": node, "tick": self.tick, "time_s": self.time_s, "farm_time": farm_time, "label": LABEL,
+        return {"node": node, "tick": self.tick, "time_s": self.time_s, "farm_time": farm_time, "label": self.label,
                 "feed_id": self.feed_id}
 
     def messages_for_tick(self, results: Mapping[str, Any], *, include_state: bool) -> list[tuple[str, BaseModel]]:
@@ -372,7 +467,7 @@ class FarmRuntime:
     def sim_state(self) -> SimState:
         farm_time, day = self.farm_time()
         return SimState(tick=self.tick, time_s=self.time_s, farm_time=farm_time, day=day, running=self.running,
-                        target_speed=self.speed, actual_speed=round(self.actual_speed(), 3), label=LABEL,
+                        target_speed=self.speed, actual_speed=round(self.actual_speed(), 3), label=self.label,
                         episode_id=str(self.engine.world.episode_id), feed_id=self.feed_id)
 
     def link_state(self) -> LinkStatus:
@@ -544,7 +639,7 @@ def create_api(farm: FarmRuntime) -> FastAPI:
 
     @app.get("/health")
     def health() -> dict[str, JsonValue]:
-        return {"status": "ok", "tick": farm.tick, "running": farm.running, "label": LABEL}
+        return {"status": "ok", "tick": farm.tick, "running": farm.running, "label": farm.label, "feed": farm.feed}
 
     @app.post("/sim/{action}")
     async def sim(action: Literal["start", "pause", "reset", "speed"], body: SpeedRequest | None = None) -> SimState:
@@ -592,7 +687,8 @@ async def amain(args: argparse.Namespace) -> int:
     except Exception as error:                                 # NoServersError and friends
         log(logger, logging.ERROR, "NATS unreachable", error=str(error))
         return 2
-    farm = FarmRuntime(link, logger=logger, seed=args.seed, speed=args.speed, running=not args.paused)
+    farm = FarmRuntime(link, logger=logger, seed=args.seed, speed=args.speed, running=not args.paused,
+                       feed=args.feed, threads=args.threads)
     server = uvicorn.Server(uvicorn.Config(create_api(farm), host=ports["host"], port=args.port or ports["matrix_api"],
                                            log_level="warning", lifespan="off"))
     stop = asyncio.Event()
@@ -605,6 +701,7 @@ async def amain(args: argparse.Namespace) -> int:
         with contextlib.suppress(Exception):
             await asyncio.wait_for(api, timeout=5.0)
         await link.close()
+        farm.close_memories()
         log(logger, logging.INFO, "farm runtime stopped", tick=farm.tick)
     return 0
 
@@ -612,6 +709,9 @@ async def amain(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     """Command-line entry point; returns the process exit code."""
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--feed", choices=("simulated", "trained"), default="simulated",
+                        help="simulated: the snapshot's rule brains (default); trained: the release's CTMs (6D)")
+    parser.add_argument("--threads", type=int, default=TORCH_THREADS, help="torch threads, trained feed (default 1)")
     parser.add_argument("--seed", type=int, default=7, help="farm seed (default 7)")
     parser.add_argument("--speed", type=float, default=1.0, help="farm seconds per real second (default 1)")
     parser.add_argument("--paused", action="store_true", help="start paused")

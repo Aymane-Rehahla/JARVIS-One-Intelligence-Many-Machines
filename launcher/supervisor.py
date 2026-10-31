@@ -4,7 +4,7 @@ program that ends (Q6), and stops them all in reverse order.
 The programs (plan section 4.1), all on 127.0.0.1 with the ports of launcher/ports.toml:
     nats                 third_party/nats-server/bin/nats-server.exe -c nats.conf     ready when its port accepts
     llama-<node>         each node's llama.cpp server (llm/engines.py); left out with --no-llm   GET /health is 200
-    farm                 matrix/farm_runtime.py (the 6A test feed)                                GET /health is 200
+    farm                 matrix/farm_runtime.py (--feed trained by default; simulated: the 6A feed) GET /health is 200
     incubator-1 ...      nodes/<node>/runtime.py, one program per node                            running
     gateway              interface/gateway/gateway.py                                             GET /health is 200
     website              npm run dev in interface/web (only with --website)                       GET / is 200
@@ -19,7 +19,8 @@ programs start at below-normal priority (--normal-priority to change). The state
 logs/supervisor.status.json.
 
 Usage (from the project folder):
-    python launcher/supervisor.py [--no-llm] [--website] [--only nats,farm,...] [--ports FILE] [--logs DIR]
+    python launcher/supervisor.py [--no-llm] [--website] [--feed trained|simulated] [--only nats,farm,...]
+                                  [--ports FILE] [--logs DIR]
     python launcher/supervisor.py --stop          ask the running supervisor to stop everything, then wait
 Exit codes: 0 stopped, 1 a program never became ready, 2 bad arguments or a supervisor already runs.
 """
@@ -119,7 +120,7 @@ def read_ports(path: Path) -> dict[str, Any]:
 
 
 def build_programs(ports: dict[str, Any], *, llm: bool, website: bool, nodes: tuple[NodeId, ...] = NODE_IDS,
-                   ports_file: Path = ROOT / "launcher" / "ports.toml") -> list[Program]:
+                   ports_file: Path = ROOT / "launcher" / "ports.toml", feed: str = "trained") -> list[Program]:
     """Every program in start order, with explicit ports so no program has to read ports.toml itself."""
     host = str(ports["host"])
     nats_url = f"nats://{host}:{ports['nats']}"
@@ -133,7 +134,8 @@ def build_programs(ports: dict[str, Any], *, llm: bool, website: bool, nodes: tu
             programs.append(Program(f"llama-{node}", tuple(server_command(spec)), ROOT,
                                     Health("http", url=f"{spec.url}/health"), ready_timeout_s=240.0))
     programs.append(Program("farm", (python, str(ROOT / "matrix" / "farm_runtime.py"), "--nats", nats_url, "--port",
-                                     str(ports["matrix_api"])), ROOT, Health("http", url=f"{matrix_url}/health"),
+                                     str(ports["matrix_api"]), "--feed", feed), ROOT,
+                            Health("http", url=f"{matrix_url}/health"),
                             depends_on=("nats",), ready_timeout_s=60.0))
     for node in nodes:
         dependencies = ("nats", f"llama-{node}") if llm else ("nats",)
@@ -443,7 +445,8 @@ async def amain(args: argparse.Namespace) -> int:
         ports = read_ports(args.ports)
         nodes: tuple[NodeId, ...] = tuple(node for node in NODE_IDS if not args.only or node in args.only
                                           or f"llama-{node}" in args.only)
-        programs = build_programs(ports, llm=not args.no_llm, website=args.website, nodes=nodes, ports_file=args.ports)
+        programs = build_programs(ports, llm=not args.no_llm, website=args.website, nodes=nodes, ports_file=args.ports,
+                                  feed=args.feed)
         try:
             supervisor = Supervisor(select_programs(programs, args.only), logs=logs, logger=logger,
                                     below_normal=not args.normal_priority)
@@ -478,6 +481,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--stop", action="store_true", help="stop the running supervisor and everything it runs")
     parser.add_argument("--no-llm", action="store_true", help="leave out every node's llama.cpp server")
     parser.add_argument("--website", action="store_true", help="also run the website (npm run dev)")
+    parser.add_argument("--feed", choices=("trained", "simulated"), default="trained",
+                        help="the farm runtime's brains: the release's trained CTMs (default) or the snapshot's rules")
     parser.add_argument("--only", type=lambda s: {x.strip() for x in s.split(",") if x.strip()}, default=set(),
                         help="run only these programs, e.g. nats,farm,incubator-1,hvac,gateway")
     parser.add_argument("--ports", type=Path, default=ROOT / "launcher" / "ports.toml", help="ports file")

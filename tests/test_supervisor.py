@@ -195,7 +195,7 @@ async def test_bad_dependencies_exit_two_with_a_logged_reason(tmp_path: Path, mo
     monkeypatch.setattr(resource_monitor, "register_guarded", lambda *args, **kwargs: None)
     monkeypatch.setattr(resource_monitor, "unregister_guarded", lambda *args, **kwargs: None)
     args = Namespace(no_llm=True, website=False, only=set(), ports=ROOT / "launcher" / "ports.toml", logs=tmp_path,
-                     normal_priority=False, echo=False)
+                     normal_priority=False, echo=False, feed="trained")      # 6D: the CLI's new --feed
     assert await sv.amain(args) == 2
     assert "depends on unknown programs" in capsys.readouterr().out
     records = (tmp_path / "supervisor.jsonl").read_text(encoding="utf-8")

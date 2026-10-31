@@ -35,6 +35,70 @@ restarted, with the second review's guard code, at 04:33:39.** Nothing of ours r
 and it stopped nothing, because nothing of ours was registered (it rewrote an empty `logs/guarded.json` at 05:12).
 Since 06:00 the commit headroom has stayed at 5.0 GiB or more. Lesson: start nothing while the training changes phase.
 
+## Step 6D, part 1: the trained brains installed inside JARVIS (31 Oct 2026)
+
+The release folder and the upstream CTM folder were only ever passed on the command line; no file, log or message
+names them. Everything that ran from them ran with `-B`. **Proof that nothing was written there:** a listing of both
+folders (every name, size and modification time; 180 and 152 entries) taken before the probe and again after the
+probe, the installs and every equivalence run: SHA-256 `8aad6584…e452b` each time, identical.
+
+### torch (P3 step 1)
+`torch==2.14.1` added to `requirements.in` (the training's version); the lock regenerated with its own command. **No
+existing pin changed**; added: torch 2.14.1, sympy 1.14.0, networkx 3.7, jinja2 3.1.6, markupsafe 3.0.4, mpmath
+1.3.0. Installed from the hashed lock: the wheel `torch-2.14.1-cp312-cp312-win_amd64.whl` is 124.1 MB (539 MB
+installed), a `+cpu` build. (README section 6 unknown, answered: torch 2.14.1 resolves to a Windows wheel for Python
+3.12 on PyPI.) The full old-name scan's big-file rule now also accepts big files of installed packages whose content
+matches their package's RECORD (torch_cpu.dll); the rule stays exhaustive.
+
+### What the brains need (P3 step 2, `tools/release_probe.py`)
+Under the training's Python with `-B`: the exam's harness and the README's live recipe (CMM in a temporary folder),
+30 ticks each. Loaded: 71 modules from `code_snapshot/` (`ctm_training`, `farm_poc`) and 6 from the upstream library
+(`models/ctm.py`, `ctm_rl.py`, `modules.py`, `resnet.py`, `utils.py`, `constants.py`), plus its LICENSE.
+
+### The install (P3 step 3, `tools/install_release.py`)
+88 files in `matrix/release_v31/` (7.9 MB): 70 copied byte for byte, 15 renamed by the word map (the reverse map
+gives each release file back byte for byte), 3 engines re-saved as `{config, state_dict}` (44 tensors each, every
+tensor `torch.equal`, the configs equal and free of the old name; dropped keys listed in `PROVENANCE.json`), and each
+brain's `decide.json` and `stats.npz` copied. `PROVENANCE.json` has both SHA-256s and how each file was installed,
+and no path outside JARVIS. A second run gave byte-identical files (tree hash `d3be945f…afee6` both times);
+`tests/test_install_release.py` proves the same on a fake release, and every refusal (another spelling, "testbed"
+already present, the name in a config or in `decide.json`). `memory/cmm.py` equals the snapshot's `farm_poc/nodes/
+cmm.py` (checked). pyright and coverage skip the frozen copy; the old-name scan does not.
+
+### The equivalence (P3 step 4, `tools/release_equivalence.py`): it differs, and why
+The exam's harness on one ordinary episode per demo-fault family (heater relay stuck v9: 2,726 ticks; supply fan
+failure v1: 2,334; sensor fault v228: 2,063; overvoltage v1: 1,800; full lengths, about 60-105 s each):
+
+| Run | Result |
+|---|---|
+| release (training's Python 3.14) vs installed copy (.venv 3.12) | **differs from tick 0**: incubator-1 confidence 0.40775 vs 0.410387 (assessment, diagnosis, gate and incident the same at that tick) |
+| release code on 3.12 vs on 3.14 (200 ticks) | 0 differences: the interpreter is not the cause |
+| release code with the installed weights (30 ticks) | the release's numbers: the weights are not the cause |
+| installed code with the release's weights (30 ticks) | the copy's numbers: the code is the cause |
+| installed copy with its five seed strings mapped back at run time (`--restore-salts`), full lengths | **0 differences** over 8,923 ticks x 4 nodes |
+
+The cause: the Matrix code seeds its random streams with strings that start with the old name (the phone service,
+the sensors, the weather, the peer bus, the episode id's uuid5); the word map renames them, so the copy draws other
+random numbers. The copy is the same brain and logic. **Owner question** (decision 0021): keep the renamed seeds
+(default) or restore them at run time.
+
+### The trained feed (P3 step 5)
+`--feed trained` (decision 0021): normal day variant 1 (starts 06:52; the brains' start hour equals the engine's hour
+at tick 0), the exam's brain recipe, a CMM per node per run, label "live: trained brains", `brain = "ctm"`. Every
+Matrix API route works on it (`tests/test_farm_trained.py`). Speed: 35 ms a tick, about 28x at most; threads 1 / 2 / 4
+gave 28.2 / 30.1 / 30.8 ticks/s, 1 kept. The owner acknowledgement: every brain notification's incident id is one its
+node published (nodes may adopt a peer's id, e.g. animal protection notifying about `incubator-1-equipment-0001`), and
+the Matrix route marks it (test). Measured in process on the four demo faults (900 ticks each, renamed seeds):
+
+| Demo fault | The faulted machine's node | Others |
+|---|---|---|
+| heater relay stuck (incubator-1) | ESCALATE_TO_USER, HEATER_FAULT at tick 47 | animal protection ESCALATE (water supply loss) at tick 14: a false alert |
+| supply fan failure (hvac) | HANDLED_BY_MACHINE, SUPPLY_FAN_FAULT at tick 186 | incubators WATCHING (external hazard) at 193; animal protection false alert at 14 |
+| humidity sensor drift (incubator-2) | **not caught** in 900 ticks (as with the rule brains) | animal protection false alert at 14 |
+| supply overvoltage (both incubators) | both HANDLED_BY_MACHINE, SUPPLY_OVERVOLTAGE at tick 2 | animal protection ESCALATE (power outage) at 9 |
+
+Not done yet in 6D: the real run from the website with `start_all.ps1 -NoLlm`, E9, E10, the review and the tag.
+
 ## Step 6W, part 2 (first piece): the website's chat, acknowledgement, alerts and LLM switches (31 Oct 2026)
 
 - Built: `src/services/chat.ts` (the conversation as a pure reducer, the `/ws/chat` client with zod checks and
