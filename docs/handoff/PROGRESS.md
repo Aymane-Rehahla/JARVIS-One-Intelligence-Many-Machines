@@ -3,47 +3,43 @@
 Re-read this file and `docs/handoff/README.md` section 4 after any context summary, before continuing.
 Never write the three outside paths (the release folder, the training's Python, the upstream CTM folder) here.
 
-## Done
+## Done (31 Oct, about 06:00)
 
-| Step | Commit / tag | Evidence |
+| Step | Commits / tag | Evidence |
 |---|---|---|
-| Step 0: redesigned website swapped in | `7de674e` | WORKLOG.md, "Step 0" |
-| P1 (6W part 1): demo faults, live website, review fixed, decision 0020 | `aab8b04`, `35e6297`, `9430629`, tag `step-6W` | WORKLOG.md, "Step 6W, part 1" |
-| 6C engines: streaming, tool calls, KV cache decision 0017 (keep f16; flash attention works) | `b4c25b3` | decision 0017 |
-| 6C agent, peer minds, alerts, failure switches, node wiring; decisions 0018, 0019 | `77c45b5` | tests/llm/test_agent.py, test_minds_alerts_failures.py, tests/test_node.py |
-| 6C gateway routes (/ws/chat, /ws/audit, mentor switches, ack) + Matrix ack route + tools/chat_cli.py | `f7e0fcd` | tests/test_gateway_chat.py, tests/test_farm_runtime.py |
-| 6C prompt-cache warm-up; the real-model "Done when" test passes (answered, hvac asked, manual cited, farm time) | see `git log` | WORKLOG "Step 6C, part 1" |
-| Website chat, confirm click, alert banner, LLM switches, JARVIS identity; checked on the real stack (-NoLlm) | see `git log` | WORKLOG "Step 6W, part 2 (first piece)" |
+| Step 0: redesigned website | `7de674e` | WORKLOG "Step 0" |
+| P1 (6W part 1) | tag `step-6W` | WORKLOG "Step 6W, part 1" |
+| 6C: engines, agent, minds, alerts, failure switches, gateway chat routes, Matrix ack, prompt-cache warm-up | `b4c25b3` .. `44847ad` | WORKLOG "Step 6C, part 1"; decisions 0017-0019 |
+| Website chat, confirm click, alert banner, LLM switches, JARVIS identity | `acad25a` | WORKLOG "Step 6W, part 2" |
+| 6D: torch, install with proofs, equivalence (differs only by the renamed seeds), trained feed, real run, E9, E10 | `92090d1`, `8cdfb81`, `f5c9211` | WORKLOG "Step 6D, part 1"; decision 0021 |
+| Evaluation scripts E1-E10, live rig, gate rules and documents fixes | `f5c9211` | logs/eval/*.json (results to WORKLOG) |
+| 6E: voice box, VAD/STT/TTS, voice routes, website voice panel, D1 passes | `1bf6ed6`, `00f6c8b` | decision 0022 |
+| Citations only when used; story and architecture docs | `bb917bb` | |
 
-Measured on 31 Oct: the snapshot's owner notifications name their sender `jarvis-<node>`, and their incident id is
-the one the runtime publishes (README section 6 unknown, answered for the test feed; P3 must check the trained feed).
+## In flight
 
-## Next (in order)
+- The evaluation chain (E1/E2 rerun done; E6 text, E8, E4, E6 voice with 10 real-agent runs) in the background.
+- An independent review of everything since `step-6W` (subagent, read-only).
 
-1. P3 (6D): torch into requirements, install_release, equivalence proof, trained feed, ack route on both feeds,
-   E9/E10, decision 0021.
-2. Rest of P2: E7 (real llama-server kill), E8, E1/E2 golden, E4, E5 (>= 40 questions), E6 text; review; tag `step-6C`.
-3. Website: JARVIS AI page (W7), audit/latency view (A10); then P4 voice; tag `step-6E`.
-4. run_all -> docs/results-phase6.md. 5. 6F (bugs, review, 3 rehearsals, docs, tag).
+## Next
 
-D2 persona search: 0 of 36 configurations eligible, so no blind sheet and nothing installed (the spec's provisional
-persona stays). The owner has nothing to rate from that run.
+1. Fix the review's findings; E-results into WORKLOG; full suite twice + pyright; tags `step-6C`, `step-6D`, `step-6E`.
+2. `run_all.py` -> `docs/results-phase6.md`.
+3. 6F: final review against plan sections 2, 3, 8; three cold-start rehearsals (start_all with the LLM servers; the
+   four faults from the website; a chat question; a push-to-talk question with `JARVIS_VOICE_WAV=logs\rehearsal_question.wav`;
+   hot-join by killing a node program); docs; tag `step-6F`; final checks (suite twice, pyright, website build, the
+   full name scan, nothing left running) and the owner's summary.
 
-## Open bugs found (to log in WORKLOG and fix)
+## Measured so far (details in WORKLOG and logs/eval)
 
-- `documents.py` (from the E3 helper): search cuts each passage to 1200 characters (4 passages are longer, may hurt E2);
-  keyword query ORs every word including stopwords; H1 titles become tiny distractor passages; `_TokenCounter`
-  catches every exception silently.
-- The logo/titles still say "JARVIS Farm" (owner's identity fix, MIND.md section 0): not done.
-- 6W L8 (known limit): an old open alarm can fall out of the website's 50-event window.
-- P1 real run: the humidity-drift demo fault got no reaction from the rule brain in 127 farm minutes (reported, not
-  tuned).
+E1 after the gate 27/27 (before 21/23). E2 3/12 before the citation fix. E3 hybrid R@4 0.891 after the documents
+fixes (was 0.909; one question). E5 60/68 = 88.2 % (target 95 %; not tuned). E7 12/12 graceful. E8 0 unsafe, 0 actions,
+0 CMM (but the model repeated planted claims; two gate rules added). E9 0 leaks. E10 trained: heater, fan, overvoltage
+5/5 each, drift 0/5 (rules also 0/5). E6 text first chunk p50 4.6 s before the focused prompt and the 6 s watchdog.
 
-## Open questions / owner actions
+## Owner questions / actions
 
-- The owner alone: approve the 20 ROM documents; rate the persona (blind sheet from the D2 search in
-  `logs/persona_search/`); record the backup video.
-- The hand-in must carry `interface/web/public/assets/farm/` (3D models, about 277 MB, out of git; see
-  `interface/web/assets-manifest.json`).
-- Port 5173 may be held by another session's vite dev server (seen 30 Oct, not started by this builder); it must be
-  stopped before the cold-start rehearsals.
+- Decision 0021: keep the renamed random seeds (default) or restore them at run time?
+- Approve the 20 ROM documents (citations in real use depend on it); the persona search found 0 eligible
+  configurations, so there is no blind sheet; record the backup video; carry `interface/web/public/assets/farm/`.
+- Alerts flip when the hvac brain flips (one owner alert per flip): calm alerts per node, or keep as specified?
