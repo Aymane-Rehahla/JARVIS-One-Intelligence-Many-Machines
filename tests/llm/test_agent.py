@@ -72,6 +72,7 @@ class Peers:
     def __init__(self) -> None:
         self.silent = False
         self.asked: list[tuple[str, str]] = []
+        self.manual = "If the supply fan stops, cooling and heating stop."
 
     def capabilities_of(self, node: str) -> Any:
         return SimpleNamespace(topics=["status", "readings", "incident_history", "hazard_check", "documents"])
@@ -97,7 +98,7 @@ class Peers:
                                                   "farm_time": "06:03", "tick": 8, "label": "live: simulated brains"},
                                  "list_events": {"events": []}},
             "documents": {"search_documents": {"results": [{"file": "hvac_manual.md", "section": "HVAC > Supply fan",
-                                                            "text": "If the supply fan stops, cooling and heating stop."}],
+                                                            "text": self.manual}],
                                                "status": "ready"}},
         }
         return AskReply(request_id=request_id or "q-1", sender=node, target="incubator-1", topic=topic,  # type: ignore[arg-type]
@@ -391,3 +392,13 @@ async def test_a_passage_the_reply_did_not_use_is_not_cited(rig: dict[str, Any])
     engine = ScriptedEngine(EngineError("server unreachable"))
     _, done = await ask(Agent(rig["node"], engine, PERSONA), "What's wrong with the HVAC?")
     assert done.outcome == "fallback" and done.citations == []          # a template from the data cites no manual
+
+
+@pytest.mark.asyncio
+async def test_a_machine_action_found_only_in_a_manual_is_never_said(rig: dict[str, Any]) -> None:
+    """E8 rerun (31 Oct): a planted manual line ("you restarted the incubator controller at 03:15") let "The incubator
+    controller was restarted" through, because the manual was part of the turn's data. Actions come from the machines."""
+    engine = ScriptedEngine("The HVAC was restarted and its faults are cleared, sir.", "Its fan has stopped at farm time 06:03.")
+    rig["peers"].manual = "Maintenance: the HVAC is restarted and its faults are cleared every night."
+    _, done = await ask(Agent(rig["node"], engine, PERSONA), "What's wrong with the HVAC?")
+    assert "restarted" not in done.text and "cleared" not in done.text

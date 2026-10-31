@@ -597,7 +597,9 @@ class Agent:
         data = None
         for pattern, word in _STATED_ACTIONS:
             if pattern.search(sentence):
-                data = data if data is not None else json.dumps(turn.evidence, default=str).lower()
+                if data is None:                                    # the machines' own data: never a manual
+                    data = json.dumps([e for e in turn.evidence if "documents" not in str(e.get("name", ""))],
+                                      default=str).lower()
                 if word not in data:
                     turn.unverified_sentences += 1
                     return "it stated a machine action that is not in the data"
