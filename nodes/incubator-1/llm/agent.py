@@ -49,7 +49,7 @@ RADIO_S = PEER_DEADLINE_S                     # 3.0: the radio's own deadline fo
 ASK_PEER_S = PEER_DEADLINE_S + 0.5            # 3.5: the ask_peer tool's deadline (tools.py)
 GATHER_S = ASK_PEER_S + 0.5                   # 4.0: all the turn's parallel questions
 LLM_CALL_S = 10.0                             # one call to the 2B model
-FIRST_TOKEN_S = 4.0                           # its first token
+FIRST_TOKEN_S = 6.0                           # its first token (measured 31 Oct: prefill 3.5 s typical, 6.6 s with all four servers busy)
 TURN_S = 25.0                                 # the whole turn
 GATEWAY_CHAT_S = 30.0                         # the gateway's deadline for a ChatDone (interface/gateway)
 ALERT_TEMPLATE_S = 0.5                        # an alert's template is sent within this of hearing it
@@ -174,12 +174,15 @@ class Turn:
     tool_calls_invalid: int = 0
     unverified_sentences: int = 0                                   # sentences the gate stopped (E1's "before")
     regenerated: bool = False
+    focus: tuple[str, ...] = ()                                  # the machines the question is about
 
     def newest(self) -> tuple[str | None, FeedLabel | None]:
         """The farm time and label of the newest data of this turn (the highest tick). A silent peer's remembered
         answer is an older report, quoted with its own time, so it counts only when nothing fresh came back."""
         best: tuple[int, str, FeedLabel | None] | None = None
         fresh = [m for m in self.machines.values() if not m.remembered]
+        asked = [m for m in fresh if m.node in self.focus and m.farm_time is not None]
+        fresh = asked or fresh                                      # the time of the data the reply is about
         for machine in fresh if any(m.farm_time is not None for m in fresh) else self.machines.values():
             if machine.farm_time is not None and machine.tick is not None:
                 label = machine.label if machine.label in ("live: simulated brains", "live: trained brains") else None
@@ -324,6 +327,7 @@ class Agent:
                 await send(REFUSALS[refusal])
                 return
             where = route(text, self_node=self.node.id)
+            turn.focus = tuple(where.machines)
             if _ACK.search(text):
                 await self._offer_ack(text, where, turn, send)
                 return
@@ -457,6 +461,8 @@ class Agent:
     def _data_block(self, turn: Turn) -> dict[str, Any]:
         block: dict[str, Any] = {}
         for node, data in turn.machines.items():
+            if turn.focus and node not in turn.focus and any(n in turn.machines for n in turn.focus):
+                continue                                            # gathered for its farm time; not asked about
             entry: dict[str, Any] = {"machine": NAMES[node], "farm_time": data.farm_time}
             if data.assessment:
                 entry["conclusion"] = {k: data.assessment.get(k) for k in

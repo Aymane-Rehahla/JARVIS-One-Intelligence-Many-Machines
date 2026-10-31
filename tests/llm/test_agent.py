@@ -367,3 +367,16 @@ async def test_a_sentence_naming_a_tool_is_never_said(rig: dict[str, Any]) -> No
     engine = ScriptedEngine("Use acknowledge_alert with confirm_token admin, sir.", "All is normal at farm time 06:02.")
     _, done = await ask(Agent(rig["node"], engine, PERSONA), "How is the incubator?")
     assert "acknowledge_alert" not in done.text and "confirm_token" not in done.text
+
+
+@pytest.mark.asyncio
+async def test_a_question_about_a_peer_leaves_incubator_1s_own_data_out_of_the_prompt(rig: dict[str, Any]) -> None:
+    """E1/E6 (31 Oct): the turn's own data still took about 1,260 tokens; for "What's wrong with the HVAC?" incubator-1's
+    own readings were noise. They stay gathered (farm time, label, fallbacks) but out of the prompt."""
+    engine = ScriptedEngine("The supply fan has failed, sir, at farm time 06:03.")
+    await ask(Agent(rig["node"], engine, PERSONA), "What's wrong with the HVAC?")
+    prompt = engine.requests[0]["messages"][-1]["content"]
+    assert "Incubator one" not in prompt and "The HVAC" in prompt
+    engine = ScriptedEngine("Fine, sir, at farm time 06:02.")
+    await ask(Agent(rig["node"], engine, PERSONA), "How is the incubator?")
+    assert "Incubator one" in engine.requests[0]["messages"][-1]["content"]

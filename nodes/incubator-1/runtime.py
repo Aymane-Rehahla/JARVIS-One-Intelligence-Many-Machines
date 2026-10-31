@@ -25,6 +25,8 @@ import signal
 import sys
 import tomllib
 from pathlib import Path
+from collections.abc import AsyncIterator
+from typing import Any
 
 NODE_DIR = Path(__file__).resolve().parent
 ROOT = NODE_DIR.parents[1]
@@ -69,7 +71,41 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     where.add_argument("--logs", type=Path, default=ROOT / "logs", help="log folder (default: logs/)")
     where.add_argument("--no-logs", action="store_true", help="no log file")
     parser.add_argument("--echo", action="store_true", help="also print the log to stderr")
+    parser.add_argument("--no-voice", action="store_true", help="do not start the voice box (voice = true nodes)")
     return parser.parse_args(argv)
+
+
+async def start_voice(node: Node, link: NatsLink, logger: logging.Logger) -> Any:
+    """incubator-1's voice box (P4 section 2): the models from models/voice, the PC's microphone and speakers, the
+    agent's reply as its answer, every owner alert spoken. The models load in the background; a missing microphone
+    is a status, never a crash."""
+    from contracts import ChatDone, ReplyTimings, jarvis_subject
+    from voice.pipeline import SoundDeviceAudio, VoiceBox
+    from voice.stt import SpeechToText
+    from voice.tts import TextToSpeech
+    from voice.vad import Vad
+    models = ROOT / "models" / "voice"
+    stt = SpeechToText(models / "parakeet-tdt-0.6b-v2-int8")
+    tts = TextToSpeech(models / "kokoro-multi-lang-v1_0")
+    vad = Vad(models / "silero-vad" / "silero_vad.onnx")
+    agent = node.agent
+
+    async def no_agent(text: str, **options: Any) -> AsyncIterator[Any]:
+        yield ChatDone(request_id=options["request_id"], conversation_id=options.get("conversation_id") or "voice",
+                       text="My language model is not running, sir.", chunks=0, outcome="error",
+                       reason="the agent is not running", numbers_checked=0, timings=ReplyTimings(total_ms=0))
+
+    async def publish(status: Any) -> None:
+        await link.publish(jarvis_subject(node.id, "voice"), status)
+    box = VoiceBox(answer=agent.reply if agent is not None else no_agent, publish=publish, stt=stt, tts=tts,
+                   audio=SoundDeviceAudio(), vad=vad, store=node.store, logger=logger)
+    if agent is not None:
+        agent.add_alert_listener(box.announce)
+    await box.start()
+    await box.serve(link)
+    asyncio.get_running_loop().run_in_executor(None, lambda: (stt.load(), tts.load()))
+    log(logger, logging.INFO, "voice box started", mic=box.audio.mic)
+    return box
 
 
 async def run(args: argparse.Namespace) -> int:
@@ -98,10 +134,18 @@ async def run(args: argparse.Namespace) -> int:
             with contextlib.suppress(NotImplementedError, ValueError):
                 signal.signal(getattr(signal, name), lambda *_: loop.call_soon_threadsafe(stop.set))
     await node.start()
+    box = None
+    if config.voice and not args.no_voice:
+        try:
+            box = await start_voice(node, link, logger)
+        except Exception as error:                            # the node runs on without a voice
+            log(logger, logging.ERROR, "voice box not started", error=repr(error)[:300])
     try:
         await stop.wait()
     finally:
         log(logger, logging.INFO, "stopping", node=config.id)
+        if box is not None:
+            await box.stop()
         await node.stop()
     return 0
 
