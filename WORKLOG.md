@@ -35,6 +35,84 @@ restarted, with the second review's guard code, at 04:33:39.** Nothing of ours r
 and it stopped nothing, because nothing of ours was registered (it rewrote an empty `logs/guarded.json` at 05:12).
 Since 06:00 the commit headroom has stayed at 5.0 GiB or more. Lesson: start nothing while the training changes phase.
 
+## "Done when" for the tags step-6C, step-6D and step-6E (31 Oct 2026)
+
+### Step 6C (P2)
+| Check | Evidence | Status |
+|---|---|---|
+| "What's wrong with the HVAC?" asks hvac, answers with verified numbers, a cited manual passage and the farm time | `tests/llm/test_agent_live.py` (real 2B and 0.6B, through /ws/chat): passed; transcript in "Step 6C, part 1" | met |
+| Every injected LLM failure still gets a graceful answer | E7: 12/12 | met |
+| The safety suite shows 0 unsafe tool calls | E8: 0 unsafe, 0 actions, 0 CMM access | met |
+| Chat streams through the gateway; acknowledging needs the owner's words and a click | `tests/test_gateway_chat.py` (no token, a refused token, a bad path, a Matrix 404/500/bad answer, no answer), `tests/llm/test_tools.py` (forgery, expiry, reuse, node binding, caller "llm"); the real run in "Step 6W, part 2" | met |
+| The suites and evaluation scripts | E1, E4, E7, E8, E9 pass; E2, E3, E5, E6 below target (reported, not tuned); E4 46/46 constrained; E1 44/44, E7 12/12, E8 0/0/0 at `8e125e0` | measured |
+
+### Step 6D (P3)
+| Check | Evidence | Status |
+|---|---|---|
+| Installed inside JARVIS, the old name nowhere, the weights proven equal | `PROVENANCE.json`; install proofs ("Step 6D, part 1"); the full name scan and `name_guard.py history` before the tag | met |
+| The installed copy decides exactly like the release | 0 differences with the five seed strings restored at run time; with the renamed strings the farm draws other random numbers (decision 0021, owner question) | met for the brains and logic; the seeds are the owner's call |
+| "live: trained brains" with the exam's settings; every route works | `tests/test_farm_trained.py`; speeds 28 ticks/s max | met |
+| Each of the four demo faults, injected from the website, caught by the trained brains | the real run: heater, fan and overvoltage caught; **the humidity drift is not caught** (nor by the rule brains) | 3 of 4 |
+| E9 and E10 measured | E9 0 leaks; E10 table | met |
+
+### Step 6E (P4)
+| Check | Evidence | Status |
+|---|---|---|
+| Push-to-talk -> STT -> reply spoken sentence by sentence; voice/speed change at the next sentence | `tools/voice_check.py` on the real models; `tests/voice/test_pipeline.py` | met |
+| Voice latency measured | E6 voice: fixed reply 1.05 s to first audio, alert 1.44 s p50; real agent 8.7 s / 9.8 s in the one-process rig | measured; the voice targets **fail** in the rig (reason in the evaluation section); the rehearsals measure the launcher |
+| D1 passes | `JARVIS_RUN_DEFERRED=1 pytest tests/voice/test_voice_models_load.py`: 4 passed (31 Oct) | met |
+| The website's chat, acknowledgement, alerts, mentor switches, voice menu and AI page work against the fixed contracts | the Node chat-logic test; the real run ("Step 6W, part 2"); the voice menu in the rehearsals | met; **the audit and latency view (A10) is cut** (plan section 11, fourth) |
+| `docs/results-phase6.md` generated | `run_all.py` (5 pass, 5 fail, E11 cut) | met |
+
+## The evaluations, final pass (31 Oct 2026, 12:30-17:11)
+
+Every live-rig evaluation was rerun after the two reviews' fixes, from committed code; each result names its commit
+and (from `8e125e0` on) the model and brain hashes. `docs/results-phase6.md` is generated from these files by
+`tests/llm/eval/run_all.py`.
+
+| Metric | Target | Result | Commit | Notes |
+|---|---|---|---|---|
+| E1 grounded numbers | 100 % after verify | **44/44 (100 %)**, pass; before 24/27 (89 %) | `8e125e0` | every reply as sent, fallbacks included, against its own turn's evidence; 11 of 13 answered |
+| E2 citations | >= 95 % | **3/4 (75 %)**, fail | `8e125e0` | the stricter sentence-to-sentence judge; n is small; at `e91f601` with the passage judge 4/4 |
+| E3 retrieval | Recall@4 >= 0.9 | hybrid 0.891, fail by one question | `8cdfb81` | not tuned |
+| E4 tool calls | >= 98 % valid (constrained) | **46/46**, pass; free JSON 44/53 | `02dbee3` | |
+| E5 routing | >= 95 % | **60/68 (88.2 %)**, fail | `8cdfb81` | `routing.py` unchanged since (its hash is in the result); ambiguous questions 5/9 |
+| E6 latency | text first chunk <= 1.5 s p50; voice <= 2.5 / 4 s; alert <= 3 s | **text 3.28 s** p50 (simple 2.28, peers 3.59; 43/50 answered); alert 1.44 s p50 / 1.47 s p95; voice with a fixed reply 1.05 s; voice with the real agent 8.7 s simple / 9.8 s peers, **fail** | `e4d849b` (+ PROGRESS) | the live rig runs every node, the farm and the gateway in one Python process: speech synthesis waits for the event loop (first audio often comes after the whole answer); the launcher runs incubator-1 alone (see the rehearsals) |
+| E7 failures | 100 % graceful | **12/12**, pass, no invented number | `8e125e0` | the stricter check first found the colon bug (9/12 at `28e09cb`), fixed in `e4d849b` |
+| E8 safety | 0 unsafe, 0 actions, 0 CMM | **0 / 0 / 0**, pass; 0 forbidden attempts | `8e125e0` | 2 replies still repeat planted lines of an approved document (d03, d04): approving documents is the safeguard |
+| E9 epistemic wall | 0 leaks | **0**, pass | `8cdfb81` | |
+| E10 detection | every fault caught and explained | trained 5/5 heater (84-89 s), 5/5 fan (146-208 s), 5/5 overvoltage (30-33 s), **0/5 drift**; rules the same, faster; **fail** | `8e125e0` | the explanation part is not measured by a script |
+
+**What the model still does badly (seen in these runs):** claims with no number in them: g03 names the return air fan
+instead of the supply fan; g05/g06 state the manual's setpoint as the reading; g09 blames CO₂ for the warmth; g12
+said "the HVAC system is functioning normally" (the new rule stops that only while the HVAC's published conclusion
+is not NORMAL, and the trained HVAC brain flips). The gate cannot judge these; the owner reads the machine's own
+conclusion on the website.
+
+## The final independent review (6F, plan sections 2, 3 and 8; 31 Oct 2026) and what was fixed
+
+A read-only subagent reviewed the whole system at `e4d849b` (it ran nothing). Fixed in `8e125e0`, each bug with a
+test seen failing first:
+
+| # | Finding | What was done |
+|---|---|---|
+| H1 | Ordinary questions refused as commands ("Why did the heaters switch off?") | only a request addressed to JARVIS is refused (9 benign questions, 9 commands tested) |
+| H2 | "The HVAC is functioning properly" with its supply-fan fault running | a sentence calling a machine, or "everything", normal is stopped when that machine's conclusion is not NORMAL |
+| M1 | E10 hid a missed target | judged against the plan's target: **fails** (the drift); the explanation part is stated as not measured |
+| M2 | E2 could hardly fail (judge = the agent's rule) | sentence-to-sentence judge, stricter than the agent's; the likeness is stated in the result |
+| M3 | a peer mind's rejected numbers reached the 2B gate's evidence | summaries are never evidence |
+| M4 | fallbacks quoted internal errors ("within 3.0 s") | fixed words ("its radio link is cut") |
+| M5 | the history mixed farm runs (rule 7) | the history sent starts at this run |
+| M6 | the website claimed the drift is caught | the text says what E10 measured |
+| M7 | results without model hashes, from a dirty tree | the live-rig results record the GGUF, embedding and brain hashes; reruns from committed code |
+| M8 | flipping HVAC brain gives one alert per flip; the calm tone pushed the model to name problems | the tone's instruction now says "name a problem only where the data shows one"; **alert calming is the owner's open question** (kept as specified) |
+| M9 | E6's verdict from one part only | needs both parts; the alert figure's path and the one-process rig are stated |
+| L1 | the website gave up on a click before the gateway could finish | 12 s, nesting tested |
+| L2 | "What does acknowledge mean?" got an offer | only a request |
+| L3 | action words matched inside words; a backspace character instead of `\b` made every stated action fail | whole words, tested |
+| L8, L9, L11 | stale safety README and MCP text; cancelled touch; alert levels across runs | fixed |
+| L4, L5, L6, L7, L10 | E8's rule is structural; E7/E9 coverage gaps; hot-join by restart proves nothing; the gateway's origin port comes from the real ports file; an alert lost on the website if NATS is down at that moment | **not changed**, reported here and in the results; the rehearsals do hot-join by adding the fourth node, as the plan says |
+
 ## The independent review of 6C, 6D and 6E (Q10, 31 Oct 2026) and what was fixed
 
 A read-only subagent reviewed everything from `step-6W` to `02dbee3` against README section 4 and the specs (it ran

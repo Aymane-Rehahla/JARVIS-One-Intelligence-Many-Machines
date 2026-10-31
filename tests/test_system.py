@@ -196,7 +196,8 @@ async def test_system_hot_join_questions_and_cut_links(tmp_path: Path, new_port:
     nats_url = f"nats://127.0.0.1:{ports['nats']}"
     child_environment = os.environ.copy()
     child_environment["JARVIS_DATA_ROOT"] = str(tmp_path / "node-data")
-    supervisor = subprocess.Popen([str(PYTHON), str(SUPERVISOR), "--no-llm", "--only", ",".join(SYSTEM_PROGRAMS),
+    supervisor = subprocess.Popen([str(PYTHON), str(SUPERVISOR), "--no-llm", "--feed", "simulated",
+                                   "--only", ",".join(SYSTEM_PROGRAMS),
                                     "--ports", str(tmp_path / "ports.toml"), "--logs", str(logs)], cwd=ROOT,
                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=child_environment)
     animal: Node | None = None

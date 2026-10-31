@@ -82,7 +82,7 @@ def test_every_matrix_api_route_works_on_the_trained_feed(farm: Any) -> None:
         fault = client.post("/faults/supply_overvoltage")
         assert fault.status_code == 200 and fault.json()["devices"] == ["incubator-1", "incubator-2"]
         assert client.post("/faults/heater_relay_stuck").status_code == 409
-        assert client.post("/alerts/hvac/hvac-equipment-0001/ack").status_code == 404
+        assert client.post("/alerts/hvac/hvac-equipment-0001/ack", params={"feed_id": farm.feed_id}).status_code == 404
         assert client.post("/sim/reset").status_code == 200
 
 
@@ -104,7 +104,7 @@ def test_the_acknowledgement_reaches_the_trained_brains_notifications(farm: Any)
     target = next(n for n in notes if n["status"] == "delivered")
     node = target["sender"].removeprefix("jarvis-")
     with TestClient(fr.create_api(farm)) as client:
-        answer = client.post(f"/alerts/{node}/{target['incident_id']}/ack")
+        answer = client.post(f"/alerts/{node}/{target['incident_id']}/ack", params={"feed_id": farm.feed_id})
     assert answer.status_code == 200 and answer.json()["acknowledged"] >= 1
     assert target["status"] == "acknowledged"
     asyncio.run(farm.control("reset"))

@@ -138,3 +138,15 @@ def test_main_writes_only_the_given_file(tmp_path: Path) -> None:
     again = tmp_path / "again.md"
     assert main(["--results", str(results), "--out", str(again)]) == 0
     assert without_time(again.read_text(encoding="utf-8")) == without_time(text)                       # deterministic but the time
+
+
+def test_a_long_list_is_named_not_copied(tmp_path: Path) -> None:
+    """6F: the per-question rows (E1's 13 replies, E10's 40 runs) made the report 115 KB; a long list is named by its
+    size and left in its result file. Short lists and every number stay exactly as stored."""
+    write_fakes(tmp_path)
+    rows = [{"id": f"q{i}", "text": "a reply " * 20} for i in range(13)]
+    write_result(result(id="E5", measured={"share": 0.88, "rows": rows, "seeds": [1, 2]}), tmp_path)
+    report = rendered(tmp_path)
+    e5 = row(report, "E5")
+    assert "rows = [13 items: see the result file]" in e5 and "a reply a reply" not in report
+    assert "share = 0.88" in e5 and "seeds = [1, 2]" in e5

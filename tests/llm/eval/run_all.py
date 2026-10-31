@@ -28,6 +28,7 @@ DEFAULT_OUT = ROOT / "docs" / "results-phase6.md"
 SCRIPT = "tests/llm/eval/run_all.py"
 CUT_ID = "E11"
 CUT_TEXT = "cut (decision 0016)"
+LONG_LIST_CHARS = 160            # a list longer than this (as JSON) is named by its size: per-question rows stay in the file
 NOT_RUN = "not run yet"
 SHORT_HASH = 12
 
@@ -72,6 +73,8 @@ def _flatten(measured: Mapping[str, JsonValue], prefix: str = "") -> list[tuple[
         key = f"{prefix}{name}"
         if isinstance(value, dict) and value:
             items.extend(_flatten(value, f"{key}."))
+        elif isinstance(value, list) and len(_value(value)) > LONG_LIST_CHARS:
+            items.append((key, f"[{len(value)} items: see the result file]"))   # named, not copied (no number changed)
         else:
             items.append((key, _value(value)))
     return items
