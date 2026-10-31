@@ -131,7 +131,7 @@ export function JarvisCloud({ onOpen, attention }: { onOpen: (target: CloudTarge
   const callouts: { id: CloudTarget; label: string; meta: string; line: [number, number][]; at: [number, number] }[] = [
     { id: "ctm", label: "CTM", meta: "Thinks", line: [[300, 14], [300, -28], [334, -28]], at: [340, -28] },
     { id: "cmm", label: "CMM", meta: "Remembers", line: [[486, 196], [500, 196], [500, 120], [504, 120]], at: [508, 120] },
-    { id: "voice", label: "Voice box", meta: "Planned", line: [[76, 214], [20, 214], [20, 262], [26, 262]], at: [30, 262] },
+    { id: "voice", label: "Voice box", meta: "Push-to-talk", line: [[76, 214], [20, 214], [20, 262], [26, 262]], at: [30, 262] },
   ]
 
   return (

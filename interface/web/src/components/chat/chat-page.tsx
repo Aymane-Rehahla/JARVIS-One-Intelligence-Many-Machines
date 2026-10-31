@@ -6,6 +6,8 @@ import { Textarea } from "@/components/ui/textarea"
 import { EmptyState, Kicker, Notice, PageHeader } from "@/components/farm-ui"
 import { cn } from "@/lib/utils"
 import type { Chat } from "@/hooks/use-chat"
+import type { Voice } from "@/hooks/use-voice"
+import { VoicePanel } from "@/components/chat/voice-panel"
 import type { Farm } from "@/hooks/use-farm"
 import type { AckOffer, ChatDone, OwnerAlert } from "@/services/contracts"
 import { confirmSecondsLeft, replyView, type AckView, type ChatEntry, type Reply } from "@/services/chat"
@@ -23,11 +25,12 @@ function nodeName(node: string): string {
 }
 
 /** The chat with JARVIS: live through the gateway, or the demo's labelled preview replies. */
-export function ChatPage({ state, farm, chat }: { state: FarmState; farm: Farm; chat: Chat }) {
+export function ChatPage({ state, farm, chat, voice }: { state: FarmState; farm: Farm; chat: Chat; voice?: Voice }) {
   const live = state.source === "live"
   return (
     <div className="grid gap-8">
       <PageHeader index="02" kicker={live ? "Live // through incubator-1" : "Demo"} title="Ask JARVIS" />
+      {live && voice && <VoicePanel voice={voice} />}
       {live ? <LiveChat chat={chat} /> : <DemoChat state={state} farm={farm} />}
     </div>
   )

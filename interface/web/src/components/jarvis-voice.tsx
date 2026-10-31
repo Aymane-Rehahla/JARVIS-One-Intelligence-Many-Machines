@@ -22,18 +22,21 @@ const SPOKEN: Record<VoiceState, string> = {
 export function JarvisVoice({
   state,
   available,
+  label,
   onActivate,
 }: {
   state: VoiceState
   /** False when no voice source is connected; the indicator then stays grey. */
   available: boolean
+  /** The live voice box's own state name, shown as is (live mode). */
+  label?: string
   onActivate: () => void
 }) {
   return (
     <button
       type="button"
       onClick={onActivate}
-      title={available ? "Voice demo: simulate saying “Hey JARVIS, what's the status?”" : "Voice isn't connected"}
+      title={label ? `Voice: ${label}. Open the chat page to talk.` : available ? "Voice demo: simulate saying “Hey JARVIS, what's the status?”" : "Voice isn't connected"}
       aria-label={available ? `${SPOKEN[state]}. Simulate saying hey JARVIS.` : "JARVIS voice is not connected"}
       data-state={available ? state : "off"}
       className={cn(
@@ -55,7 +58,7 @@ export function JarvisVoice({
           ))}
         </span>
       </span>
-      <span className="hidden sm:inline">{available ? LABELS[state] : "Voice off"}</span>
+      <span className="hidden sm:inline">{available ? (label ?? LABELS[state]) : "Voice off"}</span>
       <span role="status" aria-live="polite" className="sr-only">
         {available && state !== "idle" ? SPOKEN[state] : ""}
       </span>

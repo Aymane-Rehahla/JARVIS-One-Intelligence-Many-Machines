@@ -387,6 +387,7 @@ export type LlmFailureSwitches = z.infer<typeof LlmFailureSwitches>
 export type VoiceStatus = z.infer<typeof VoiceStatus>
 export type VoiceSettings = z.infer<typeof VoiceSettings>
 export type VoiceSettingsResult = z.infer<typeof VoiceSettingsResult>
+export type OkResponse = z.infer<typeof OkResponse>
 
 /** Every schema the gateway sends or the website sends it, by the name the Python side uses. */
 export const SCHEMAS = {

@@ -51,7 +51,9 @@ import { ASSESSMENT_TONES, worstAssessment } from "@/lib/assessment"
 import { cn } from "@/lib/utils"
 import { useFarm, type Farm } from "@/hooks/use-farm"
 import { useChat } from "@/hooks/use-chat"
+import { useVoice } from "@/hooks/use-voice"
 import { AlertBanner, ChatPage } from "@/components/chat/chat-page"
+import type { ChatState } from "@/services/chat"
 import { LlmSwitchesPanel } from "@/components/chat/llm-switches"
 import { AssessmentBadge, EmptyState, Kicker, Notice, PageHeader } from "@/components/farm-ui"
 import { JarvisPage } from "@/components/jarvis/jarvis-page"
@@ -101,6 +103,8 @@ function App() {
 
   const state = farm.state
   const chat = useChat(state.source === "live")
+  const voice = useVoice(state.source === "live")
+  const liveVoice = state.source === "live" ? voice.status : null
   const selectedDevice = selectedDeviceId ? deviceById(state, selectedDeviceId) ?? null : null
 
   const [eventQuery, setEventQuery] = useState("")
@@ -213,7 +217,12 @@ function App() {
                   />
                   {search && <button type="button" aria-label="Clear search" onClick={() => handleSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"><X className="size-3.5" /></button>}
                 </form>
-                <JarvisVoice state={farm.voice} available={state.source === "demo"} onActivate={activateVoice} />
+                <JarvisVoice
+                  state={liveVoice ? (liveVoice.state === "listening" || liveVoice.state === "speaking" ? liveVoice.state : "idle") : farm.voice}
+                  available={state.source === "demo" || (liveVoice !== null && liveVoice.state !== "off")}
+                  label={liveVoice ? liveVoice.state : undefined}
+                  onActivate={state.source === "live" ? () => navigate("chat") : activateVoice}
+                />
               </div>
             </div>
             <SystemBar state={state} isConnecting={farm.isConnecting} liveAvailable={farm.liveAvailable} onGoLive={farm.goLive} onEvents={() => navigate("events")} />
@@ -244,8 +253,8 @@ function App() {
                 onBack={() => setSelectedDeviceId(null)}
               />
             )}
-            {page === "jarvis" && <JarvisPage state={state} farm={farm} />}
-            {page === "chat" && <ChatPage state={state} farm={farm} chat={chat} />}
+            {page === "jarvis" && <JarvisPage state={state} farm={farm} lastReply={lastReply(chat.state)} />}
+            {page === "chat" && <ChatPage state={state} farm={farm} chat={chat} voice={voice} />}
             {page === "events" && (
               <EventsPage state={state} farm={farm} initialQuery={eventQuery} />
             )}
@@ -258,6 +267,17 @@ function App() {
 }
 
 export default App
+
+/** incubator-1's last finished reply, for the JARVIS page (the words, shown apart from the reasoning). */
+function lastReply(chat: ChatState): { text: string; farmTime: string | null; outcome: string } | null {
+  for (let index = chat.entries.length - 1; index >= 0; index -= 1) {
+    const entry = chat.entries[index]
+    if (entry.kind === "reply" && entry.reply.done) {
+      return { text: entry.reply.done.text, farmTime: entry.reply.done.farm_time, outcome: entry.reply.done.outcome }
+    }
+  }
+  return null
+}
 
 // ---------------------------------------------------------------------------
 // Shell

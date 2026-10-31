@@ -1,14 +1,14 @@
 import { cn } from "@/lib/utils"
 
 /**
- * The Voice Box, as planned. None of it runs today: only a test that the models load exists. Every stage is
- * drawn dashed and labelled PLANNED. The model names are the ones chosen in the JARVIS plan.
+ * The Voice Box as built in step 6E (decision 0022): push-to-talk, speech to text, the agent's verified reply spoken
+ * sentence by sentence. The wake word was cut (plan section 11); its stage stays drawn dashed and labelled CUT.
  */
 const STAGES = [
-  { id: "wake", name: "Wake word", model: "openWakeWord “hey jarvis”", note: "Comes after push-to-talk, which is the main way to talk." },
-  { id: "vad", name: "Voice activity", model: "Silero VAD", note: "Ends speech after 0.5–0.8 s of silence. The exact value is not measured yet." },
-  { id: "stt", name: "Speech to text", model: "Parakeet TDT 0.6B v2, int8, via sherpa-onnx", note: "Audio comes in at 16 kHz." },
-  { id: "answer", name: "The answer", model: "The language model", note: "The reply is checked sentence by sentence against this turn's data, then streamed. Built for chat (6C); spoken replies come with the voice." },
+  { id: "wake", name: "Wake word", model: "openWakeWord “hey jarvis”", note: "Cut for now: the website's push-to-talk button is the way to talk." },
+  { id: "vad", name: "Voice activity", model: "Silero VAD", note: "Ends speech after 0.6 s of silence, measured on recorded and synthesised sentences." },
+  { id: "stt", name: "Speech to text", model: "Parakeet TDT 0.6B v2, int8, via sherpa-onnx", note: "Audio comes in at 16 kHz; about 0.07 s per second of speech on this PC." },
+  { id: "answer", name: "The answer", model: "The language model", note: "The agent's reply, checked sentence by sentence against this turn's data, then spoken as each sentence arrives." },
   { id: "tts", name: "Text to speech", model: "Kokoro-82M v1.0 via sherpa-onnx", note: "Sentence by sentence as the reply arrives. British male voice bm_george by default, speed 0.5–2.0." },
 ] as const
 
@@ -27,15 +27,15 @@ export function VoiceBox() {
     <div className="space-y-8">
       <section aria-labelledby="voice-pipeline" className="border bg-background">
         <div className="flex flex-wrap items-baseline justify-between gap-3 border-b px-5 py-3">
-          <h3 id="voice-pipeline" className="display-sm text-[13px]">How JARVIS will listen and speak</h3>
-          <span className="label-mono border border-dashed border-foreground px-2 py-0.5">Planned // not built</span>
+          <h3 id="voice-pipeline" className="display-sm text-[13px]">How JARVIS listens and speaks</h3>
+          <span className="label-mono border border-foreground px-2 py-0.5">Built // push-to-talk</span>
         </div>
         <ol className="grid md:grid-cols-5">
           {STAGES.map((stage, index) => (
             <li key={stage.id} className="relative border-b p-5 md:border-r md:last:border-r-0">
               <div className="flex items-center gap-2">
-                <span aria-hidden className="size-2.5 border border-dashed border-foreground" />
-                <span className="label-mono text-muted-foreground">{String(index + 1).padStart(2, "0")} // planned</span>
+                <span aria-hidden className={cn("size-2.5 border border-foreground", stage.id === "wake" ? "border-dashed" : "bg-foreground")} />
+                <span className="label-mono text-muted-foreground">{String(index + 1).padStart(2, "0")} // {stage.id === "wake" ? "cut" : "built"}</span>
               </div>
               <div className="display-sm mt-3 text-[14px]">{stage.name}</div>
               <div className="mt-2 border border-dashed border-input px-2 py-1.5 font-mono text-[12px] leading-5">{stage.model}</div>
@@ -46,12 +46,12 @@ export function VoiceBox() {
         </ol>
         <div className="grid gap-x-8 gap-y-3 px-5 py-4 md:grid-cols-2">
           <p className="text-[14px] leading-6">Only incubator-1 speaks. The other three nodes have voice installed but switched off. A DANGER alert interrupts anything being said. A missing microphone is shown as missing, never as a crash.</p>
-          <p className="text-[14px] leading-6 text-muted-foreground">Tone of voice was cut from the plan, so no emotion stage is drawn. Unknown today: whether this PC has a microphone and speakers connected, and every latency figure.</p>
+          <p className="text-[14px] leading-6 text-muted-foreground">Tone of voice was cut from the plan, so no emotion stage is drawn. The voice indicator at the top shows the real voice box's state in live mode; the latency is measured (E6).</p>
         </div>
       </section>
 
       <section aria-labelledby="voice-states" className="border bg-background p-5">
-        <h3 id="voice-states" className="display-sm text-[13px]">Planned states</h3>
+        <h3 id="voice-states" className="display-sm text-[13px]">States</h3>
         <ol className="mt-4 flex flex-wrap items-center gap-2">
           {STATES.map((state, index) => (
             <li key={state} className="flex items-center gap-2">

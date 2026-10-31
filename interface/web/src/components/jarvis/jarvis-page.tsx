@@ -48,15 +48,15 @@ const COMPONENTS: { id: CloudTarget; index: string; name: string; role: string; 
     id: "voice",
     index: "03",
     name: "Voice box",
-    role: "Planned",
-    title: "How it will speak",
+    role: "Speaks",
+    title: "How it speaks",
     summary:
-      "Push-to-talk and a wake word in, speech recognition, an answer checked number by number, and speech out. The models are chosen and downloaded; no voice code runs yet.",
+      "Push-to-talk in, speech recognition, the agent's answer checked sentence by sentence, and speech out as each sentence is ready. Only incubator-1 speaks; the wake word was cut.",
     recorded: false,
   },
 ]
 
-export function JarvisPage({ state, farm }: { state: FarmState; farm: DemoFarm }) {
+export function JarvisPage({ state, farm, lastReply }: { state: FarmState; farm: DemoFarm; lastReply?: { text: string; farmTime: string | null; outcome: string } | null }) {
   const [open, setOpen] = useState<CloudTarget | null>(null)
   const [node, setNode] = useState<MindNode>("incubator-1")
   const explorer = useRef<HTMLElement>(null)
@@ -163,7 +163,7 @@ export function JarvisPage({ state, farm }: { state: FarmState; farm: DemoFarm }
               <p className="mt-2 text-[13px] leading-5">
                 {active.recorded
                   ? `${RECORDED_LABEL}. Nothing here is live.${fault ? ` In the episode both incubators get ${fault.voltage_v} V from tick ${fault.inject_tick} to tick ${fault.end_tick}.` : ""}`
-                  : "Planned: none of this runs today."}
+                  : "Built in step 6E: live in the voice indicator at the top and on the Chat page (push-to-talk)."}
               </p>
             </div>
           </aside>
@@ -198,10 +198,17 @@ export function JarvisPage({ state, farm }: { state: FarmState; farm: DemoFarm }
           tone="warning"
           text={
             state.source === "live"
-              ? `Live: each node's conclusion is its own reasoning brain's output (${state.live?.label ?? "live"}), shown with its evidence. Peer messages and the language model's words come with 6C.`
+              ? `Live: each node's conclusion is its own reasoning brain's output (${state.live?.label ?? "live"}), shown with its evidence. The language model's words are shown apart, below; they never decide anything.`
               : "The simulator's nodes follow a demo script that uses the real rules: the five levels, the diagnoses and the device codes."
           }
         />
+        {state.source === "live" && (
+          <div className="border px-4 py-3 text-[14px] leading-6">
+            <span className="label-mono mr-2 text-muted-foreground">The language model's words // incubator-1's last reply</span>
+            {lastReply ? <>{lastReply.text} <span className="label-mono text-muted-foreground">({lastReply.outcome}{lastReply.farmTime ? `, farm time ${lastReply.farmTime}` : ""})</span></>
+              : <span className="text-muted-foreground">No question asked in this session yet (the Chat page).</span>}
+          </div>
+        )}
         <div className="grid gap-6 lg:grid-cols-2">
           <PeerLinkLog state={state} />
           <DecisionLog state={state} />
