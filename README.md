@@ -85,3 +85,7 @@ Hardware it was built on: AMD Ryzen 5 5600G, 16 GB RAM, AMD Radeon RX 580 (8 GB)
 - [docs/decisions.md](docs/decisions.md): the big choices, one line each
 
 Built by Aymane Rehahla.
+
+##Note: due to a power outage i missed the deadline by few minutes, if you are curious to try it, the video i GitHub has the missing test video and here is the demo link: 
+the video : https://drive.google.com/file/d/1CJqo7Z9tVlQ80B3htKrrFPWZJKh5vgV0/view?usp=sharing
+the demo : 
