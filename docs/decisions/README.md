@@ -20,6 +20,11 @@ One short record per big decision (Q9): context, decision, alternatives, consequ
 | 0014 | MCP exposes only node-local read tools |
 | 0015 | The trained brains are installed inside JARVIS, re-saved as plain weights |
 | 0016 | The voice's tone hint (emotion2vec+) is cut |
+| 0017 | The KV cache stays f16 (measured: q8_0 freed no VRAM and was slower) |
+| 0018 | The agent: refusals and routing in code, sentence-gated replies, fallbacks from data |
+| 0019 | Proactive alerts go through the radio and are spoken from a template |
+| 0020 | The four demo faults are ordinary library variants, injected through the Matrix API |
+| 0021 | The trained feed: an ordinary library day, one torch thread, a fresh CMM per run (one owner question) |
+| 0022 | The voice: push-to-talk first, a 0.6 s silence, sentences spoken as they are verified |
 
-Numbers 0017-0023 are reserved for the builders (`docs/handoff/README.md`): 0017-0019 for 6C, 0020 for the demo
-faults (6W), 0021 for the trained feed (6D), 0022-0023 for voice (6E).
+0023 was reserved for voice and not needed.

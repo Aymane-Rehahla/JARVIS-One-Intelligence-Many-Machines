@@ -97,11 +97,21 @@ async def start_voice(node: Node, link: NatsLink, logger: logging.Logger) -> Any
 
     async def publish(status: Any) -> None:
         await link.publish(jarvis_subject(node.id, "voice"), status)
+    audio: Any = SoundDeviceAudio()
+    recorded = os.environ.get("JARVIS_VOICE_WAV")            # rehearsals without a person: a recorded question
+    if recorded:
+        from voice.pipeline import FileAudio
+        speakers = audio
+        audio = FileAudio.from_wav(Path(recorded))
+        audio.play, audio.stop_playing = speakers.play, speakers.stop_playing
+        log(logger, logging.WARNING, "the microphone is replaced by a recorded file", file=Path(recorded).name)
     box = VoiceBox(answer=agent.reply if agent is not None else no_agent, publish=publish, stt=stt, tts=tts,
-                   audio=SoundDeviceAudio(), vad=vad, store=node.store, logger=logger)
+                   audio=audio, vad=vad, store=node.store, logger=logger)
     if agent is not None:
         agent.add_alert_listener(box.announce)
     await box.start()
+    if recorded:
+        box.detail = f"test: the microphone is the recorded file {Path(recorded).name}"
     await box.serve(link)
     asyncio.get_running_loop().run_in_executor(None, lambda: (stt.load(), tts.load()))
     log(logger, logging.INFO, "voice box started", mic=box.audio.mic)

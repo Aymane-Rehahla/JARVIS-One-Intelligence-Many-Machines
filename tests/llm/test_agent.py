@@ -380,3 +380,14 @@ async def test_a_question_about_a_peer_leaves_incubator_1s_own_data_out_of_the_p
     engine = ScriptedEngine("Fine, sir, at farm time 06:02.")
     await ask(Agent(rig["node"], engine, PERSONA), "How is the incubator?")
     assert "Incubator one" in engine.requests[0]["messages"][-1]["content"]
+
+
+@pytest.mark.asyncio
+async def test_a_passage_the_reply_did_not_use_is_not_cited(rig: dict[str, Any]) -> None:
+    """E2 (31 Oct): 3 of 12 citations were supported; the agent cited every retrieved passage, used or not."""
+    engine = ScriptedEngine("The HVAC is in trouble, sir, as of farm time 06:03.")
+    _, done = await ask(Agent(rig["node"], engine, PERSONA), "What's wrong with the HVAC?")
+    assert done.outcome == "answered" and done.citations == []
+    engine = ScriptedEngine(EngineError("server unreachable"))
+    _, done = await ask(Agent(rig["node"], engine, PERSONA), "What's wrong with the HVAC?")
+    assert done.outcome == "fallback" and done.citations == []          # a template from the data cites no manual

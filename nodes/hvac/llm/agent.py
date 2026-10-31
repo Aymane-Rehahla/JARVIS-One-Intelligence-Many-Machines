@@ -112,6 +112,16 @@ _CLAIMED_ACTION = re.compile(
 LLM_TOOLS = ("get_trend", "list_events", "get_incident", "search_documents", "ask_peer", "recall_conversation")
 
 
+#: Words too common in replies and manuals to show that a passage was used.
+_COMMON = frozenset("""about above after again because before being below between could every first machine
+machines normal number other reading readings should status there these their which while would incubator incubators
+animal protection farm hours minutes seconds owner""".split())
+
+
+def _content_words(text: str) -> set[str]:
+    return {w for w in re.findall(r"[a-z]{5,}", text.lower()) if w not in _COMMON}
+
+
 def _cut(text: str, limit: int) -> str:
     """At most `limit` characters, cut at a word and marked, so the model knows the passage goes on."""
     if len(text) <= limit:
@@ -644,10 +654,17 @@ class Agent:
         await send(self._join(turn.pieces, f"That is as of farm time {farm_time}."))
 
     def _citations(self, turn: Turn) -> list[Citation]:
+        """The passages the reply drew on: one that shares a distinctive word with what was said (a template reply
+        from the data cites none). E2 (31 Oct): citing every retrieved passage made 9 of 12 citations unsupported."""
+        if turn.outcome != "answered":
+            return []
+        said = _content_words("".join(turn.pieces))
         cited: list[Citation] = []
         for node, data in turn.machines.items():
             for passage in data.documents[:2]:
                 file, section = passage.get("file"), passage.get("section")
+                if not said & _content_words(str(passage.get("text") or "")):
+                    continue
                 if isinstance(file, str) and file:
                     citation = Citation(node=node, file=file[:200], section=str(section or "")[:200])
                     if citation not in cited:
