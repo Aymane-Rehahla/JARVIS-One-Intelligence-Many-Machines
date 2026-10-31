@@ -165,10 +165,11 @@ _DAY_MONTH_RE = re.compile(rf"(?<![\w.])(?P<d>[0-9]{{1,2}})(?:st|nd|rd|th)?\s+(?
 _MONTH_DAY_RE = re.compile(rf"\b{_MONTHS}\s+(?P<d>[0-9]{{1,2}})(?:st|nd|rd|th)?(?:,?\s+[0-9]{{4}})?(?!\w)")
 _MONTH_YEAR_RE = re.compile(rf"\b{_MONTHS}\s+[0-9]{{4}}(?!\w)")
 _HOUR_ALTERNATION = "|".join(sorted(HOUR_WORDS, key=len, reverse=True))
-# A time zone offset after the seconds ("13:58:00+01:00") is part of the time; a "+" before a time is never a time.
+# A time zone offset after the seconds ("13:58:00+01:00") is part of the time; a "+" before a time is never a time. A
+# colon after the time that no digit follows is punctuation ("at farm time 06:54: normal").
 _CLOCK_RE = re.compile(r"(?<![\w.:+])(?P<h>[0-9]{1,2}):(?P<m>[0-5][0-9])"
                        r"(?::(?P<s>[0-5][0-9])(?:\.[0-9]+)?(?:Z|[+-][0-9]{2}:?[0-9]{2})?)?"
-                       r"(?:\s?(?P<ap>[ap])\.?m\.?)?(?![\w:])", re.IGNORECASE)
+                       r"(?:\s?(?P<ap>[ap])\.?m\.?)?(?!\w|:[0-9])", re.IGNORECASE)
 _HOUR_RE = re.compile(r"(?<![\w.])(?P<h>[0-9]{1,2})\s?(?P<ap>[ap])(?:\.m\.|m)(?![A-Za-z])", re.IGNORECASE)
 _OCLOCK_RE = re.compile(rf"(?<![\w.])(?P<h>[0-9]{{1,2}}|{_HOUR_ALTERNATION})\s?o['’]clock", re.IGNORECASE)
 PAST_MINUTES: dict[str, int] = {"half": 30, "quarter": 15, "a quarter": 15, "five": 5, "ten": 10, "twenty": 20,

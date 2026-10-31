@@ -7,8 +7,9 @@ Only incubator-1 speaks (`voice = true` in its node.toml). The voice must never 
 reply is what is said), must start speaking before the whole reply is written, and must work without a microphone.
 
 ## Decision
-- **Push-to-talk is the way to talk** (the website's button, `jarvis.incubator-1.ptt`): pressing starts listening and
-  stops anything being said; releasing ends the utterance. The wake word ("hey jarvis") and interruptions by voice are
+- **Push-to-talk is the way to talk** (the website's button, `jarvis.incubator-1.ptt`): pressing starts listening,
+  cancels the reply being made and stops it being said (alerts stay queued, and nothing is said while the owner
+  talks); releasing ends the utterance, and so does MAX_UTTERANCE_S (30 s) when the release never comes. The wake word ("hey jarvis") and interruptions by voice are
   **cut** (plan section 11 cuts them first; there was no time left for them). The tone hint was cut earlier (0016).
 - **Speech:** Silero VAD keeps only the speech of the utterance; **end of speech after 0.6 s of silence**, measured
   with `tools/vad_silence_probe.py` on the Parakeet test recording and 8 Kokoro clips (26 sentences): 0.5 and 0.6 s

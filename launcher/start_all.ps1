@@ -24,6 +24,10 @@ A comma-separated list of supervisor programs to run, for example nats,farm,gate
 .PARAMETER NoMonitor
 Do not start or record a resource monitor. Intended for an isolated test while the real monitor is already running.
 
+.PARAMETER VoiceWav
+Rehearsals without a person: incubator-1's microphone is this recorded 16 kHz WAV file (its speakers stay real). The
+supervisor is started through WMI, so an environment variable set in this shell would not reach the node.
+
 .EXAMPLE
 powershell -ExecutionPolicy Bypass -File launcher\start_all.ps1 -NoLlm
 #>
@@ -35,7 +39,8 @@ param(
     [string]$Ports = "",
     [string]$Logs = "",
     [string]$Only = "",
-    [switch]$NoMonitor
+    [switch]$NoMonitor,
+    [string]$VoiceWav = ""
 )
 $ErrorActionPreference = "Stop"
 
@@ -140,6 +145,10 @@ if ($NoLlm) { $arguments += "--no-llm" }
 $arguments += "--feed"
 $arguments += $Feed
 if (-not $NoWebsite) { $arguments += "--website" }
+if ($VoiceWav) {
+    $arguments += "--voice-wav"
+    $arguments += "`"$([System.IO.Path]::GetFullPath($VoiceWav))`""
+}
 if ($onlyNames.Count -gt 0) {
     $arguments += "--only"
     $arguments += ($onlyNames -join ",")

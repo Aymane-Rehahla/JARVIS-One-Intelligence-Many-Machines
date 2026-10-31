@@ -25,6 +25,7 @@ and messages between nodes must keep the farm's real radio limits.
 - The model writing the alert: rejected (ground rule 4, and its invented numbers, decision 0017).
 
 ## Consequences
-- A cut radio link delays or loses a peer's alert exactly as it would lose any other message; the farm's safety gate
-  still acts on its own.
+- A cut radio link delays or loses a peer's notice exactly as it would lose any other message; the farm's safety gate
+  still acts on its own. A notice that did not leave (a cut link, a lost notice) is not counted as told: the next
+  assessment at that level sends it again, and incubator-1's desk drops any repeat (review fix, 31 Oct).
 - Alerts read the same every time; rewording is cosmetic and optional.

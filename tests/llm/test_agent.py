@@ -491,3 +491,34 @@ async def test_acknowledging_by_voice_points_to_the_chat_page(rig: dict[str, Any
         if isinstance(item, ChatDone):
             done = item
     assert done is not None and done.confirm is None and "chat page" in done.text and "Confirm within" not in done.text
+
+
+def test_every_fallback_sentence_passes_its_own_verification() -> None:
+    """E1 rerun (31 Oct): verifying every reply as sent found the data template failing verify.py (the colon after
+    its farm time). Each machine's template, over varied readings, verifies against that machine's own data."""
+    import random
+
+    from llm.recovery import KEY_READINGS, MachineData, describe
+    from llm.verify import verify_reply
+    kinds = {"incubator-1": "incubator", "hvac": "hvac", "animal-protection": "animal_protection"}
+    chance = random.Random(7)
+    for _ in range(200):
+        for node, kind in kinds.items():
+            readings = {key: round(chance.uniform(0.5, 400.0), chance.choice([1, 2, 3, 6]))
+                        for key, _, _, _ in KEY_READINGS[kind]}
+            machine = MachineData(node=node, farm_time="06:54", tick=5, readings=readings,  # type: ignore[arg-type]
+                                  assessment={"assessment": "NORMAL", "diagnosis": "NONE"}, label="live: trained brains")
+            text = describe(machine)
+            report = verify_reply(text, [{"name": f"{node}.get_status",
+                                          "data": {"readings": readings, "farm_time": "06:54", "tick": 5}}])
+            assert report.ok, (text, readings, [n.text for n in report.unmatched])
+
+
+@pytest.mark.asyncio
+async def test_a_regeneration_never_says_a_sentence_twice(rig: dict[str, Any]) -> None:
+    """E1 rerun (31 Oct, g12): the regeneration began again with the two sentences already sent, and the owner got
+    them twice. A sentence already said in this turn is not sent again."""
+    engine = ScriptedEngine("The incubator is normal, sir. Its fan turns at 900 rpm.",
+                            "The incubator is normal, sir. Its temperature is 37.5 °C at farm time 06:02.")
+    _, done = await ask(Agent(rig["node"], engine, PERSONA), "How is the incubator?")
+    assert done.text.count("The incubator is normal") == 1 and "37.5" in done.text and "900" not in done.text

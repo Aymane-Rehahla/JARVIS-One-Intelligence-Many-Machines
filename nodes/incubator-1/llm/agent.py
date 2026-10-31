@@ -622,7 +622,10 @@ class Agent:
 
     async def _gate(self, sentence: str, turn: Turn, said: list[str],
                     send: Callable[[str], Awaitable[None]]) -> str | None:
-        """Send one sentence if every number and time in it matches this turn's tool results; else say why not."""
+        """Send one sentence if every number and time in it matches this turn's tool results; else say why not. A
+        sentence already said in this turn (a regeneration starting again) is passed over silently."""
+        if any(sentence.strip() == piece.strip() for piece in said):
+            return None
         if _BAD_SENTENCE.search(sentence):
             turn.unverified_sentences += 1
             return "it contained brackets or tags"

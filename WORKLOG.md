@@ -35,6 +35,66 @@ restarted, with the second review's guard code, at 04:33:39.** Nothing of ours r
 and it stopped nothing, because nothing of ours was registered (it rewrote an empty `logs/guarded.json` at 05:12).
 Since 06:00 the commit headroom has stayed at 5.0 GiB or more. Lesson: start nothing while the training changes phase.
 
+## The independent review of 6C, 6D and 6E (Q10, 31 Oct 2026) and what was fixed
+
+A read-only subagent reviewed everything from `step-6W` to `02dbee3` against README section 4 and the specs (it ran
+the fast suites: 130 passed). Its 16 findings, all fixed in `28e09cb`, each with a test seen failing first:
+
+| # | Finding | Fix (test) |
+|---|---|---|
+| 1 | HIGH: the confirm token was bound to node and incident only; incident ids start again in every farm run, so a click after a reset acknowledged the next run's same-named incident | token, `AckOffer`, `AckCommand`, `AckBody` and the Matrix route carry `feed_id`; incubator-1 refuses another run, the Matrix answers 409 (`test_a_confirmation_belongs_to_one_farm_run`, the Matrix ack test, the gateway tests) |
+| 2 | HIGH/MEDIUM: `recall_conversation` results were evidence, so the owner's own "45 degrees?" verified "is at 45 °C" (and "restart" an action) | its results are never evidence (`test_a_number_or_action_found_only_in_the_conversation_is_never_said`) |
+| 3 | MEDIUM: an alert was marked as told before the radio said whether the notice left: a cut link at DANGER lost it for good | told only when sent; the next assessment sends it again (`test_a_notice_the_radio_lost_is_sent_again_on_the_next_assessment`) |
+| 4 | MEDIUM: E8's "0 unsafe tool calls" could never be anything else | E8 records what the model asked for, before the checks, and reports it apart |
+| 5 | MEDIUM: E7 did not check for invented numbers; E1 "after" skipped replies with no gated sentence | the rig keeps each finished turn's evidence; E1 and E7 verify every reply as sent |
+| 6 | MEDIUM: E6 said "passed" without judging the voice targets; counted every outcome | voice targets judged (p50 simple <= 2.5 s, peers <= 4 s, alert p95 <= 3 s); latencies of answered replies; a commit per part |
+| 7 | MEDIUM: a cancelled reader left the turn's producer running on the 2B server, and one wait had no timeout | the reader's `finally` cancels it, waits are bounded (`test_a_cancelled_turn_stops_its_own_work_on_the_model`) |
+| 8 | MEDIUM: a second press did not stop the reply being made, and dropped queued alerts; a lost release left the box listening | press cancels the turn, keeps alerts, says nothing while the owner talks; release after `MAX_UTTERANCE_S` (two pipeline tests) |
+| 9 | LOW/MEDIUM: the stated-action check searched all the data, and readings say "off" | matched against events, incidents and decisions only (`test_a_reading_that_is_off_is_not_a_machine_switching_off`) |
+| 10 | LOW: voice turns skipped the two-turns limit | `Node.owner_turn` for chat and voice (`test_voice_turns_share_the_limit_on_owner_turns`) |
+| 11 | LOW: the recorded-file label vanished at the first "thinking" | a permanent `label` (`test_a_recorded_microphone_stays_labelled`) |
+| 12 | LOW: "press Confirm" by voice, with no button | by voice no offer; the reply points to the chat page (`test_acknowledging_by_voice_points_to_the_chat_page`) |
+| 13 | LOW: a failed voice-model load left no trace | the future is kept and its error logged |
+| 14 | LOW: `install_release.py` emptied any `--out` | only an earlier install, never in or around the release (`test_the_install_never_empties_a_folder_it_did_not_make`) |
+| 15 | LOW: one shared word cited a passage; E2 judges with three | `CITE_WORDS = 3` (the citation test) |
+| 16 | LOW: "Humidity is 55. The fan…" did not split; a stray gateway comment; the token is used up before the Matrix call | split fixed (a leading "1." still does not end); comment fixed; **kept:** the token is single-use from the moment incubator-1 accepts it, so a Matrix outage means asking again (safer than a reusable token) |
+
+Checked and found fine by the reviewer (summary): refusals before routing; owner-only acknowledgement with an HMAC,
+single-use, bounded token that the LLM and MCP cannot reach; one gateway question at a time, bounded outboxes; zod on
+every website message; alerts from a template (no LLM rewording in the node); farm-time and feed rules; nested
+deadlines; the trained feed follows the release's `CheckpointBrains`; E9 and E10 honest; no node or gateway code opens
+a CMM; the name-scan `.venv` RECORD rule is an extension, not a weakening.
+
+## The evaluations, first full pass (31 Oct 2026, 05:00-07:00)
+
+Every script writes `logs/eval/E<n>.json` with its command, commit and seeds; `run_all.py` turns them into
+`docs/results-phase6.md`. The language-model ones run on `tests/llm/eval/live_rig.py`: a private nats-server, the real
+llama.cpp servers of all four nodes on free ports, the four nodes with every manual approved by a fixture in a
+temporary folder (the real approvals are never touched), the trained farm at 1x with the supply-fan fault, and the
+real gateway; questions go through `/ws/chat`.
+
+| Metric | Target | Result | Notes |
+|---|---|---|---|
+| E1 grounded numbers | 100 % after the gate | **27/27 after**; 21/23 (91 %) before | 13 golden turns; 3 fell back (no first token in time) |
+| E2 citations | >= 95 % | **3/12 (25 %)**, failed | the agent cited every retrieved passage; fixed (cite only passages the reply shares a word with); the lexical judge is then not fully independent of the fix; rerun below |
+| E3 retrieval | Recall@4 >= 0.9 | hybrid 0.891, MRR 0.746 (was 0.909 / 0.750) | one question of 55 after the documents fixes; not tuned |
+| E4 tool calls | >= 98 % valid (constrained) | **46/46 (100 %)** constrained; free JSON 44/53 (83 %) | 54 questions; constrained: 8 questions with no call, the expected tool in 41; free: 1 with no call, 45 expected (`02dbee3`, only WORKLOG.md uncommitted) |
+| E5 routing | >= 95 % | **60/68 (88.2 %)**, failed | misses: water and power words, "either incubator", "eggs hatch", "anything break overnight"; routing.py not tuned on the set |
+| E6 text latency | first chunk <= 1.5 s p50 | **p50 3.66 s**, p95 7.8 s (simple 2.7 s, peers 4.7 s); whole reply p50 5.0 s; 45/50 answered | first pass 4.6 s p50 and 35/50 before the focused prompt and the 6 s watchdog; the first chunk is a whole verified sentence |
+| E7 failures | 100 % graceful | **12/12** | every switch on incubator-1 and hvac, a cut radio link, NATS restarted, incubator-1's llama-server killed for real and started again |
+| E9 epistemic wall | 0 leaks | **0** | see step 6D |
+| E10 detection | reported | trained: heater, fan, overvoltage **5/5 each**, drift 0/5; rules: same, faster | see step 6D |
+
+**Found by the first pass and fixed (tests seen failing first):** the prompt-prefill timeout cascade (a bounded
+data block; no warm-up after a timeout; incubator-1's own data left out of questions about other machines; the
+watchdog 4 -> 6 s from the measurement); "Incubator one is shutting down now." and a planted tool instruction (two
+gate rules); citations of unused passages; `farm.sim`'s episode id.
+
+**What the model still does badly, seen in these runs (reported, not hidden):** with no number involved the gate
+cannot judge a claim, and the 2B model sometimes says things the data does not support ("The HVAC system is operating
+normally" in g12 while the HVAC had its fan fault; "Animal protection unit is functioning normally"), and repeats
+the text of an approved document even when it is false (E8's planted lines, before the new gate rules).
+
 ## Step 6D, part 1: the trained brains installed inside JARVIS (31 Oct 2026)
 
 The release folder and the upstream CTM folder were only ever passed on the command line; no file, log or message

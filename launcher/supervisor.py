@@ -120,8 +120,10 @@ def read_ports(path: Path) -> dict[str, Any]:
 
 
 def build_programs(ports: dict[str, Any], *, llm: bool, website: bool, nodes: tuple[NodeId, ...] = NODE_IDS,
-                   ports_file: Path = ROOT / "launcher" / "ports.toml", feed: str = "trained") -> list[Program]:
-    """Every program in start order, with explicit ports so no program has to read ports.toml itself."""
+                   ports_file: Path = ROOT / "launcher" / "ports.toml", feed: str = "trained",
+                   voice_wav: Path | None = None) -> list[Program]:
+    """Every program in start order, with explicit ports so no program has to read ports.toml itself. `voice_wav`
+    (rehearsals without a person): incubator-1's microphone is that recorded file (JARVIS_VOICE_WAV, runtime.py)."""
     host = str(ports["host"])
     nats_url = f"nats://{host}:{ports['nats']}"
     matrix_url = f"http://{host}:{ports['matrix_api']}"
@@ -140,9 +142,10 @@ def build_programs(ports: dict[str, Any], *, llm: bool, website: bool, nodes: tu
     for node in nodes:
         dependencies = ("nats", f"llama-{node}") if llm else ("nats",)
         # --ports: the node's MCP port must come from the same file as every other port of this run
+        recorded = (("JARVIS_VOICE_WAV", str(voice_wav.resolve())),) if voice_wav and node == "incubator-1" else ()
         programs.append(Program(node, (python, str(ROOT / "nodes" / node / "runtime.py"), "--nats", nats_url,
                                        "--ports", str(ports_file.resolve())), ROOT,
-                                Health("process"), depends_on=dependencies, ready_timeout_s=30.0))
+                                Health("process"), depends_on=dependencies, ready_timeout_s=30.0, env=recorded))
     gateway_port = int(ports["gateway"])
     programs.append(Program("gateway", (python, str(ROOT / "interface" / "gateway" / "gateway.py"), "--nats", nats_url,
                                         "--matrix", matrix_url, "--port", str(gateway_port)), ROOT,
@@ -446,7 +449,7 @@ async def amain(args: argparse.Namespace) -> int:
         nodes: tuple[NodeId, ...] = tuple(node for node in NODE_IDS if not args.only or node in args.only
                                           or f"llama-{node}" in args.only)
         programs = build_programs(ports, llm=not args.no_llm, website=args.website, nodes=nodes, ports_file=args.ports,
-                                  feed=args.feed)
+                                  feed=args.feed, voice_wav=args.voice_wav)
         try:
             supervisor = Supervisor(select_programs(programs, args.only), logs=logs, logger=logger,
                                     below_normal=not args.normal_priority)
@@ -486,6 +489,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--only", type=lambda s: {x.strip() for x in s.split(",") if x.strip()}, default=set(),
                         help="run only these programs, e.g. nats,farm,incubator-1,hvac,gateway")
     parser.add_argument("--ports", type=Path, default=ROOT / "launcher" / "ports.toml", help="ports file")
+    parser.add_argument("--voice-wav", type=Path, default=None,
+                        help="rehearsals: incubator-1's microphone is this recorded 16 kHz WAV file")
     parser.add_argument("--logs", type=Path, default=ROOT / "logs", help="log folder (default: logs/)")
     parser.add_argument("--normal-priority", action="store_true", help="do not lower the programs' priority")
     parser.add_argument("--echo", action="store_true", help="also print the log to stderr")

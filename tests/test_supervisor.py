@@ -177,6 +177,16 @@ def test_the_jarvis_programs_and_their_order() -> None:
     assert [program.name for program in only_hvac] == ["nats", "llama-hvac", "hvac"]
 
 
+def test_a_recorded_question_reaches_only_incubator_1(tmp_path: Path) -> None:
+    """6F rehearsals: start_all.ps1 starts the supervisor through WMI, so the shell's environment never reaches the
+    nodes; -VoiceWav passes the recorded question's file to incubator-1's voice box, and to no other program."""
+    ports = sv.read_ports(ROOT / "launcher" / "ports.toml")
+    wav = tmp_path / "question.wav"
+    programs = sv.build_programs(ports, llm=False, website=False, voice_wav=wav)
+    assert {p.name: dict(p.env) for p in programs if p.env} == {"incubator-1": {"JARVIS_VOICE_WAV": str(wav.resolve())}}
+    assert not any(p.env for p in sv.build_programs(ports, llm=False, website=False))
+
+
 def test_node_programs_get_the_runs_own_ports_file(tmp_path: Path) -> None:
     """Review H6: a node read its MCP port from the real launcher/ports.toml, so a test run bound 8101-8104."""
     other = tmp_path / "ports.toml"
@@ -195,7 +205,8 @@ async def test_bad_dependencies_exit_two_with_a_logged_reason(tmp_path: Path, mo
     monkeypatch.setattr(resource_monitor, "register_guarded", lambda *args, **kwargs: None)
     monkeypatch.setattr(resource_monitor, "unregister_guarded", lambda *args, **kwargs: None)
     args = Namespace(no_llm=True, website=False, only=set(), ports=ROOT / "launcher" / "ports.toml", logs=tmp_path,
-                     normal_priority=False, echo=False, feed="trained")      # 6D: the CLI's new --feed
+                     normal_priority=False, echo=False, feed="trained",     # 6D: the CLI's new --feed
+                     voice_wav=None)                                         # 6F: --voice-wav
     assert await sv.amain(args) == 2
     assert "depends on unknown programs" in capsys.readouterr().out
     records = (tmp_path / "supervisor.jsonl").read_text(encoding="utf-8")

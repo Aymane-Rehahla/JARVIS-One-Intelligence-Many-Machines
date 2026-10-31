@@ -273,6 +273,15 @@ def test_seconds_count_when_the_reply_says_them() -> None:
     assert verify.verify_reply("at 14:05:00", {"farm_time": "14:05"}).ok                 # ":00" adds no precision
 
 
+def test_a_colon_after_a_time_is_punctuation() -> None:
+    """E1 rerun (31 Oct): the fallback sentence "Incubator one at farm time 06:54: normal; ..." failed verification,
+    since a colon after the minutes made the time unreadable ("06" and "54" were then numbers with no evidence)."""
+    report = verify.verify_reply("Incubator one at farm time 06:54: normal; temperature 37.3 °C.",
+                                 {"farm_time": "06:54", "temperature_mean_c": 37.31})
+    assert report.ok and report.times_checked == 1
+    assert not verify.verify_reply("at 06:55: normal", {"farm_time": "06:54"}).ok
+
+
 # --- spelled-out readings, time words, ISO times and offsets (review 3, finding 4) ---------------------------------
 
 SPOKEN = [{"name": "get_status", "data": {"farm_time": "14:05", "temperature_c": 39.0, "humidity_pct": 55.0,
