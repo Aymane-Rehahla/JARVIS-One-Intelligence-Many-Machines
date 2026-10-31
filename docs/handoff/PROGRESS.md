@@ -19,19 +19,17 @@ Never write the three outside paths (the release folder, the training's Python, 
 | The 6C-6E review's 16 findings fixed (feed-bound ack, words not data, bounded turns, voice, alerts resent, evals) | `28e09cb` | WORKLOG "The independent review of 6C, 6D and 6E" |
 | Verifying every reply found two bugs (a colon after a time; a regeneration repeating sentences); `-VoiceWav` | `e4d849b` | |
 
-## In flight
+## State (31 Oct, 17:55)
 
-- The evaluation reruns on the fixed code (E1/E2, E8 done at `28e09cb`; E7 9/12 found the colon bug, fixed in
-  `e4d849b`; E6 text and voice running). Then E1/E2 and E7 again at `e4d849b`.
+Tags `step-6C`, `step-6D`, `step-6E` (suite twice 973 passed, pyright 0, full name scan clean) and `step-6F` (one
+cold-start rehearsal of three; the owner asked to finish and to leave the rest to a checklist: WORKLOG "Step 6F").
+Two reviews found 38 issues; fixed but for those listed in WORKLOG. Results: `docs/results-phase6.md` (5 pass, 5 fail).
 
-## Next
+## Next (owner or another session)
 
-1. Fix the review's findings; E-results into WORKLOG; full suite twice + pyright; tags `step-6C`, `step-6D`, `step-6E`.
-2. `run_all.py` -> `docs/results-phase6.md`.
-3. 6F: final review against plan sections 2, 3, 8; three cold-start rehearsals (start_all with the LLM servers; the
-   four faults from the website; a chat question; a push-to-talk question with `JARVIS_VOICE_WAV=logs\rehearsal_question.wav`;
-   hot-join by killing a node program); docs; tag `step-6F`; final checks (suite twice, pyright, website build, the
-   full name scan, nothing left running) and the owner's summary.
+1. The two remaining rehearsals (WORKLOG "The owner's checklist").
+2. The owner's 5 fault types x 5 faults injection menu (new work, not started).
+3. The owner's decisions below.
 
 ## Measured so far (details in WORKLOG and logs/eval)
 

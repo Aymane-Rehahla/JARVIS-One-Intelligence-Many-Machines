@@ -35,6 +35,49 @@ restarted, with the second review's guard code, at 04:33:39.** Nothing of ours r
 and it stopped nothing, because nothing of ours was registered (it rewrote an empty `logs/guarded.json` at 05:12).
 Since 06:00 the commit headroom has stayed at 5.0 GiB or more. Lesson: start nothing while the training changes phase.
 
+## Step 6F: the cold-start rehearsal (31 Oct 2026, 17:45-17:53) and what is left to the owner
+
+**One rehearsal, not three:** the owner asked to finish (deadline, token budget) and to leave the long tests to a
+person or another session; the checklist below is the other two. Recorded from NATS (`logs/rehearsals/r1.jsonl`).
+
+- **Cold start:** `start_all.ps1 -NoMonitor -Only <all but animal-protection> -VoiceWav logs\rehearsal_question.wav`:
+  the gateway answered in 15.9 s; all 11 programs (NATS, 4 llama-servers, the trained farm, 3 nodes, gateway, website)
+  ready; "live: trained brains" on the website.
+- **The RAM guard stopped the whole stack twice** (free RAM below 2 GiB for 30 s): the four llama-servers keep their
+  models mapped in RAM (the 2B: 2.7 GB working set, each 0.6B 0.9 GB) on top of the Claude app (2.7 GB) on this 16 GB
+  PC; the first time pyright and the full name scan ran beside it. The guard existed for the CTM training, which is
+  over: the owner said to ignore it (their run will have 14 GB free), so the rehearsal ran with `-NoMonitor`.
+  `--no-mmap` was tried for the 2B server: it did not load within 120 s, so the launch is unchanged.
+- **Fault 1, from the website** (Simulator, 10x): heater relay stuck on. The trained incubator-1 brain concluded
+  ESCALATE_TO_USER / HEATER_FAULT at farm time 07:01; the owner alert was published at once and spoken 3 s later.
+- **Chat, from the website:** "What's wrong with incubator one?" -> answered in 2.3 s (first sentence), 3.3 s whole:
+  "Incubator one has a heater fault at 07:07 farm time...", live: trained brains, numbers verified.
+- **Push-to-talk, from the website** (the recorded question as the microphone): transcribed "Jarvis what is wrong
+  with the HVAC?" in 0.3 s; answered (3 numbers verified, first sentence after 5.7 s, it asked the HVAC); first audio
+  8.5 s after the release (target 4 s with peers: **missed**).
+- **Reset from the website**, then **fault 2 through the Matrix API** (the hidden browser pane dropped the scenario
+  menu's input; the owner chose the API): supply fan failure. The trained HVAC brain concluded ESCALATE_TO_USER /
+  SUPPLY_FAN_FAULT at 07:13; the owner alert went out; "What's wrong with the HVAC?" -> "Supply fan fault on The HVAC
+  at 07:15 farm time... supply fan state shows off while actual rpm reads zero" (verified numbers; "The HVAC" is
+  wrongly capitalised mid-sentence).
+- **Hot-join:** the fourth node started live (`start_all.ps1 -Only animal-protection -Logs logs\hotjoin`); "How is the
+  animal protection unit?" -> answered from its own data at farm time 07:14, no restart.
+- **Not done in the rehearsal:** the overvoltage and the drift faults (E10 measured them: overvoltage caught 5/5,
+  drift 0/5), rehearsals 2 and 3.
+- **Stopped:** `stop_all.ps1` for both log folders; ports 4222, 8000, 8010, 8081-8084, 5173 free.
+
+### The owner's checklist (about 20 minutes per run)
+
+1. `powershell -ExecutionPolicy Bypass -File launcher\start_all.ps1` (or with `-NoMonitor`); wait for the website.
+2. Simulator: speed 10x; inject each fault in turn, pressing Reset between them: heater relay (alert within about
+   10 s at 10x), supply fan (about 20 s), overvoltage (a few s), humidity drift (expected: **not** caught).
+3. Chat: "What's wrong with the HVAC?" during the fan fault: one reply with the supply fan, numbers and the farm time.
+4. Chat: "Acknowledge the HVAC alert" -> press Confirm -> "acknowledged".
+5. Chat page, voice panel: hold to talk, ask "What is wrong with the HVAC?"; expect speech after several seconds.
+6. Hot-join: start without one node (`-Only` without `animal-protection`), then in a second window
+   `start_all.ps1 -NoMonitor -NoWebsite -Only animal-protection -Logs logs\hotjoin`, and ask about it.
+7. `launcher\stop_all.ps1` (and `-Logs logs\hotjoin` if used).
+
 ## "Done when" for the tags step-6C, step-6D and step-6E (31 Oct 2026)
 
 ### Step 6C (P2)
