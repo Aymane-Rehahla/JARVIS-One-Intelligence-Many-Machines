@@ -3,7 +3,7 @@ node = "incubator-1, incubator-2"
 title = "Incubator manual"
 kind = "machine manual"
 version = 1
-status = "draft"
+status = "approved"
 sources = [
   { title = "Farm simulation model: incubator device", link = "../../../../_dev/farm_poc_snapshot/devices/incubator.py" },
   { title = "Farm simulation model: incubator controller", link = "../../../../_dev/farm_poc_snapshot/controllers/incubator_controller.py" },

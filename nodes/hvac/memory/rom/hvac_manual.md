@@ -3,7 +3,7 @@ node = "hvac"
 title = "HVAC manual (central air handler)"
 kind = "machine manual"
 version = 1
-status = "draft"
+status = "approved"
 sources = [
   { title = "Farm simulation model: HVAC device", link = "../../../../_dev/farm_poc_snapshot/devices/hvac.py" },
   { title = "Farm simulation model: HVAC controller", link = "../../../../_dev/farm_poc_snapshot/controllers/hvac_controller.py" },

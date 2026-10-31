@@ -20,6 +20,9 @@ skeleton, 6W the demo faults, 6C the chat, audit, acknowledgement and mentor rou
     POST /voice/settings  VoiceSettings → jarvis.incubator-1.voice_settings (request-reply) → VoiceSettingsResult;
                           503 with the reason when incubator-1 does not answer in time
     POST /voice/ptt       PttBody → PushToTalk on jarvis.incubator-1.ptt; OkResponse
+    POST /auth/signup | /auth/signin | /auth/heartbeat | /auth/signout, GET /auth/me   the accounts and the two seats
+                          (accounts.py). With accounts on (the default when run as a program) every other route except
+                          /health needs a seated session: `Authorization: Bearer <token>`, or `?token=` on a socket.
 
 Mentor fault clicks never go on NATS (ground rule 4). Only the website's own origins may connect (Q7).
 
@@ -32,6 +35,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import os
 import re
 import secrets
 import sys
@@ -47,6 +51,8 @@ ROOT = Path(__file__).resolve().parents[2]
 REFERENCE_NODE = ROOT / "nodes" / "incubator-1"            # the four copies are identical (tests/test_nodes_in_sync.py)
 if str(REFERENCE_NODE) not in sys.path:
     sys.path.insert(0, str(REFERENCE_NODE))
+if str(Path(__file__).resolve().parent) not in sys.path:     # accounts.py, beside this file
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import httpx  # noqa: E402
 import uvicorn  # noqa: E402
@@ -57,6 +63,7 @@ from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from pydantic import (BaseModel, ConfigDict, Field, JsonValue, RootModel, ValidationError,  # noqa: E402
                       field_validator, model_validator)
 
+from accounts import AccountError, Accounts, Session  # noqa: E402
 from comms.jsonlog import log, program_logger  # noqa: E402
 from comms.nats_link import NatsLink, RequestFailed  # noqa: E402
 from contracts import (CLIENT_MSG_ID, CONTROL_CHARACTERS, CONVERSATION_ID, FARM_LINKS, FARM_SIM,  # noqa: E402
@@ -85,6 +92,8 @@ ACK_TIMEOUT_S = 5.0                                        # incubator-1's answe
 VOICE_TIMEOUT_S = 3.0                                      # incubator-1's answer to VoiceSettings
 VOICE_QUEUE = 16                                           # VoiceStatus messages waiting per /ws/voice socket
 IDLE_CHECK_S = 1.0                                         # a socket's sender wakes at least this often
+ACCOUNTS_DB = ROOT / "interface" / "gateway" / "data" / "accounts.sqlite"
+OPEN_PATHS = ("/health", "/auth/signup", "/auth/signin")
 INCIDENT_ID = r"^[^/\\\x00-\x1f]{1,80}$"                    # a path segment: no slash or backslash, no control character
 
 
@@ -200,6 +209,37 @@ class PttBody(BaseModel):
 
     model_config = ConfigDict(extra="forbid", strict=True)
     pressed: bool
+
+
+class SignUpBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    username: str = Field(max_length=64)
+    nickname: str = Field(max_length=64)
+    password: str = Field(max_length=256)
+    confirm: str = Field(max_length=256)
+    mentor_key: str = Field(default="", max_length=256)
+
+
+class SignInBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    username: str = Field(max_length=64)
+    password: str = Field(max_length=256)
+
+
+def _client(request: Request | WebSocket) -> str:
+    """Who is asking, for the try limits: the visitor address Cloudflare gives through the tunnel, else the socket's."""
+    forwarded = request.headers.get("cf-connecting-ip", "")[:64]
+    return forwarded or (request.client.host if request.client else "unknown")
+
+
+def _bearer(request: Request) -> str | None:
+    header = request.headers.get("authorization", "")
+    return header[7:].strip() if header.lower().startswith("bearer ") else None
+
+
+def _person(session: Session) -> dict[str, str]:
+    return {"user_id": session.user_id, "username": session.username, "nickname": session.nickname,
+            "role": session.role}
 
 
 class OkResponse(Contract):
@@ -655,12 +695,30 @@ def _matrix_reason(response: httpx.Response) -> str:
     return detail if isinstance(detail, str) and detail else f"the Matrix API answered HTTP {response.status_code}"
 
 
-def create_app(gateway: Gateway, *, website_port: int = 5173) -> FastAPI:
-    """The gateway's routes (see the module docstring)."""
-    origins = [pattern.format(port=website_port) for pattern in WEBSITE_ORIGINS]
+def create_app(gateway: Gateway, *, website_port: int = 5173, accounts: Accounts | None = None,
+               extra_origins: tuple[str, ...] = ()) -> FastAPI:
+    """The gateway's routes (see the module docstring). Without `accounts` every route is open (tests, programs)."""
+    origins = [pattern.format(port=website_port) for pattern in WEBSITE_ORIGINS] + list(extra_origins)
     app = FastAPI(title="JARVIS gateway", version="0.6.0", docs_url=None, redoc_url=None)
+
+    @app.middleware("http")
+    async def seated_only(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
+        """With accounts on, only a seated session reaches the farm, the chat and the voice."""
+        if accounts is None or request.method == "OPTIONS" or request.url.path in OPEN_PATHS:
+            return await call_next(request)
+        try:
+            session = accounts.check(_bearer(request), heartbeat=request.url.path == "/auth/heartbeat")
+        except AccountError as error:
+            return JSONResponse({"detail": error.message}, status_code=error.status)
+        if request.url.path.startswith("/mentor/") and request.method == "POST" and session.role != "mentor":
+            return JSONResponse({"detail": "only a mentor may break the language models"}, status_code=403)
+        request.state.session = session
+        if request.url.path.startswith("/faults/"):
+            accounts.record(session.user_id, "fault", request.url.path.removeprefix("/faults/"))
+        return await call_next(request)
+
     app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=["GET", "POST"],
-                       allow_headers=["Content-Type"])
+                       allow_headers=["Content-Type", "Authorization"])
 
     @app.middleware("http")
     async def same_site_only(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
@@ -671,6 +729,53 @@ def create_app(gateway: Gateway, *, website_port: int = 5173) -> FastAPI:
         if request.method not in ("GET", "HEAD", "OPTIONS") and origin is not None and origin not in origins:
             return JSONResponse({"detail": "only the JARVIS website may change the farm"}, status_code=403)
         return await call_next(request)
+
+    # --- accounts ---
+
+    @app.post("/auth/signup")
+    async def sign_up(body: SignUpBody, request: Request) -> dict[str, Any]:
+        if accounts is None:
+            raise HTTPException(404, "accounts are off")
+        try:
+            await asyncio.to_thread(accounts.sign_up, body.username, body.nickname, body.password, body.confirm,
+                                    body.mentor_key, _client(request))
+            token, session = await asyncio.to_thread(accounts.sign_in, body.username, body.password, _client(request))
+        except AccountError as error:
+            raise HTTPException(error.status, error.message) from error
+        return {"token": token, "user": _person(session)}
+
+    @app.post("/auth/signin")
+    async def sign_in(body: SignInBody, request: Request) -> dict[str, Any]:
+        if accounts is None:
+            raise HTTPException(404, "accounts are off")
+        try:
+            token, session = await asyncio.to_thread(accounts.sign_in, body.username, body.password, _client(request))
+        except AccountError as error:
+            raise HTTPException(error.status, error.message) from error
+        return {"token": token, "user": _person(session)}
+
+    @app.post("/auth/heartbeat")
+    async def heartbeat(request: Request) -> dict[str, Any]:
+        if accounts is None:
+            raise HTTPException(404, "accounts are off")
+        return {"user": _person(request.state.session), "seats_taken": accounts.seats_taken()}
+
+    @app.get("/auth/me")
+    async def me(request: Request) -> dict[str, Any]:
+        if accounts is None:
+            raise HTTPException(404, "accounts are off")
+        session: Session = request.state.session
+        return {"user": _person(session), "history": accounts.history(session.user_id, 20)}
+
+    @app.post("/auth/signout")
+    async def sign_out(request: Request) -> dict[str, Any]:
+        if accounts is not None:
+            accounts.sign_out(_bearer(request) or "")
+        return {"ok": True}
+
+    def socket_session(websocket: WebSocket) -> Session | None:
+        """The socket's seated session (None with accounts off); AccountError when it has none."""
+        return None if accounts is None else accounts.check(websocket.query_params.get("token"))
 
     @app.get("/health")
     async def health() -> dict[str, JsonValue]:
@@ -699,6 +804,11 @@ def create_app(gateway: Gateway, *, website_port: int = 5173) -> FastAPI:
         if origin is not None and origin not in origins:
             await websocket.close(code=1008)                  # policy violation: not the website
             return
+        try:
+            socket_session(websocket)
+        except AccountError:
+            await websocket.close(code=4401)                  # not signed in, or the seat is gone
+            return
         await websocket.accept()
         sent = -1
         last_sent = float("-inf")
@@ -706,12 +816,17 @@ def create_app(gateway: Gateway, *, website_port: int = 5173) -> FastAPI:
             while True:
                 # on every change, and at least every KEEPALIVE_S: the website takes silence for a dead gateway
                 if gateway.view.version != sent or time.monotonic() - last_sent >= KEEPALIVE_S:
+                    if time.monotonic() - last_sent >= KEEPALIVE_S:
+                        socket_session(websocket)              # the seat is still held, or AccountError ends this
                     sent = gateway.view.version
                     last_sent = time.monotonic()
                     await websocket.send_text(gateway.view.snapshot().model_dump_json())
                 await asyncio.sleep(1.0 / MAX_SNAPSHOTS_PER_S)
         except (WebSocketDisconnect, RuntimeError):
             return
+        except AccountError:
+            with contextlib.suppress(Exception):
+                await websocket.close(code=4401)
 
     # --- 6C routes ---
 
@@ -719,6 +834,11 @@ def create_app(gateway: Gateway, *, website_port: int = 5173) -> FastAPI:
         origin = websocket.headers.get("origin")
         if origin is not None and origin not in origins:
             await websocket.close(code=1008)
+            return False
+        try:
+            socket_session(websocket)
+        except AccountError:
+            await websocket.close(code=4401)
             return False
         await websocket.accept()
         return True
@@ -760,6 +880,14 @@ def create_app(gateway: Gateway, *, website_port: int = 5173) -> FastAPI:
                 if not isinstance(text, str) or len(text) > MAX_CHAT_MESSAGE:
                     gateway.to_chat(session, ChatError(reason="a chat message is one ChatSend as JSON text"))
                     continue
+                try:
+                    person = socket_session(websocket)
+                except AccountError:
+                    await websocket.close(code=4401)
+                    return
+                if person is not None and accounts is not None:
+                    with contextlib.suppress(ValueError, AttributeError):
+                        accounts.record(person.user_id, "chat", str(json.loads(text).get("text", "")))
                 await gateway.chat_message(session, text)
 
         try:
@@ -847,7 +975,9 @@ async def amain(args: argparse.Namespace) -> int:
         return 2
     gateway = Gateway(link, args.matrix or f"http://{host}:{ports['matrix_api']}", logger=logger)
     await gateway.start()
-    server = uvicorn.Server(uvicorn.Config(create_app(gateway, website_port=int(ports["website"])), host=host,
+    accounts = None if args.no_accounts else Accounts(args.accounts)
+    app = create_app(gateway, website_port=int(ports["website"]), accounts=accounts, extra_origins=tuple(args.origin))
+    server = uvicorn.Server(uvicorn.Config(app, host=host,
                                            port=args.port or int(ports["gateway"]), log_level="warning",
                                            lifespan="off"))
     try:
@@ -869,6 +999,12 @@ def main(argv: list[str] | None = None) -> int:
     where.add_argument("--logs", type=Path, default=ROOT / "logs", help="log folder (default: logs/)")
     where.add_argument("--no-logs", action="store_true", help="no log file")
     parser.add_argument("--echo", action="store_true", help="also print the log to stderr")
+    data_root = os.environ.get("JARVIS_DATA_ROOT")                   # a test run's data stays in its own folder
+    parser.add_argument("--accounts", type=Path,
+                        default=Path(data_root) / "gateway" / "accounts.sqlite" if data_root else ACCOUNTS_DB,
+                        help="the accounts database (default: interface/gateway/data/, or under JARVIS_DATA_ROOT)")
+    parser.add_argument("--no-accounts", action="store_true", help="no sign-in: every route open (tests only)")
+    parser.add_argument("--origin", action="append", default=[], help="another website origin (the public tunnel)")
     args = parser.parse_args(argv)
     try:
         return asyncio.run(amain(args))

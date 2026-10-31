@@ -3,7 +3,7 @@ node = "all"
 title = "Owner rules"
 kind = "shared"
 version = 1
-status = "draft"
+status = "approved"
 sources = [
   { title = "Reasoning memory: OWNER_RULES (quoted word for word)", link = "../../../../_dev/farm_poc_snapshot/nodes/cmm.py" },
   { title = "Safety gate: notification and call limits", link = "../../../../_dev/farm_poc_snapshot/nodes/gate.py" },

@@ -3,7 +3,7 @@ node = "all"
 title = "Contacts"
 kind = "shared"
 version = 1
-status = "draft"
+status = "approved"
 sources = [
   { title = "Farm simulation model: simulated phone service", link = "../../../../_dev/farm_poc_snapshot/matrix/communications.py" },
   { title = "Safety gate: who may call whom", link = "../../../../_dev/farm_poc_snapshot/nodes/gate.py" },

@@ -3,7 +3,7 @@ node = "animal-protection"
 title = "Animal Protection manual"
 kind = "machine manual"
 version = 1
-status = "draft"
+status = "approved"
 sources = [
   { title = "Farm simulation model: animal-protection device", link = "../../../../_dev/farm_poc_snapshot/devices/animal_protection.py" },
   { title = "Farm simulation model: animal-protection controller", link = "../../../../_dev/farm_poc_snapshot/controllers/animal_protection_controller.py" },

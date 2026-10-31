@@ -174,6 +174,7 @@ def test_approving_needs_a_person_at_a_terminal(capsys: pytest.CaptureFixture[st
     assert "refused" in capsys.readouterr().out
     assert owner_confirms("x", interactive=True, read=lambda _: "APPROVE")
     assert not owner_confirms("x", interactive=True, read=lambda _: "yes")
+    assert owner_confirms("x", interactive=True, read=lambda _: " approve ")      # the owner typed it in lower case
 
 
 def test_the_approve_command_refuses_without_the_owner(sandbox: Path) -> None:

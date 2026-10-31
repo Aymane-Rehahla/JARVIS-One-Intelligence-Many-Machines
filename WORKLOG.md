@@ -35,6 +35,24 @@ restarted, with the second review's guard code, at 04:33:39.** Nothing of ours r
 and it stopped nothing, because nothing of ours was registered (it rewrote an empty `logs/guarded.json` at 05:12).
 Since 06:00 the commit headroom has stayed at 5.0 GiB or more. Lesson: start nothing while the training changes phase.
 
+## After 6F: accounts, the LLM panel, the floating JARVIS and the 3D assets (31 Oct 2026, owner's requests)
+
+- **Accounts** (`interface/gateway/accounts.py`):
+  - sign-up asks for a username, a nickname, the password twice and an optional mentor key;
+  - two seats; a mentor takes the seat of the user seated longest;
+  - SQLite holds a random user id, the scrypt password hash, the nickname, a history (sign-ins, chat questions, faults) and the mentor-key redemption count;
+  - only the mentor key's hash is in the code;
+  - queries take their values as parameters;
+  - wrong passwords and wrong mentor keys are rate-limited.
+- **Gateway:** with accounts on (the default as a program), every route but `/health` and sign-in needs a seated session, and only mentors may break the language models. Tests and evals build the app without accounts, so nothing they do changed. `--origin` adds the tunnel's address. Evidence: `tests/test_accounts.py`, 9 passed; the gateway test failed before the change.
+- **Website:**
+  - a sign-in screen; the demo farm stays open when the gateway is off;
+  - the name and sign-out in the header;
+  - an "LLM" callout on the JARVIS cloud opening the 12 language-side choices, with their measured numbers, misses included;
+  - a small floating JARVIS while JARVIS is on: it looks around, listens, thinks (looks up, dots) and talks (mouth).
+  - Checked in the browser: sign-up as mentor, live feed with the token, the LLM panel, the thinking cloud, sign-out; a third person refused with "busy".
+- **3D models:** `tools/farm_assets.py pack|unpack|check` against `assets-manifest.json`. The hand-in zip is `JARVIS-farm-assets.zip` on the Desktop (277 MB, checked). `hvac.glb` (120 MB) is over GitHub's file limit, so the models stay out of git: attach the zip to a GitHub release.
+
 ## Step 6F: the cold-start rehearsal (31 Oct 2026, 17:45-17:53) and what is left to the owner
 
 **One rehearsal, not three:** the owner asked to finish (deadline, token budget) and to leave the long tests to a

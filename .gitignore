@@ -22,3 +22,4 @@ interface/web/dist/
 htmlcov/
 interface/web/public/assets/farm/
 .claude/
+interface/gateway/data/

@@ -242,3 +242,14 @@
 @keyframes cloud-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
 @keyframes cloud-shadow { 0%, 100% { transform: scaleX(1); opacity: 1; } 50% { transform: scaleX(0.9); opacity: 0.7; } }
 @keyframes mind-enter { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+
+/* The floating JARVIS: rings in while listening, waves out while speaking, a bouncing ellipsis while thinking. */
+.fj-ring, .fj-wave { transform-box: view-box; transform-origin: 290px 160px; opacity: 0; }
+@media (prefers-reduced-motion: no-preference) {
+  .fj-ring { animation: fj-ring 1.35s cubic-bezier(0.2, 0, 0, 1) infinite; }
+  .fj-wave { animation: fj-wave 1s cubic-bezier(0.2, 0, 0, 1) infinite; }
+  .fj-dot { animation: fj-dot 0.9s cubic-bezier(0.45, 0, 0.55, 1) infinite; transform-box: fill-box; }
+}
+@keyframes fj-ring { from { transform: scale(1.45); opacity: 0; } 50% { opacity: 0.55; } to { transform: scale(0.9); opacity: 0; } }
+@keyframes fj-wave { from { transform: scale(0.95); opacity: 0.5; } to { transform: scale(1.5); opacity: 0; } }
+@keyframes fj-dot { 0%, 100% { transform: translateY(0); } 40% { transform: translateY(-14px); } }

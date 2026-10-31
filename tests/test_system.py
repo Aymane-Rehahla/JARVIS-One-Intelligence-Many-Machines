@@ -205,7 +205,13 @@ async def test_system_hot_join_questions_and_cut_links(tmp_path: Path, new_port:
     try:
         await wait_ready(status_path, supervisor)
         website_origin = f"http://127.0.0.1:{ports['website']}"
-        async with connect(f"ws://127.0.0.1:{ports['gateway']}/ws/farm", origin=Origin(website_origin), open_timeout=30) as socket:
+        async with httpx.AsyncClient(base_url=f"http://127.0.0.1:{ports['gateway']}", timeout=20.0) as gateway_http:
+            signed = await gateway_http.post("/auth/signup", json={"username": "system", "nickname": "System",
+                                                                   "password": "system-test", "confirm": "system-test"})
+        assert signed.status_code == 200, signed.text                       # the gateway runs with accounts on
+        token = signed.json()["token"]
+        async with connect(f"ws://127.0.0.1:{ports['gateway']}/ws/farm?token={token}", origin=Origin(website_origin),
+                           open_timeout=30) as socket:
             three = await next_snapshot(
                 socket,
                 lambda snapshot: all(snapshot.nodes[node].alive and snapshot.nodes[node].known == list(THREE_NODES)

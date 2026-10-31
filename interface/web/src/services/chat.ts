@@ -7,6 +7,7 @@
 import { AckResponse, ChatServerMessage, LlmFailureSwitches } from "./contracts.ts"
 import type { AckOffer, ChatDone, OwnerAlert } from "./contracts.ts"
 import { backoffMs, type ActionResult, type LiveConnection } from "./live.ts"
+import { socketUrl, withAuth } from "./auth.ts"
 
 /** Entries kept in the history (the oldest go first). */
 export const MAX_ENTRIES = 200
@@ -240,7 +241,7 @@ export class ChatClient {
     this.handlers.onConnection("connecting")
     let socket: WebSocket
     try {
-      socket = new WebSocket(`${this.url.replace(/^http/, "ws")}/ws/chat`)
+      socket = new WebSocket(socketUrl(`${this.url.replace(/^http/, "ws")}/ws/chat`))
     } catch {
       this.retry()
       return
@@ -274,7 +275,7 @@ async function request<T>(url: string, init: RequestInit, check: (json: unknown)
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), ACTION_TIMEOUT_MS)
   try {
-    const response = await fetch(url, { ...init, signal: controller.signal })
+    const response = await fetch(url, { ...init, headers: withAuth(init.headers), signal: controller.signal })
     const json: unknown = await response.json().catch(() => null)
     if (!response.ok) {
       const detail = (json as { detail?: unknown } | null)?.detail

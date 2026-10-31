@@ -318,7 +318,7 @@ def owner_confirms(what: str, *, read: Callable[[str], str] = input, interactive
     if not (sys.stdin.isatty() if interactive is None else interactive):
         print("refused: approving needs the owner at an interactive terminal (no script or agent may approve)")
         return False
-    return read(f"Type APPROVE to approve {what}: ").strip() == "APPROVE"
+    return read(f"Type APPROVE to approve {what}: ").strip().upper() == "APPROVE"
 
 
 def main(argv: list[str] | None = None, *, confirm: Callable[[str], bool] = owner_confirms) -> int:

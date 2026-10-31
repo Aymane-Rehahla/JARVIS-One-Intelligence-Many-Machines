@@ -3,7 +3,7 @@ node = "all"
 title = "Safety list: approved protective actions"
 kind = "shared"
 version = 1
-status = "draft"
+status = "approved"
 sources = [
   { title = "Reasoning memory: safety_actions text (quoted word for word)", link = "../../../../_dev/farm_poc_snapshot/nodes/cmm.py" },
   { title = "Approved actions per machine: DANGER_ACTIONS", link = "../../../../_dev/farm_poc_snapshot/nodes/contracts.py" },

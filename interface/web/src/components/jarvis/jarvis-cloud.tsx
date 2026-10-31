@@ -31,7 +31,7 @@ function arc(circle: Circle, from: { x: number; y: number }, to: { x: number; y:
   const span = (end - start + Math.PI * 4) % (Math.PI * 2)
   return `A ${circle.r} ${circle.r} 0 ${span > Math.PI ? 1 : 0} 1 ${to.x.toFixed(2)} ${to.y.toFixed(2)}`
 }
-function cloudPath() {
+export function cloudPath() {
   const first = BUMPS[0], last = BUMPS[BUMPS.length - 1]
   const startX = first.x - Math.sqrt(first.r ** 2 - (BASE_Y - first.y) ** 2), endX = last.x + Math.sqrt(last.r ** 2 - (BASE_Y - last.y) ** 2)
   let point = { x: startX, y: BASE_Y }
@@ -48,7 +48,7 @@ const EYE = { y: 168, left: 258, right: 322, w: 24, h: 42 }
 /** The drawing area, with room around the cloud for the callouts. */
 const VIEW = { x: -40, y: -50, w: 640, h: 350 }
 
-export type CloudTarget = "ctm" | "cmm" | "voice"
+export type CloudTarget = "ctm" | "cmm" | "voice" | "llm"
 
 export function JarvisCloud({ onOpen, attention }: { onOpen: (target: CloudTarget) => void; attention?: "down" | null }) {
   const reduced = useReducedMotion()
@@ -132,6 +132,7 @@ export function JarvisCloud({ onOpen, attention }: { onOpen: (target: CloudTarge
     { id: "ctm", label: "CTM", meta: "Thinks", line: [[300, 14], [300, -28], [334, -28]], at: [340, -28] },
     { id: "cmm", label: "CMM", meta: "Remembers", line: [[486, 196], [500, 196], [500, 120], [504, 120]], at: [508, 120] },
     { id: "voice", label: "Voice box", meta: "Push-to-talk", line: [[76, 214], [20, 214], [20, 262], [26, 262]], at: [30, 262] },
+    { id: "llm", label: "LLM", meta: "Talks", line: [[150, 132], [150, 40], [118, 40]], at: [40, 40] },
   ]
 
   return (

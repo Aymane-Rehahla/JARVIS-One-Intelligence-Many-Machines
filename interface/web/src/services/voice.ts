@@ -3,6 +3,7 @@
 
 import { OkResponse, VoiceSettingsResult, VoiceStatus } from "./contracts.ts"
 import { backoffMs, type ActionResult, type LiveConnection } from "./live.ts"
+import { socketUrl, withAuth } from "./auth.ts"
 
 const ACTION_TIMEOUT_MS = 8_000
 
@@ -37,7 +38,7 @@ export class VoiceClient {
     this.onConnection("connecting")
     let socket: WebSocket
     try {
-      socket = new WebSocket(`${this.url.replace(/^http/, "ws")}/ws/voice`)
+      socket = new WebSocket(socketUrl(`${this.url.replace(/^http/, "ws")}/ws/voice`))
     } catch {
       this.retry()
       return
@@ -80,7 +81,7 @@ async function post<T>(url: string, body: unknown, check: (json: unknown) => { s
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), ACTION_TIMEOUT_MS)
   try {
-    const response = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" },
+    const response = await fetch(url, { method: "POST", headers: withAuth({ "Content-Type": "application/json" }),
       body: JSON.stringify(body), signal: controller.signal })
     const json: unknown = await response.json().catch(() => null)
     if (!response.ok) {

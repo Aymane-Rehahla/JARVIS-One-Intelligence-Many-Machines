@@ -4,6 +4,7 @@
 
 import { FarmSnapshot, FaultResult, SimState } from "./contracts.ts"
 import type { ScenarioId } from "./matrix.ts"
+import { socketUrl, withAuth } from "./auth.ts"
 
 export const DEFAULT_GATEWAY_URL = "http://127.0.0.1:8010"
 /** Reconnect waits 1, 2, 4 ... seconds, never more than this. */
@@ -66,7 +67,7 @@ export class LiveFarmClient {
     this.handlers.onConnection("connecting")
     let socket: WebSocket
     try {
-      socket = new WebSocket(`${this.url.replace(/^http/, "ws")}/ws/farm`)
+      socket = new WebSocket(socketUrl(`${this.url.replace(/^http/, "ws")}/ws/farm`))
     } catch {
       this.retry()
       return
@@ -126,7 +127,7 @@ async function post<T>(url: string, body: unknown, check: (json: unknown) => Che
   try {
     const response = await fetch(url, {
       method: "POST",
-      headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+      headers: withAuth(body === undefined ? undefined : { "Content-Type": "application/json" }),
       body: body === undefined ? undefined : JSON.stringify(body),
       signal: controller.signal,
     })

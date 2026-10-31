@@ -57,6 +57,8 @@ import type { ChatState } from "@/services/chat"
 import { LlmSwitchesPanel } from "@/components/chat/llm-switches"
 import { AssessmentBadge, EmptyState, Kicker, Notice, PageHeader } from "@/components/farm-ui"
 import { JarvisPage } from "@/components/jarvis/jarvis-page"
+import { AccountBadge } from "@/components/auth-gate"
+import { FloatingJarvis, type Mood } from "@/components/jarvis/floating-jarvis"
 import { JarvisVoice } from "@/components/jarvis-voice"
 import {
   ASSESSMENT_LABELS,
@@ -105,6 +107,10 @@ function App() {
   const chat = useChat(state.source === "live")
   const voice = useVoice(state.source === "live")
   const liveVoice = state.source === "live" ? voice.status : null
+  const jarvisOn = state.source === "live" && liveVoice !== null && liveVoice.state !== "off"
+  const mood: Mood = liveVoice?.state === "listening" || liveVoice?.state === "wake" ? "listening"
+    : liveVoice?.state === "speaking" ? "speaking"
+    : liveVoice?.state === "thinking" || chat.state.inFlight !== null ? "thinking" : "idle"
   const selectedDevice = selectedDeviceId ? deviceById(state, selectedDeviceId) ?? null : null
 
   const [eventQuery, setEventQuery] = useState("")
@@ -157,6 +163,7 @@ function App() {
     <div className="relative min-h-svh bg-frame text-foreground">
       <div aria-hidden className="frame-stripes pointer-events-none absolute inset-x-0 top-0 h-[260px]" />
       <Toaster position="bottom-right" />
+      {(jarvisOn || (state.source === "live" && chat.state.inFlight !== null)) && <FloatingJarvis mood={mood} onOpen={() => navigate("chat")} />}
       <div className="relative mx-auto max-w-[1680px] md:px-6 md:pt-10 md:pb-6">
         <div className="min-h-svh border-frame-raised bg-background md:min-h-[calc(100svh-4rem)] md:border">
           <header className="sticky top-0 z-20 border-b bg-background/95 backdrop-blur-sm">
@@ -217,6 +224,7 @@ function App() {
                   />
                   {search && <button type="button" aria-label="Clear search" onClick={() => handleSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"><X className="size-3.5" /></button>}
                 </form>
+                <AccountBadge />
                 <JarvisVoice
                   state={liveVoice ? (liveVoice.state === "listening" || liveVoice.state === "speaking" ? liveVoice.state : "idle") : farm.voice}
                   available={state.source === "demo" || (liveVoice !== null && liveVoice.state !== "off")}

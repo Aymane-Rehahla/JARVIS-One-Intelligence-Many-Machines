@@ -1,0 +1,77 @@
+{
+  "approved": {
+    "contacts.md": {
+      "approved_utc": "2026-10-31T17:26:23+00:00",
+      "by": "owner",
+      "sha256": "0fce3de51360870c6116d83b69d9fc37bfdbb803188fe9e123d6bd864ab8e6e0",
+      "version": 1
+    },
+    "farm_layout.md": {
+      "approved_utc": "2026-10-31T17:26:24+00:00",
+      "by": "owner",
+      "sha256": "3ebb28c5050366e2172c0e2c1693bea1df7c047a3a9832d533c13b933646f5ac",
+      "version": 1
+    },
+    "incubator_manual.md": {
+      "approved_utc": "2026-10-31T17:26:18+00:00",
+      "by": "owner",
+      "sha256": "b655734fb045b3bf489c9f924935a90238fc3cd070654478c808249fff96165f",
+      "version": 1
+    },
+    "owner_rules.md": {
+      "approved_utc": "2026-10-31T17:26:26+00:00",
+      "by": "owner",
+      "sha256": "524982b04bc49af41b9da614df04852cc44252df6f732bb41681bef9d7bf6b1a",
+      "version": 1
+    },
+    "safety_actions.md": {
+      "approved_utc": "2026-10-31T17:26:29+00:00",
+      "by": "owner",
+      "sha256": "6caba551f41e7f2a459e18dc0439c9a81a708a60295176479131cc99b8547f2f",
+      "version": 1
+    }
+  },
+  "history": {
+    "contacts.md": [
+      {
+        "approved_utc": "2026-10-31T17:26:23+00:00",
+        "by": "owner",
+        "sha256": "0fce3de51360870c6116d83b69d9fc37bfdbb803188fe9e123d6bd864ab8e6e0",
+        "version": 1
+      }
+    ],
+    "farm_layout.md": [
+      {
+        "approved_utc": "2026-10-31T17:26:24+00:00",
+        "by": "owner",
+        "sha256": "3ebb28c5050366e2172c0e2c1693bea1df7c047a3a9832d533c13b933646f5ac",
+        "version": 1
+      }
+    ],
+    "incubator_manual.md": [
+      {
+        "approved_utc": "2026-10-31T17:26:18+00:00",
+        "by": "owner",
+        "sha256": "b655734fb045b3bf489c9f924935a90238fc3cd070654478c808249fff96165f",
+        "version": 1
+      }
+    ],
+    "owner_rules.md": [
+      {
+        "approved_utc": "2026-10-31T17:26:26+00:00",
+        "by": "owner",
+        "sha256": "524982b04bc49af41b9da614df04852cc44252df6f732bb41681bef9d7bf6b1a",
+        "version": 1
+      }
+    ],
+    "safety_actions.md": [
+      {
+        "approved_utc": "2026-10-31T17:26:29+00:00",
+        "by": "owner",
+        "sha256": "6caba551f41e7f2a459e18dc0439c9a81a708a60295176479131cc99b8547f2f",
+        "version": 1
+      }
+    ]
+  },
+  "schema_version": 1
+}

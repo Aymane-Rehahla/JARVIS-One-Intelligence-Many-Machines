@@ -21,6 +21,7 @@ import { CmmView } from "./cmm-view"
 import { CtmExplorer } from "./ctm-explorer"
 import { JarvisCloud, type CloudTarget } from "./jarvis-cloud"
 import { MIND_NODES, NODE_LABEL, RECORDED_LABEL, useArchitecture, useManifest, type MindNode } from "./mind-data"
+import { LlmChoices } from "./llm-choices"
 import { VoiceBox } from "./voice-box"
 
 const COMPONENTS: { id: CloudTarget; index: string; name: string; role: string; title: string; summary: string; recorded: boolean }[] = [
@@ -52,6 +53,16 @@ const COMPONENTS: { id: CloudTarget; index: string; name: string; role: string; 
     title: "How it speaks",
     summary:
       "Push-to-talk in, speech recognition, the agent's answer checked sentence by sentence, and speech out as each sentence is ready. Only incubator-1 speaks; the wake word was cut.",
+    recorded: false,
+  },
+  {
+    id: "llm",
+    index: "04",
+    name: "LLM",
+    role: "Talks",
+    title: "How it talks",
+    summary:
+      "An agent built on small local language models: it fetches facts with typed tools, retrieves from approved manuals, checks every sentence against the evidence before it is shown or spoken, and never acts on a machine.",
     recorded: false,
   },
 ]
@@ -137,7 +148,7 @@ export function JarvisPage({ state, farm, lastReply }: { state: FarmState; farm:
                 </button>
               ))}
             </nav>
-            {open !== "voice" && (
+            {open !== "voice" && open !== "llm" && (
               <div className="border-b px-5 py-4">
                 <div className="label-mono text-muted-foreground">Node</div>
                 <div role="radiogroup" aria-label="Node" className="mt-2 grid grid-cols-2 border-l border-t lg:grid-cols-1">
@@ -163,7 +174,7 @@ export function JarvisPage({ state, farm, lastReply }: { state: FarmState; farm:
               <p className="mt-2 text-[13px] leading-5">
                 {active.recorded
                   ? `${RECORDED_LABEL}. Nothing here is live.${fault ? ` In the episode both incubators get ${fault.voltage_v} V from tick ${fault.inject_tick} to tick ${fault.end_tick}.` : ""}`
-                  : "Built in step 6E: live in the voice indicator at the top and on the Chat page (push-to-talk)."}
+                  : open === "llm" ? "Live on the Chat page: ask about any machine and watch the citations and checks." : "Built in step 6E: live in the voice indicator at the top and on the Chat page (push-to-talk)."}
               </p>
             </div>
           </aside>
@@ -180,6 +191,7 @@ export function JarvisPage({ state, farm, lastReply }: { state: FarmState; farm:
               {open === "ctm" && <CtmExplorer node={node} />}
               {open === "cmm" && <CmmView node={node} />}
               {open === "voice" && <VoiceBox />}
+              {open === "llm" && <LlmChoices />}
             </div>
           </div>
         </section>

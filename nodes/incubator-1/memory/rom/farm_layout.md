@@ -3,7 +3,7 @@ node = "all"
 title = "Farm layout"
 kind = "shared"
 version = 1
-status = "draft"
+status = "approved"
 sources = [
   { title = "Farm simulation model: physical world (zones, air paths)", link = "../../../../_dev/farm_poc_snapshot/matrix/physical_world.py" },
   { title = "Farm simulation model: equipment faults (water main, power)", link = "../../../../_dev/farm_poc_snapshot/matrix/equipment_faults.py" },

@@ -57,6 +57,9 @@ class Farm:
     async def start(self, node: NodeId, **options: Any) -> Node:
         link = NatsLink(node, self.url, logger=LOG)
         await link.connect(attempts=5)
+        if "rom_dir" not in options:                     # the owner's approvals of the real ROM are not this test's
+            options["rom_dir"] = self.data_dir / node / "rom"
+            options["rom_dir"].mkdir(parents=True, exist_ok=True)
         started = Node(load_node_config(ROOT / "nodes" / node / "node.toml"), link, logger=LOG, rules=NO_DELAY,
                        heartbeat_s=BEAT_S, silent_after_s=SILENT_S, data_dir=self.data_dir / node, **options)
         await started.start()
