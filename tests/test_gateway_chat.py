@@ -413,3 +413,17 @@ def test_the_websites_click_waits_longer_than_the_gateways_acknowledgement() -> 
     found = re.search(r"const ACTION_TIMEOUT_MS = ([0-9_]+)", source)
     assert found is not None
     assert int(found.group(1).replace("_", "")) / 1000 > gw.ACK_TIMEOUT_S + gw.MATRIX_TIMEOUT_S + 1.0
+
+
+@pytest.mark.asyncio
+async def test_a_mentors_question_carries_its_priority(rig: Rig) -> None:
+    """Parallel answers, mentors first: the gateway tags each question with the asker's role."""
+    for priority in ("mentor", "user"):
+        session = gw.ChatSession()
+        await rig.gateway.chat_message(session, json.dumps({"type": "chat_send", "client_msg_id": f"p-{priority}",
+                                                            "text": "status?"}), priority=priority)
+    deadline = time.monotonic() + 5.0
+    while len(rig.incubator.asked) < 2:
+        assert time.monotonic() < deadline
+        await asyncio.sleep(0.02)
+    assert [asked.priority for asked in rig.incubator.asked] == ["mentor", "user"]

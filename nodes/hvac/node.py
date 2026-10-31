@@ -17,6 +17,9 @@ reads another machine's data except by asking that node. Tests: `tests/test_node
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import heapq
+import itertools
 import logging
 import secrets
 import time
@@ -50,7 +53,8 @@ SILENT_AFTER_S = 30.0                       # three missed heartbeats: the peer 
 EVENTS_KEPT = 200
 INCIDENTS_KEPT = 20
 DOCUMENT_REFRESH_S = 5.0                     # how often the approved-document index is checked for changes
-MAX_TURNS_AT_ONCE = 2                        # owner turns served at once (the 2B server has one slot)
+MAX_TURNS_AT_ONCE = 2                        # owner turns served at once (the speaker's server has two slots)
+MAX_TURNS_WAITING = 4                        # turns queued for a slot, mentors first; past this, refused at once
 MAX_BACKGROUND = 64                          # notices and turns in flight, at most
 
 
@@ -119,6 +123,51 @@ def topics_for(config: NodeConfig, *, has_documents: bool = False) -> list[Topic
     return topics
 
 
+class TurnGate:
+    """`slots` owner turns at once; the others wait for a slot, a mentor's before a user's (then first come, first
+    served). `full()` when every slot is busy and `waiting_max` turns already wait."""
+
+    def __init__(self, slots: int, waiting_max: int) -> None:
+        self.free = slots
+        self.waiting_max = waiting_max
+        self._queue: list[tuple[int, int, asyncio.Future[None]]] = []
+        self._order = itertools.count()
+
+    def full(self) -> bool:
+        return self.free == 0 and len(self._queue) >= self.waiting_max
+
+    @contextlib.asynccontextmanager
+    async def turn(self, priority: Literal["mentor", "user"]) -> AsyncIterator[None]:
+        if self.free > 0 and not self._queue:
+            self.free -= 1
+        else:
+            waiting: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+            entry = (0 if priority == "mentor" else 1, next(self._order), waiting)
+            heapq.heappush(self._queue, entry)
+            try:
+                await waiting
+            except BaseException:
+                if waiting.done() and not waiting.cancelled():
+                    self._release()                         # handed a slot just as it was cancelled: pass it on
+                else:
+                    self._queue.remove(entry)
+                    heapq.heapify(self._queue)
+                raise
+        try:
+            yield
+        finally:
+            self._release()
+
+    def _release(self) -> None:
+        """A slot passes straight to the first waiting turn, or becomes free."""
+        while self._queue:
+            _, _, waiting = heapq.heappop(self._queue)
+            if not waiting.done():
+                waiting.set_result(None)
+                return
+        self.free += 1
+
+
 class Node:
     """One node program's state and behaviour (see the module docstring)."""
 
@@ -149,7 +198,7 @@ class Node:
         self.peer_mind: PeerMind | None = None            # the three silent nodes
         self.alert_desk: AlertDesk | None = None          # incubator-1 only
         self.alert_watcher = AlertWatcher(config.id, self._send_notice)
-        self._turns = asyncio.Semaphore(MAX_TURNS_AT_ONCE)
+        self._turns = TurnGate(MAX_TURNS_AT_ONCE, MAX_TURNS_WAITING)
         self._background: set[asyncio.Task[Any]] = set()
         self.mcp_enabled = mcp_enabled
         self.mcp_port = mcp_port
@@ -369,21 +418,23 @@ class Node:
     async def _serve_turn(self, request: ChatRequest) -> None:
         """One owner turn: every piece the agent yields goes out on jarvis.incubator-1.reply, in order."""
         async for item in self.owner_turn(request.text, request_id=request.request_id,
-                                          conversation_id=request.conversation_id, source=request.source):
+                                          conversation_id=request.conversation_id, source=request.source,
+                                          priority=request.priority):
             await self.link.publish(jarvis_subject(self.id, "reply"), item, request_id=request.request_id)
 
     async def owner_turn(self, text: str, *, request_id: str, conversation_id: str | None,
-                         source: Literal["chat", "voice"]) -> AsyncIterator[ChatChunk | ChatDone]:
-        """The agent's reply to one owner turn, chat or voice, at most MAX_TURNS_AT_ONCE at once (the 2B server has
-        one slot); a turn past the limit gets a ChatDone saying so at once."""
+                         source: Literal["chat", "voice"],
+                         priority: Literal["mentor", "user"] = "user") -> AsyncIterator[ChatChunk | ChatDone]:
+        """The agent's reply to one owner turn, chat or voice: MAX_TURNS_AT_ONCE run in parallel (the speaker's two
+        slots), up to MAX_TURNS_WAITING more wait mentors first; past that a ChatDone says so at once."""
         agent = self.agent
         reason = ("the agent is not running" if agent is None else
-                  "JARVIS is already answering two questions" if self._turns.locked() else "")
+                  "JARVIS is busy with other questions; ask again in a moment" if self._turns.full() else "")
         if agent is None or reason:
             yield ChatDone(request_id=request_id, conversation_id=conversation_id or "none", text="", chunks=0,
                            outcome="error", reason=reason, numbers_checked=0, timings=ReplyTimings(total_ms=0))
             return
-        async with self._turns:
+        async with self._turns.turn(priority):
             async for item in agent.reply(text, request_id=request_id, conversation_id=conversation_id,
                                           source=source):
                 yield item

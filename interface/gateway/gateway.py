@@ -491,7 +491,7 @@ class Gateway:
         if session.outbox.put(message):
             self.chat_dropped += 1
 
-    async def chat_message(self, session: ChatSession, raw: str) -> None:
+    async def chat_message(self, session: ChatSession, raw: str, *, priority: Literal["mentor", "user"] = "user") -> None:
         """One message from a /ws/chat socket: a ChatSend becomes a ChatRequest to incubator-1; anything else, a second
         question while one is in flight, or no NATS is a ChatError on that socket."""
         try:
@@ -514,7 +514,8 @@ class Gateway:
         self.to_chat(session, ChatAccepted(client_msg_id=send.client_msg_id, request_id=request_id))
         await self.link.publish(jarvis_subject("incubator-1", "chat"),
                                 ChatRequest(request_id=request_id, conversation_id=send.conversation_id, text=send.text,
-                                            source="chat", sent_utc=utc_now()), request_id=request_id)
+                                            source="chat", sent_utc=utc_now(), priority=priority),
+                                request_id=request_id)
         log(self.logger, logging.INFO, "chat question passed to incubator-1", request_id=request_id)
 
     def _chat_expired(self, session: ChatSession, request_id: str) -> None:
@@ -910,7 +911,8 @@ def create_app(gateway: Gateway, *, website_port: int = 5173, accounts: Accounts
                 if person is not None and accounts is not None:
                     with contextlib.suppress(ValueError, AttributeError):
                         accounts.record(person.user_id, "chat", str(json.loads(text).get("text", "")))
-                await gateway.chat_message(session, text)
+                await gateway.chat_message(session, text,
+                                           priority="mentor" if person is not None and person.role == "mentor" else "user")
 
         try:
             await both(listen(), pump(websocket, session.outbox))

@@ -29,6 +29,7 @@ from contracts import NodeId, load_node_config
 NODE_DIR = Path(__file__).resolve().parents[1]
 ROOT = NODE_DIR.parents[1]
 LLAMA_SERVER = ROOT / "third_party" / "llama.cpp" / "bin" / "llama-server.exe"
+SPEAKER_SLOTS = 2                       # incubator-1's server answers two people at once (2 seats)
 CTX_PER_SLOT = 8192                     # the persona spec's context size (docs/persona-spec.md, section 4)
 CHAT_PATH = "/v1/chat/completions"
 STREAM_MAX_BYTES = 200_000             # the most a streamed answer may send (Q4)
@@ -67,7 +68,8 @@ def server_spec(node: NodeId, ports_file: Path = ROOT / "launcher" / "ports.toml
     ports = tomllib.loads(ports_file.read_text(encoding="utf-8"))
     config = load_node_config(ROOT / "nodes" / node / "node.toml")
     return ServerSpec(node=node, model=ROOT / config.llm.model, host=str(ports["host"]),
-                      port=int(ports["llm"][node]), slots=slots or 1, alias=f"jarvis-{node}")
+                      port=int(ports["llm"][node]),
+                      slots=slots or (SPEAKER_SLOTS if config.speaks else 1), alias=f"jarvis-{node}")
 
 
 def server_command(spec: ServerSpec, exe: Path = LLAMA_SERVER) -> list[str]:

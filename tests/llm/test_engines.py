@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[2]
 def test_each_node_has_its_own_local_server_with_every_layer_on_the_gpu() -> None:
     specs = {node: server_spec(node) for node in NODE_IDS}
     assert {node: (spec.port, spec.slots) for node, spec in specs.items()} == {
-        "incubator-1": (8081, 1), "incubator-2": (8082, 1), "hvac": (8083, 1), "animal-protection": (8084, 1)}
+        "incubator-1": (8081, 2), "incubator-2": (8082, 1), "hvac": (8083, 1), "animal-protection": (8084, 1)}
     for node, spec in specs.items():
         argv = server_command(spec)
         flag = {argv[i]: argv[i + 1] for i in range(1, len(argv) - 1) if argv[i].startswith("-")}

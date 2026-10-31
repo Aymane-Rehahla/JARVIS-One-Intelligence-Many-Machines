@@ -462,6 +462,8 @@ class ChatRequest(Contract):
     text: str = Field(min_length=1, max_length=2000)
     source: Literal["chat", "voice"]
     sent_utc: str
+    #: The asker's role (the gateway's account): when both of the speaker's slots are busy, a mentor waits first.
+    priority: Literal["mentor", "user"] = "user"
 
     @field_validator("text")
     @classmethod

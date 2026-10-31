@@ -385,9 +385,37 @@ async def test_voice_turns_share_the_limit_on_owner_turns() -> None:
     async def drain(source: Literal["chat", "voice"], request_id: str) -> list[Any]:
         return [item async for item in node.owner_turn("How is it?", request_id=request_id, conversation_id=None,
                                                        source=source)]
-    holders = [asyncio.create_task(drain("chat", f"r-{index}")) for index in range(2)]
+    import node as node_module
+    held = node_module.MAX_TURNS_AT_ONCE + node_module.MAX_TURNS_WAITING        # every slot busy, the queue full
+    holders = [asyncio.create_task(drain("chat", f"r-{index}")) for index in range(held)]
     await asyncio.sleep(0.05)
     (busy,) = await asyncio.wait_for(drain("voice", "v-1"), 2.0)
-    assert busy.outcome == "error" and "already answering" in busy.reason and busy.request_id == "v-1"
+    assert busy.outcome == "error" and "busy" in busy.reason and busy.request_id == "v-1"
     gate.set()
     assert all(len(items) == 1 for items in await asyncio.gather(*holders))
+
+
+@pytest.mark.asyncio
+async def test_turns_run_in_parallel_and_mentors_wait_at_the_front() -> None:
+    """Two turns at once (the speaker's two llama.cpp slots); a waiting mentor goes before a waiting user, and a full
+    queue refuses at once."""
+    from node import TurnGate
+    gate = TurnGate(slots=2, waiting_max=2)
+    started: list[str] = []
+    release = asyncio.Event()
+
+    async def turn(name: str, priority: str) -> None:
+        async with gate.turn(priority):                                          # type: ignore[arg-type]
+            started.append(name)
+            await release.wait()
+    tasks = [asyncio.create_task(turn("u1", "user")), asyncio.create_task(turn("u2", "user"))]
+    await until(lambda: started == ["u1", "u2"])                                 # both at once
+    tasks.append(asyncio.create_task(turn("u3", "user")))
+    await asyncio.sleep(0.05)
+    tasks.append(asyncio.create_task(turn("m1", "mentor")))
+    await asyncio.sleep(0.05)
+    assert gate.full()
+    release.set()
+    await asyncio.gather(*tasks)
+    assert started == ["u1", "u2", "m1", "u3"]
+    assert not gate.full()
