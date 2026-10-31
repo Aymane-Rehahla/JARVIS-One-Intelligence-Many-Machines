@@ -60,6 +60,7 @@ import { JarvisPage } from "@/components/jarvis/jarvis-page"
 import { AccountBadge } from "@/components/auth-gate"
 import { FloatingJarvis, type Mood } from "@/components/jarvis/floating-jarvis"
 import { JarvisVoice } from "@/components/jarvis-voice"
+import { WelcomeTour } from "@/components/welcome-tour"
 import {
   ASSESSMENT_LABELS,
   DEVICE_IDS,
@@ -165,6 +166,7 @@ function App() {
     <div className="relative min-h-svh bg-frame text-foreground">
       <div aria-hidden className="frame-stripes pointer-events-none absolute inset-x-0 top-0 h-[260px]" />
       <Toaster position="bottom-right" />
+      <WelcomeTour />
       {(jarvisOn || (state.source === "live" && chat.state.inFlight !== null)) && <FloatingJarvis mood={mood} onOpen={() => navigate("chat")} />}
       <div className="relative mx-auto max-w-[1680px] md:px-6 md:pt-10 md:pb-6">
         <div className="min-h-svh border-frame-raised bg-background md:min-h-[calc(100svh-4rem)] md:border">
@@ -202,6 +204,7 @@ function App() {
                   <button
                     key={id}
                     type="button"
+                    data-tour={`nav-${id}`}
                     onClick={() => navigate(id)}
                     aria-current={page === id ? "page" : undefined}
                     className={cn(
@@ -227,15 +230,17 @@ function App() {
                   {search && <button type="button" aria-label="Clear search" onClick={() => handleSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"><X className="size-3.5" /></button>}
                 </form>
                 <AccountBadge />
+                <div data-tour="voice" className="flex">
                 <JarvisVoice
                   state={liveVoice ? (liveVoice.state === "listening" || liveVoice.state === "speaking" ? liveVoice.state : "idle") : farm.voice}
                   available={state.source === "demo" || (liveVoice !== null && liveVoice.state !== "off")}
                   label={liveVoice ? liveVoice.state : undefined}
                   onActivate={state.source === "live" ? () => navigate("chat") : activateVoice}
                 />
+                </div>
               </div>
             </div>
-            <SystemBar state={state} isConnecting={farm.isConnecting} liveAvailable={farm.liveAvailable} onGoLive={farm.goLive} onEvents={() => navigate("events")} />
+            <div data-tour="status"><SystemBar state={state} isConnecting={farm.isConnecting} liveAvailable={farm.liveAvailable} onGoLive={farm.goLive} onEvents={() => navigate("events")} /></div>
             <AlertBanner chat={chat} onOpen={() => navigate("chat")} />
           </header>
           <main className="px-4 py-8 sm:px-6 md:px-10 md:py-12">

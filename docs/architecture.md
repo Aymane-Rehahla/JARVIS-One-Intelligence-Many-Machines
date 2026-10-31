@@ -53,4 +53,4 @@ bench where JARVIS proves itself.
 ## Where to look
 
 - Decisions: `docs/decisions/` (0001-0022). Results: `docs/results-phase6.md`. The story: `docs/story.md`.
-- The day-by-day evidence: `WORKLOG.md`. The builder's running log: `docs/handoff/PROGRESS.md`.
+- The day-by-day evidence: `WORKLOG.md`.

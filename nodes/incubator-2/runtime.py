@@ -92,7 +92,7 @@ async def start_voice(node: Node, link: NatsLink, logger: logging.Logger) -> Any
 
     async def no_agent(text: str, **options: Any) -> AsyncIterator[Any]:
         yield ChatDone(request_id=options["request_id"], conversation_id=options.get("conversation_id") or "voice",
-                       text="My language model is not running, sir.", chunks=0, outcome="error",
+                       text="My language model is not running.", chunks=0, outcome="error",
                        reason="the agent is not running", numbers_checked=0, timings=ReplyTimings(total_ms=0))
 
     async def publish(status: Any) -> None:

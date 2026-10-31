@@ -95,9 +95,9 @@ def describe(data: MachineData) -> str:
 
 def fallback_text(machines: list[MachineData], reason: str) -> str:
     """A whole fallback reply: why it is a fallback, then one sentence per machine."""
-    opening = {"model": "My language model isn't answering, sir, so here is the data itself.",
-               "deadline": "I couldn't finish that reply in time, sir; here is the data itself.",
-               "verify": "I'll stick to the data itself, sir."}.get(reason, "Here is the data itself, sir.")
+    opening = {"model": "My language model isn't answering, so here is the data itself.",
+               "deadline": "I couldn't finish that reply in time; here is the data itself.",
+               "verify": "I'll stick to the data itself."}.get(reason, "Here is the data itself.")
     return " ".join([opening, *(describe(machine) for machine in machines)])
 
 

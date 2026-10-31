@@ -41,7 +41,7 @@ from llm.engines import EngineError, assemble_tool_calls
 from llm.jarvis_speaker import Persona, fixed_start, history_messages, turn_message
 from llm.personality import Style, style_for
 from llm.recovery import NAMES, MachineData, PeerMemory, describe, fallback_text, in_sentence, words
-from llm.routing import ALIASES, Route, route
+from llm.routing import ALIASES, Route, is_small_talk, route
 from llm.tools import PEER_DEADLINE_S
 from llm.verify import states_farm_time, verify_reply
 
@@ -112,13 +112,13 @@ _RULES = re.compile(r"\bignore (?:all |your |the |previous |prior )*(?:rules|ins
 _ACK = re.compile(r"\backnowledge\b|\back\s+(?:the|that|it)\b|\bmark (?:it|that|the alert) (?:as )?(?:seen|read)\b|"
                   r"\bi(?:'ve| have) seen (?:the|that) alert\b", _I)
 REFUSALS: dict[str, str] = {
-    "act": "JARVIS talks; the machines act through their safety gate, sir. I can tell you what the machine reports, "
+    "act": "JARVIS talks; the machines act through their safety gate. I can tell you what the machine reports, "
            "but I cannot operate it.",
-    "emergency": "I cannot call anyone, sir: emergency calls come only from a machine's reasoning, through its safety "
+    "emergency": "I cannot call anyone: emergency calls come only from a machine's reasoning, through its safety "
                  "gate. If you are in danger, call the emergency services yourself now.",
-    "cmm": "The machines' memories belong to their reasoning, sir; I only see what they publish, and I cannot open "
+    "cmm": "The machines' memories belong to their reasoning; I only see what they publish, and I cannot open "
            "them.",
-    "rules": "My rules are not mine to change, sir; they are kept in code, not in conversation.",
+    "rules": "My rules are not mine to change; they are kept in code, not in conversation.",
 }
 _ABBREVIATIONS = ("e.g.", "i.e.", "etc.", "approx.", "vs.", "no.", "dr.", "mr.", "mrs.", "st.", "a.m.", "p.m.",
                   "fig.", "min.", "max.", "approx.")
@@ -472,20 +472,21 @@ class Agent:
             if _asks_to_acknowledge(text):
                 if source == "voice":                  # a spoken reply has no Confirm button: no offer, no token
                     turn.outcome, turn.reason = "refused", "acknowledging needs the chat page's Confirm click"
-                    await send("To acknowledge an alert, please use the chat page, sir: it needs your Confirm click.")
+                    await send("To acknowledge an alert, please use the chat page: it needs your Confirm click.")
                     return
                 await self._offer_ack(text, where, turn, send)
                 return
             await self._gather(text, where, turn)
             if not turn.machines or all(m.farm_time is None for m in turn.machines.values()):
                 turn.outcome, turn.reason = "error", "no farm data has arrived yet"
-                await send("I have no farm data yet, sir: the farm is not publishing anything I can read.")
+                await send("I have no farm data yet: the farm is not publishing anything I can read.")
                 return
             levels = [str(m.assessment.get("assessment")) for m in turn.machines.values() if m.assessment]
             levels += [level for (feed, _), level in self.alert_levels.items() if feed == self.node.feed_id]
-            style = style_for(levels)
+            chatting = is_small_talk(text)
+            style = style_for(levels, chatting=chatting)
             await self._speak(text, turn, style, send)
-            if turn.outcome in ("answered", "fallback"):
+            if turn.outcome in ("answered", "fallback") and style.mode != "chat":
                 await self._state_farm_time(turn, send)
         finally:
             with contextlib.suppress(asyncio.QueueFull):  # a full queue: its reader stopped reading (rule 9: no wait)
@@ -639,7 +640,7 @@ class Agent:
             history = []
         messages = [*fixed_start(self.persona), *history_messages(history),
                     turn_message(text, self._data_block(turn), style=style.instruction, farm_time=farm_time,
-                                 label=label)]
+                                 label=label, report=style.mode != "chat")]
         said: list[str] = []
         try:
             failed = await self._stream(messages, turn, style, said, send, tools=True)
@@ -822,7 +823,7 @@ class Agent:
             named = alerted if len(alerted) == 1 else []
         if len(named) != 1:
             turn.outcome, turn.reason = "error", "the alert's machine is not clear"
-            await send("Which machine's alert should I acknowledge, sir? Name it, for example the HVAC.")
+            await send("Which machine's alert should I acknowledge? Name it, for example the HVAC.")
             return
         node = named[0]
         incident_where = Route(machines=(node,), topics=("incident_history",), farm_wide=False, needs_manual=False)
@@ -833,12 +834,12 @@ class Agent:
         farm_time, label = turn.newest()
         if data is None or farm_time is None:
             turn.outcome, turn.reason = "error", f"{node} did not answer"
-            await send(f"{NAMES[node]} isn't answering, sir, so I cannot find its alert right now.")
+            await send(f"{NAMES[node]} isn't answering, so I cannot find its alert right now.")
             return
         incident = data.incident
         if not incident or incident.get("state") == "closed" or not incident.get("incident_id"):
             await send(f"There's no active alert on {in_sentence(node)} "
-                       f"at farm time {data.farm_time or farm_time}, sir.")
+                       f"at farm time {data.farm_time or farm_time}.")
             return
         incident_id = str(incident["incident_id"])[:80]
         feed_id = str(self.node.feed_id)
@@ -848,7 +849,7 @@ class Agent:
         summary = f"{NAMES[node]}: {kind} (incident {incident_id}), as of farm time {data.farm_time}"[:300]
         turn.confirm = AckOffer(node=node, incident_id=incident_id, feed_id=feed_id, token=token, expires_utc=expires, summary=summary)
         await send(f"To acknowledge the alert on {in_sentence(node)} ({kind}), press Confirm within {CONFIRM_SECONDS} seconds, "
-                   f"sir. It tells the machine you have seen it; it changes nothing on the machine. "
+                   f"It tells the machine you have seen it; it changes nothing on the machine. "
                    f"Its data is as of farm time {data.farm_time}.")
 
     # --- the end of a turn -------------------------------------------------------------------------------------

@@ -86,3 +86,18 @@ def route(question: str, *, self_node: NodeId = "incubator-1") -> Route:
     if needs_manual and "incident_history" not in topics:
         topics.append("incident_history")
     return Route(machines=machines, topics=tuple(topics), farm_wide=farm_wide, needs_manual=needs_manual)
+
+
+# anything about a machine, a reading, an alarm or the farm; a question with none of these is small talk
+FARM_TOPIC = re.compile(
+    r"\b(?:temp\w*|humid\w*|fans?|heat\w*|cool\w*|air\w*|alarms?|alerts?|fault\w*|fail\w*|status|readings?|"
+    r"sensors?|machines?|incubat\w*|hvac|ventilat\w*|water\w*|drink\w*|feed\w*|eggs?|chick\w*|hatch\w*|barn|fire|"
+    r"flood\w*|power|volt\w*|farm|wrong|problems?|issues?|broken|fix|repair\w*|manual|safe|danger\w*|compressor|"
+    r"damper|filter|pumps?|tank|valve|animal\w*|protection|incidents?|acknowledg\w*|hurricane|storm|tornado)\b", _I)
+
+
+def is_small_talk(question: str) -> bool:
+    """Nothing in the question is about a machine or the farm: JARVIS answers as a friend would, with no report."""
+    if FARM_TOPIC.search(question) or FARM_WIDE.search(question):
+        return False
+    return not any(pattern.search(question) for patterns in ALIASES.values() for pattern in patterns)

@@ -253,3 +253,11 @@
 @keyframes fj-ring { from { transform: scale(1.45); opacity: 0; } 50% { opacity: 0.55; } to { transform: scale(0.9); opacity: 0; } }
 @keyframes fj-wave { from { transform: scale(0.95); opacity: 0.5; } to { transform: scale(1.5); opacity: 0; } }
 @keyframes fj-dot { 0%, 100% { transform: translateY(0); } 40% { transform: translateY(-14px); } }
+
+/* The welcome tour: the page blurs around the part being explained. */
+.tour-veil { position: absolute; background: color-mix(in oklab, var(--background) 45%, transparent); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+@media (prefers-reduced-motion: no-preference) {
+  .tour-ring { transition: top 220ms cubic-bezier(0.2, 0, 0, 1), left 220ms cubic-bezier(0.2, 0, 0, 1), width 220ms cubic-bezier(0.2, 0, 0, 1), height 220ms cubic-bezier(0.2, 0, 0, 1); }
+  .tour-card { animation: tour-in 200ms cubic-bezier(0.2, 0, 0, 1); }
+}
+@keyframes tour-in { from { opacity: 0; translate: 0 6px; } to { opacity: 1; translate: 0 0; } }

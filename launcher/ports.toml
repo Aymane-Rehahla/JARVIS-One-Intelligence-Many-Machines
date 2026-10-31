@@ -8,7 +8,7 @@ gateway = 8010
 website = 5173
 
 [llm]
-incubator-1 = 8081       # Qwen 3.5 2B roleplay, 1 slot
+incubator-1 = 8081       # Qwen 3.5 2B roleplay, 2 slots (two people at once)
 incubator-2 = 8082       # Qwen3-0.6B, 1 slot
 hvac = 8083              # Qwen3-0.6B, 1 slot
 animal-protection = 8084 # Qwen3-0.6B, 1 slot

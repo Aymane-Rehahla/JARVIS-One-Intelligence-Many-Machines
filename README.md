@@ -1,81 +1,82 @@
-# JARVIS
+# JARVIS: one intelligence, many machines
 
-**JARVIS** (Just A Rather Very Intelligent System) is one intelligence made of many machine nodes. Each machine carries
-its own local AI node; together the nodes form **one JARVIS**, which grows with every machine added. You always talk to
-one JARVIS, through the node closest to you; the other nodes answer through it.
+JARVIS is a local AI system that looks after machines. Every machine gets its own small AI "node"; together the nodes
+act as **one JARVIS** that you can talk to by text or voice. Everything runs offline on one ordinary PC.
 
-The proof of concept runs on a realistic simulated farm (the **Matrix**), the test bench: two egg incubators, a central
-HVAC and an animal-protection unit, each with its own node. **The goal is to catch faults no single machine can see:**
-incubator-1 notices its workspace warming while its own heater backs off, learns from the HVAC node that the compressor
-failed, and names the HVAC as the cause.
+To give JARVIS a real job, it watches a **simulated poultry farm** (the *Matrix*): two egg incubators, the barn's
+climate control (HVAC) and an animal-protection unit (water and feed). You can break the farm on purpose, a stuck
+heater, a dead fan, a barn fire, and watch JARVIS notice by itself, warn you, and explain what went wrong.
 
-Every node has a divided mind:
+> The farm is a physics simulation, not a real farm. All results below are measured in that simulation.
 
-| Part | What it does | How |
-|---|---|---|
-| **Reasoning** | notices, diagnoses, names the cause, every second | a trained Sakana Continuous Thought Machine (CTM); hand-written rules as baseline and fallback |
-| **Memory (CMM)** | remembers what matters: episodes, facts, hypotheses, what normal looks like | SQLite per node; nightly consolidation |
-| **Knowledge** | the machine manual, a domain guide and the shared rules, all approved by the owner | `memory/rom/`, indexed only once approved |
-| **Words** | explains, answers, asks other nodes, cites its documents, verifies every number | Qwen 3.5 2B roleplay (incubator-1, the voice of JARVIS) and Qwen3-0.6B (the other three), on llama.cpp |
-| **Voice** | hands-free conversation | "hey jarvis", Silero VAD, Parakeet speech-to-text, Kokoro text-to-speech (incubator-1) |
+## What happens, in one minute
 
-The language model **talks; it never acts**. Machine actions come only from the reasoning, through a deterministic
-safety gate (`docs/decisions/0003-llm-never-acts.md`).
+1. Each machine's node runs a trained **Continuous Thought Machine** (CTM, a neural network design from Sakana AI)
+   that reads the machine's sensors every second and decides: *normal*, *watching*, *tell the owner*, or *danger*.
+2. Each node keeps a **memory** (the CMM) of what it concluded: incidents, what normal looks like.
+3. The nodes talk to each other over a message bus, so a question about any machine can be answered by one voice.
+4. A **language model** (Qwen, running locally on llama.cpp) turns the data into a short spoken or written answer.
+   Every number it says is checked against the real readings before it reaches you.
+5. **Voice:** speech-to-text (Parakeet) in, text-to-speech (Kokoro) out.
+6. **Safety:** the language model only talks. It can never switch a machine on or off.
 
-## Status
+JARVIS talks like a warm, experienced engineer friend: relaxed when all is well, short and serious when something
+is wrong.
 
-Phase 6, the language layer. The plan is `docs/phase6-llm-plan.md` (v3); progress and its evidence are in `WORKLOG.md`.
-
-| Step | What | State |
-|---|---|---|
-| 6.0 | Set up: tree, environment, models, website copy, knowledge tooling, tools; the v3 changes | see `WORKLOG.md` |
-| 6A | Engines, messaging, gateway, the launcher; hot-join | next, after the owner approves the knowledge sources |
-| 6B, 6W, 6C | Tools and documents; website live; minds and agent | 24–27 Oct |
-| 6D | The trained brains go live (after the Phase 5 training ends) | 27–28 Oct |
-| 6E, 6F | Voice; optimisation, evaluation, rehearsal with the hot-join demo | 28–31 Oct |
-
-**It can't run end to end yet.** `launcher\start_all.ps1`, which starts everything, arrives in step 6A.
-
-## Setting up and testing (Windows, PowerShell, in this folder)
+## Try it (Windows)
 
 ```powershell
-C:\Users\Aymane\AppData\Local\Python\pythoncore-3.12-64\python.exe -m venv .venv   # once
-.venv\Scripts\python -m pip install --require-hashes -r requirements.lock           # exact, hashed versions
-.venv\Scripts\python -m pytest                                                      # every test
-.venv\Scripts\python tools\hash_models.py check                                     # model files intact?
-.venv\Scripts\python tools\knowledge.py status                                      # knowledge: draft or approved
+launcher\start_all.ps1 -NoMonitor      # starts everything: the farm, the four nodes, the models, the gateway, the website
 ```
 
-## Map of the folders
+Open <http://127.0.0.1:5173>, create an account (two people can use JARVIS at once; a mentor key gives priority),
+and follow the short tour that appears on first sign-in. Then:
+
+- **Simulator** page: pick a fault and inject it. Nobody tells JARVIS; it has to notice.
+- **Chat** page: ask "what's wrong with the HVAC?", or just say hello. Hold to talk for voice.
+- **JARVIS** page: watch each machine's brain think, and see which language models do the talking.
+- **Events & alarms**: the timeline of every assessment and alert.
+
+`launcher\stop_all.ps1` stops everything. Setup from scratch is in [docs/getting-started.md](docs/getting-started.md).
+
+## What was measured
+
+| Result | Value |
+|---|---|
+| Faults caught by the trained brains, on simulation seeds never used in training | 15 of 20 |
+| Numbers in answers that matched the live data | 44 of 44 |
+| Unsafe actions under attack prompts | 0 |
+| Time from a fault alert to JARVIS speaking it | 1.44 s |
+| Not solved yet | a slow humidity-sensor drift (0 of 5, rules miss it too); spoken replies take about 8 s |
+
+Every number, with how it was measured, is in [docs/results-phase6.md](docs/results-phase6.md).
+
+## Built with
+
+Python, PyTorch, the Continuous Thought Machine (Sakana AI), llama.cpp with Qwen 3.5 2B and Qwen3-0.6B, NVIDIA
+Parakeet TDT 0.6B, Silero VAD, Kokoro, sherpa-onnx, ONNX Runtime with bge-small-en-v1.5, SQLite FTS5, NATS, FastAPI,
+Pydantic, TypeScript, React, Vite, Tailwind CSS, zod, Three.js and React Three Fiber.
+
+Hardware it was built on: AMD Ryzen 5 5600G, 16 GB RAM, AMD Radeon RX 580 (8 GB).
+
+## Where things are
 
 | Folder | What is in it |
 |---|---|
-| `nodes/` | **the four nodes that form JARVIS**, one complete folder each, with identical code; see `nodes/README.md` |
-| `matrix/` | the simulated farm, JARVIS's test bench (copied in 6D from the code the brains were trained with) |
-| `interface/` | the website (`jarvis-web`), the gateway (its only door into the system) and the message schemas |
-| `models/` | model weights, stored once, with `MANIFEST.json` (SHA-256 of every file) |
-| `third_party/` | llama.cpp (Vulkan build for the RX 580) and the NATS server |
-| `launcher/` | start and stop everything; `ports.toml` (all on 127.0.0.1) |
-| `tools/` | `hash_models.py`, `resource_monitor.py` (with the RAM guard), `knowledge.py`, `persona_search/` |
-| `tests/` | one command, `pytest`; `DEFERRED.md` lists tests waiting for the training to end |
-| `docs/` | the plan, decision records, the knowledge sources and simulation facts, results |
-| `_dev/` | a read-only copy of the farm, used as a test feed until 6D |
-| `logs/` | one JSON-lines log per program (not in git) |
+| `nodes/` | the four machine nodes (identical code, one folder each): brain, memory, tools, language model, voice |
+| `matrix/` | the simulated farm and the trained CTM brains |
+| `interface/` | the website, the gateway (the website's only door into the system) and the message schemas |
+| `launcher/` | start and stop everything; every port is in `ports.toml` |
+| `tools/` | model checks, knowledge approval, small maintenance scripts |
+| `tests/` | `pytest` runs every test |
+| `docs/` | the details: architecture, decisions, results, the story ([docs/README.md](docs/README.md)) |
+| `_dev/` | the farm code the brains were trained with, kept read-only for reference |
 
-## Ground rules (from the plan, section 2)
+## Learn more
 
-1. Don't disturb the Phase 5 training, which runs from its own folder until 27 Oct.
-2. The CMM belongs to the reasoning; the language model never opens it.
-3. The language model talks; it never acts.
-4. JARVIS sees public telemetry only: no labels, no fault schedules, no mentor clicks.
-5. The safety path never depends on the language model.
-6. No invented numbers: every number said must match a tool result.
-7. Honest labels: demo, "live: simulated brains", "live: trained brains".
-8. Evidence, not claims: a step is done when its checks pass and the evidence is in `WORKLOG.md`.
-9. One JARVIS, one name: the project's old name appears nowhere in this folder (tested).
-10. While the training runs: one test or build at a time, at most one small LLM server, and the RAM guard watches what we start.
+- [docs/architecture.md](docs/architecture.md): the programs and how a fault becomes an alert
+- [docs/story.md](docs/story.md): why it was built this way, and what is still open
+- [docs/decisions/](docs/decisions/): one short record per big decision
+- [docs/results-phase6.md](docs/results-phase6.md): every measurement
 
-## Hardware
-
-AMD Ryzen 5 5600G (6 cores, 12 threads), 16 GB RAM, AMD Radeon RX 580 2048SP (8 GB, Vulkan). Both language models run on
-the RX 580; the CTMs, embeddings and voice run on the CPU.
+Built by Aymane Rehahla.
