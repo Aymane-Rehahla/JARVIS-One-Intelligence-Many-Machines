@@ -635,6 +635,20 @@
           "title": "Actual Speed",
           "type": "number"
         },
+        "alerts_for": {
+          "items": {
+            "enum": [
+              "incubator-1",
+              "incubator-2",
+              "hvac",
+              "animal-protection"
+            ],
+            "type": "string"
+          },
+          "maxItems": 4,
+          "title": "Alerts For",
+          "type": "array"
+        },
         "day": {
           "minimum": 1,
           "title": "Day",

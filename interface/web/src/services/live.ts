@@ -2,7 +2,7 @@
 // (start, pause, reset, speed, the four demo faults) as HTTP calls. The gateway is the website's only door into
 // JARVIS; its URL comes from VITE_GATEWAY_URL (default http://127.0.0.1:8010).
 
-import { FarmSnapshot, FaultResult, SimState } from "./contracts.ts"
+import { FarmSnapshot, FaultResult, LinkStatus, SimState } from "./contracts.ts"
 import type { ScenarioId } from "./matrix.ts"
 import { socketUrl, withAuth } from "./auth.ts"
 
@@ -151,4 +151,9 @@ export function simAction(base: string, action: "start" | "pause" | "reset" | "s
 
 export function injectFault(base: string, scenarioId: ScenarioId): Promise<ActionResult<FaultResult>> {
   return post(`${base}/faults/${scenarioId}`, undefined, (json) => FaultResult.safeParse(json))
+}
+
+/** A missing peer (the fault menu): the Matrix cuts that node's radio until the next reset. */
+export function cutLink(base: string, node: string): Promise<ActionResult<{ cut: string[]; offline: string[] }>> {
+  return post(`${base}/links/${node}/cut`, undefined, (json) => LinkStatus.safeParse(json))
 }

@@ -79,6 +79,7 @@ KEEPALIVE_S = 5.0                                          # a snapshot at least
 RETIRED_FEEDS = 16                                         # replaced farm runs remembered, to drop their late messages
 SILENT_AFTER_S = 30.0
 MATRIX_TIMEOUT_S = 5.0
+MISSING_PEER_S = 86_400.0                                 # a farm day: the cut lasts until the next reset
 ALLOWED_SPEEDS = (1.0, 10.0, 30.0, 60.0, 120.0)            # the test feed's 1x and the website's 10x-120x
 WEBSITE_ORIGINS = ("http://127.0.0.1:{port}", "http://localhost:{port}")
 # 6C: chat, audit, acknowledgement, mentor switches
@@ -686,6 +687,23 @@ class Gateway:
         return result
 
 
+    async def cut_link(self, node: NodeId) -> dict[str, Any]:
+        """A missing peer (the fault menu, decision 0023): the Matrix cuts that node's radio for MISSING_PEER_S farm
+        seconds, in effect until the next reset. Answers as inject_fault does, with the Matrix's LinkStatus."""
+        try:
+            response = await self.matrix.post(f"/links/{node}/cut", json={"seconds": MISSING_PEER_S})
+        except httpx.HTTPError as error:
+            raise HTTPException(503, f"the Matrix API is unreachable: {type(error).__name__}") from error
+        if response.status_code != 200:
+            raise HTTPException(502, f"the Matrix API answered HTTP {response.status_code}")
+        try:
+            result: dict[str, Any] = LinkStatus.model_validate_json(response.content).model_dump(mode="json")
+        except ValidationError as error:
+            raise HTTPException(502, "the Matrix API's answer is not a valid LinkStatus") from error
+        log(self.logger, logging.INFO, "missing peer forwarded", node=node)
+        return result
+
+
 def _matrix_reason(response: httpx.Response) -> str:
     """The Matrix API's own reason (FastAPI's {"detail": ...}), or its status."""
     try:
@@ -797,6 +815,10 @@ def create_app(gateway: Gateway, *, website_port: int = 5173, accounts: Accounts
     @app.post("/faults/{scenario_id}")
     async def fault(scenario_id: ScenarioId) -> dict[str, Any]:
         return await gateway.inject_fault(scenario_id)
+
+    @app.post("/links/{node}/cut")
+    async def cut(node: NodeId) -> dict[str, Any]:
+        return await gateway.cut_link(node)
 
     @app.websocket("/ws/farm")
     async def farm(websocket: WebSocket) -> None:

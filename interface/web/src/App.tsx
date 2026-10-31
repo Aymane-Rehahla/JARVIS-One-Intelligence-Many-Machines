@@ -63,6 +63,7 @@ import { JarvisVoice } from "@/components/jarvis-voice"
 import {
   ASSESSMENT_LABELS,
   DEVICE_IDS,
+  FAULT_KINDS,
   SCENARIOS,
   SIMULATION_SPEEDS,
   activeIncidentCount,
@@ -74,6 +75,7 @@ import {
   simulationLabel,
   type Device,
   type DeviceId,
+  type FaultKind,
   type EventRecord,
   type EventSeverity,
   type FarmState,
@@ -773,6 +775,8 @@ function Simulator({
   onDevice: (device: Device) => void
 }) {
   const [scenario, setScenario] = useState<ScenarioId>("heater_relay_stuck")
+  const [kind, setKind] = useState<FaultKind | "missing_peer">("incubator")
+  const [peer, setPeer] = useState<DeviceId>("hvac")
   const [confirmInject, setConfirmInject] = useState(false)
   const [confirmReset, setConfirmReset] = useState(false)
   const connected = state.source === "live" || state.source === "demo"
@@ -796,6 +800,10 @@ function Simulator({
       toast.warning("A scenario is already running", {
         description: `Wait for ${activeScenario.shortLabel} to finish before injecting another.`,
       })
+      return
+    }
+    if (kind === "missing_peer") {
+      farm.cutLink?.(peer)
       return
     }
     farm.inject(scenario)
@@ -924,25 +932,47 @@ function Simulator({
           <h2 id="inject-title" className="display-sm mt-4 text-[15px]">Inject a fault</h2>
           <p className="mt-3 text-[14px] leading-6 text-muted-foreground">
             {live
-              ? "Mentor tool, test only. Starts one fault of the real scenario library in the live Matrix test bench, from the next farm second. One fault per farm run; Reset clears it. JARVIS is never told: it has to notice."
+              ? "The farm runs calm until you break something. Pick a fault: it starts in the live farm at the next second, and JARVIS has to notice it on its own. Reset for a fresh farm."
               : "Scripted faults based on the real scenario library. Each one plays out as the simulated clock runs, updating telemetry, events and the JARVIS nodes together."}
           </p>
-          <label htmlFor="scenario" className="label-mono mt-6 text-muted-foreground">Scenario</label>
-          <Select value={scenario} onValueChange={(value) => setScenario(value as ScenarioId)}>
-            <SelectTrigger id="scenario" className="mt-1.5 w-full">
-              <SelectValue />
-            </SelectTrigger>
+          <label htmlFor="fault-kind" className="label-mono mt-6 text-muted-foreground">Kind</label>
+          <Select value={kind} onValueChange={(value) => {
+            const next = value as FaultKind | "missing_peer"
+            setKind(next)
+            const first = SCENARIOS.find((item) => item.kind === next && (live || item.scripted))
+            if (first) setScenario(first.id)
+          }}>
+            <SelectTrigger id="fault-kind" className="mt-1.5 w-full"><SelectValue /></SelectTrigger>
             <SelectContent>
-              {SCENARIOS.map((item) => (
-                <SelectItem key={item.id} value={item.id}>
-                  {item.label}
-                </SelectItem>
-              ))}
+              {FAULT_KINDS.map((item) => <SelectItem key={item.id} value={item.id}>{item.label}</SelectItem>)}
+              <SelectItem value="missing_peer" disabled={!live}>Missing peer</SelectItem>
             </SelectContent>
           </Select>
-          <p className="mt-4 flex-1 border-t pt-4 text-[14px] leading-6">{selectedScenario?.description}</p>
-          <Button onClick={() => setConfirmInject(true)} disabled={!connected || Boolean(activeScenario)} className="mt-5 h-11 w-full">
-            {activeScenario ? "Scenario in progress" : "Inject scenario"}
+          <label htmlFor="scenario" className="label-mono mt-4 text-muted-foreground">Fault</label>
+          {kind === "missing_peer" ? (
+            <Select value={peer} onValueChange={(value) => setPeer(value as DeviceId)}>
+              <SelectTrigger id="scenario" className="mt-1.5 w-full"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {DEVICE_IDS.map((id) => <SelectItem key={id} value={id}>{deviceName(id)} goes silent</SelectItem>)}
+              </SelectContent>
+            </Select>
+          ) : (
+            <Select value={scenario} onValueChange={(value) => setScenario(value as ScenarioId)}>
+              <SelectTrigger id="scenario" className="mt-1.5 w-full"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {SCENARIOS.filter((item) => item.kind === kind).map((item) => (
+                  <SelectItem key={item.id} value={item.id} disabled={!live && !item.scripted}>{item.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          <p className="mt-4 flex-1 border-t pt-4 text-[14px] leading-6">
+            {kind === "missing_peer"
+              ? `${deviceName(peer)} drops off the radio until the next reset. The other machines have to notice their peer is gone.`
+              : selectedScenario?.description}
+          </p>
+          <Button onClick={() => setConfirmInject(true)} disabled={!connected || (kind !== "missing_peer" && Boolean(activeScenario))} className="mt-5 h-11 w-full">
+            {kind !== "missing_peer" && activeScenario ? "Fault in progress" : "Inject fault"}
           </Button>
         </section>
       </div>
@@ -960,10 +990,10 @@ function Simulator({
       <AlertDialog open={confirmInject} onOpenChange={setConfirmInject}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Inject “{selectedScenario?.label}”?</AlertDialogTitle>
+            <AlertDialogTitle>Inject “{kind === "missing_peer" ? `${deviceName(peer)} goes silent` : selectedScenario?.label}”?</AlertDialogTitle>
             <AlertDialogDescription>
               {live
-                ? `It starts this fault on ${selectedScenario?.devices.map(deviceName).join(" and ")} in the live Matrix test bench. The nodes are not told; they only see its effects.`
+                ? kind === "missing_peer" ? `${deviceName(peer)} drops off the radio until the next reset.` : `It starts on ${selectedScenario?.devices.map(deviceName).join(", ")} in the live farm. JARVIS is not told; it only sees the effects.`
                 : `It plays a scripted incident on ${selectedScenario?.devices.map(deviceName).join(" and ")}. No real backend action is performed.`}
             </AlertDialogDescription>
           </AlertDialogHeader>

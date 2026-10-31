@@ -61,7 +61,7 @@ def test_farm_clock_actions_are_forwarded_and_checked() -> None:
         assert client.post("/sim/speed", json={"speed": 7}).status_code == 422       # not a website speed
         assert client.post("/sim/speed").status_code == 422
         assert client.post("/sim/explode").status_code == 422                      # not a farm-clock action
-        assert client.post("/links/hvac/cut").status_code in (404, 405)            # mentor faults never pass here
+        assert client.post("/links/hvac/restore").status_code in (404, 405)        # a cut lasts until a reset (0023)
     assert calls == [("/sim/start", None), ("/sim/speed", {"speed": 60.0})]
 
 

@@ -90,7 +90,7 @@ def broken(name: str, message: dict[str, Any]) -> list[tuple[str, dict[str, Any]
     if name == "FarmSnapshot" and message["events"]:
         cases += [message | {"events": message["events"] * 51}]                  # over the 50 shown
     if name == "FaultResult":
-        cases += [message | {"end_tick": 0}, message | {"end_tick": "soon"}, message | {"scenario_id": "fire"}, message | {"devices": []}, message | {"devices": ["barn-9"]},
+        cases += [message | {"end_tick": 0}, message | {"end_tick": "soon"}, message | {"scenario_id": "fire_in_the_barn"}, message | {"devices": []}, message | {"devices": ["barn-9"]},
                   message | {"family": ""}]
     if name == "LlmFailureSwitches":
         cases += [message | {"server_crash": ["hvac", "hvac"]}, message | {"broken_json": ["barn-9"]}]

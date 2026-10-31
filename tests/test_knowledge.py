@@ -51,23 +51,27 @@ def test_manuals_carry_the_owner_provenance_line() -> None:
         assert "Derived from the farm simulation model, reviewed by the owner." in body
 
 
-def test_nothing_is_approved_or_indexed_until_the_owner_approves() -> None:
-    """Today the owner has approved nothing: no approval records, every document a draft, nothing indexable."""
+def test_the_owners_approvals_match_the_documents() -> None:
+    """The owner approved the 20 manuals (31 Oct): every approved document is unchanged since and indexable, and
+    nothing is approved without the owner's record."""
     for directory in rom_dirs():
-        assert not (directory / APPROVALS_NAME).exists(), f"{directory} has approvals the owner didn't give"
-        assert indexable(directory) == []
-        assert all(parse_document(p).meta.status == "draft" for p in documents(directory))
-    assert not (ROOT / "docs" / "knowledge" / "sources-approval.json").exists()
+        assert changed_approvals(directory) == []
+        approved = {p.name for p in documents(directory) if parse_document(p).meta.status == "approved"}
+        assert approved == set(load_approvals(directory).approved)
+        assert {p.name for p in indexable(directory)} == approved
 
 
 @pytest.fixture
 def sandbox(tmp_path: Path) -> Path:
-    """A copy of every node's rom/ whose simulation links resolve from the temporary folder."""
+    """A copy of every node's rom/ whose simulation links resolve from the temporary folder, back to drafts with no
+    approvals (as before the owner approved), so each test approves for itself."""
     nodes = tmp_path / "nodes"
     for node in NODES:
         shutil.copytree(rom(node), rom(node, nodes))
+        (rom(node, nodes) / APPROVALS_NAME).unlink(missing_ok=True)
         for path in documents(rom(node, nodes)):
             text = path.read_text(encoding="utf-8").replace("../../../../_dev/", (ROOT / "_dev").as_posix() + "/")
+            text = text.replace('status = "approved"', 'status = "draft"', 1)
             path.write_text(text, encoding="utf-8", newline="\n")
     return nodes
 
@@ -200,5 +204,5 @@ def test_check_fix_demotes_changed_documents(sandbox: Path, capsys: pytest.Captu
 def test_the_status_command_lists_every_document(capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["status"]) == 0
     out = capsys.readouterr().out
-    assert out.count("incubator_manual.md") == 2 and "hvac_manual.md" in out and "draft" in out
+    assert out.count("incubator_manual.md") == 2 and "hvac_manual.md" in out and out.count(" approved") == 20   # the owner approved all 20 (31 Oct)
     assert APPROVALS_NAME not in out

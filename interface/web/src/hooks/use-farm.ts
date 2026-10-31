@@ -2,9 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { useDemoFarm, type DemoFarm } from "@/hooks/use-demo-farm"
 import type { FarmSnapshot } from "@/services/contracts"
-import { LiveFarmClient, gatewayUrl, injectFault, simAction, type LiveConnection } from "@/services/live"
+import { LiveFarmClient, cutLink, gatewayUrl, injectFault, simAction, type LiveConnection } from "@/services/live"
 import { mapSnapshot } from "@/services/live-map"
-import { createInitialState, type FarmState, type ScenarioId, type SimulationSpeed } from "@/services/matrix"
+import { createInitialState, type DeviceId, type FarmState, type ScenarioId, type SimulationSpeed } from "@/services/matrix"
 
 /** The pages' farm: the same interface as the demo, plus where it comes from. */
 export type Farm = DemoFarm & {
@@ -178,6 +178,7 @@ export function useFarm(): Farm {
       reset: () => void act("reset"),
       setSpeed: (speed: SimulationSpeed) => void act("speed", speed),
       inject: (scenarioId: ScenarioId) => void inject(scenarioId),
+      cutLink: (node: DeviceId) => void cutLink(base, node).then((result) => fail(result.ok ? null : `missing peer: ${result.reason}`)),
       // Acknowledging needs the owner's words and a confirm click (ground rule 3): the chat's confirm offer, never here.
       acknowledge: () => undefined,
       acknowledgeAllEvents: () => undefined,

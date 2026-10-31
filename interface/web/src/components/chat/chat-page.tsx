@@ -27,11 +27,13 @@ function nodeName(node: string): string {
 /** The chat with JARVIS: live through the gateway, or the demo's labelled preview replies. */
 export function ChatPage({ state, farm, chat, voice }: { state: FarmState; farm: Farm; chat: Chat; voice?: Voice }) {
   const live = state.source === "live"
+  // Talking needs real time: sped up, the farm runs on and its brains keep detecting, but JARVIS does not chat.
+  const fast = live && (state.live?.targetSpeed ?? 1) > 1
   return (
     <div className="grid gap-8">
       <PageHeader index="02" kicker={live ? "Live // through incubator-1" : "Demo"} title="Ask JARVIS" />
-      {live && voice && <VoicePanel voice={voice} />}
-      {live ? <LiveChat chat={chat} /> : <DemoChat state={state} farm={farm} />}
+      {live && voice && !fast && <VoicePanel voice={voice} />}
+      {live ? <LiveChat chat={chat} fast={fast} /> : <DemoChat state={state} farm={farm} />}
     </div>
   )
 }
@@ -60,7 +62,7 @@ function DemoChat({ state, farm }: { state: FarmState; farm: Farm }) {
   )
 }
 
-function LiveChat({ chat }: { chat: Chat }) {
+function LiveChat({ chat, fast }: { chat: Chat; fast: boolean }) {
   const [text, setText] = useState("")
   const [refused, setRefused] = useState<string | null>(null)
   const end = useRef<HTMLDivElement | null>(null)
@@ -96,8 +98,8 @@ function LiveChat({ chat }: { chat: Chat }) {
       )}
       <div ref={end} />
       {refused && <p role="status" className="label-mono text-signal-ink">{refused}</p>}
-      <QuestionBox text={text} onText={setText} onSubmit={submit} disabled={busy || connection !== "connected"}
-        hint={busy ? "JARVIS is answering…" : connection === "connected" ? "One question at a time" : "Waiting for the gateway"} />
+      <QuestionBox text={text} onText={setText} onSubmit={submit} disabled={fast || busy || connection !== "connected"}
+        hint={fast ? "Set the speed to 1× (real time) to talk to JARVIS" : busy ? "JARVIS is answering…" : connection === "connected" ? "One question at a time" : "Waiting for the gateway"} />
     </section>
   )
 }

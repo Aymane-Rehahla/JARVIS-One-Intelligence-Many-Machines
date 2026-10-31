@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 import farm_runtime as fr
 import gateway as gw
 from comms.nats_link import NatsLink
-from contracts import FarmAssessment, FarmEvent, FarmStatus, FaultResult, SimState
+from contracts import FarmAssessment, FarmEvent, FarmStatus, FaultResult, LinkStatus, SimState
 
 LOG = logging.getLogger("test-gateway-faults")
 ROOT = Path(__file__).resolve().parents[1]
@@ -189,3 +189,19 @@ def test_a_snapshot_holds_at_most_the_events_shown() -> None:
     event = farm_messages("0000000000a1", 1)[2].model_dump()
     with pytest.raises(ValidationError):
         gw.FarmSnapshot.model_validate({**snapshot, "events": [event] * (gw.EVENTS_SHOWN + 1)})
+
+
+def test_a_missing_peer_is_the_matrix_radio_cut_until_the_next_reset() -> None:
+    """The fault menu's fifth kind (decision 0023): the gateway asks the Matrix to cut that node's radio for a farm
+    day (a reset ends it) and passes on the LinkStatus."""
+    links = LinkStatus(tick=12, time_s=12.0, cut=["hvac"], offline=[])
+    calls: list[str] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        calls.append(f"{request.method} {request.url.path} {request.content.decode()}")
+        return httpx.Response(200, content=links.model_dump_json().encode(), headers={"content-type": "application/json"})
+    with TestClient(gw.create_app(gateway_with(httpx.MockTransport(handle)))) as client:
+        answer = client.post("/links/hvac/cut")
+        assert answer.status_code == 200 and answer.json()["cut"] == ["hvac"]
+        assert client.post("/links/barn/cut").status_code == 422
+    assert calls == ['POST /links/hvac/cut {"seconds":86400.0}']

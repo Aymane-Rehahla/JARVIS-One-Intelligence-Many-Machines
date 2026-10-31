@@ -29,7 +29,7 @@ import re
 import tomllib
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Literal, TypeVar
+from typing import Literal, TypeVar, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError, field_validator, model_validator
 
@@ -288,6 +288,9 @@ class SimState(Contract):
     label: FeedLabel
     episode_id: str
     feed_id: str = Field(pattern=FEED_ID)
+    #: The calm farm (decision 0023): the machines whose escalations may reach the owner. Empty on a normal day; the
+    #: machines a user's injected fault touches; the other three when a user cuts a peer's link. A reset empties it.
+    alerts_for: list[NodeId] = Field(default_factory=list, max_length=4)
 
 
 # --- between nodes ---------------------------------------------------------------------------------------------------
@@ -656,9 +659,16 @@ class PushToTalk(Contract):
 
 # --- 6W: the website's demo faults (never on NATS) ---
 
-ScenarioId = Literal["heater_relay_stuck", "supply_fan_failure", "humidity_sensor_drift", "supply_overvoltage"]
-SCENARIO_IDS: tuple[ScenarioId, ...] = ("heater_relay_stuck", "supply_fan_failure", "humidity_sensor_drift",
-                                        "supply_overvoltage")
+ScenarioId = Literal[
+    # incubator
+    "heater_relay_stuck", "heater_open_circuit", "fan1_failure", "humidifier_pump_failure", "humidity_sensor_drift",
+    # HVAC
+    "supply_fan_failure", "return_fan_failure", "compressor_failure", "filter_clogging", "damper_stuck",
+    # animal protection
+    "drinker_pump_failure", "drinker_line_leak", "feeder_blocked", "tank_fill_valve_failure", "water_cut",
+    # disaster
+    "hurricane", "fire", "flood", "power_outage", "supply_overvoltage"]
+SCENARIO_IDS: tuple[ScenarioId, ...] = get_args(ScenarioId)
 
 
 class FaultResult(Contract):

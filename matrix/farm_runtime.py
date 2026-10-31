@@ -171,26 +171,79 @@ def _first(fault: Mapping[str, Any], **wanted: Any) -> bool:
     return all(fault.get(key) == value for key, value in wanted.items())
 
 
-#: The website's demo faults (plan 4.4) → the scenario library's family, and which ordinary (not novel) variant to take:
-#: the first one whose fault matches the website's description (decision 0020). Its own parameters are used unchanged.
+def _equipment(device: str) -> Callable[[Any], bool]:
+    """A lasting (until reset) equipment fault on `device`."""
+    return lambda spec: _first(spec.faults[0], device=device, end_tick=None)
+
+
+#: The website's fault menu → the scenario library's family, and which ordinary (not novel) variant to take: the first
+#: one whose fault matches the menu's description (decisions 0020, 0023). Its own parameters are used unchanged.
 DEMO_FAULTS: dict[ScenarioId, tuple[str, Callable[[Any], bool]]] = {
-    "heater_relay_stuck": ("heater_relay_stuck",
-                           lambda spec: _first(spec.faults[0], device="incubator-1", end_tick=None)),
-    "supply_fan_failure": ("supply_fan_failure", lambda spec: _first(spec.faults[0], device="hvac", end_tick=None)),
+    "heater_relay_stuck": ("heater_relay_stuck", _equipment("incubator-1")),
+    "heater_open_circuit": ("heater_open_circuit", _equipment("incubator-1")),
+    "fan1_failure": ("fan1_failure", _equipment("incubator-1")),
+    "humidifier_pump_failure": ("humidifier_pump_failure", _equipment("incubator-2")),
     "humidity_sensor_drift": ("sensor_fault",
                               lambda spec: _first(spec.faults[0], channel="incubator-2.humidity_1", mode="drift",
                                                   end_tick=None) and float(spec.faults[0]["severity"]) > 0.0),
+    "supply_fan_failure": ("supply_fan_failure", _equipment("hvac")),
+    "return_fan_failure": ("return_fan_failure", _equipment("hvac")),
+    "compressor_failure": ("compressor_failure", _equipment("hvac")),
+    "filter_clogging": ("filter_clogging", _equipment("hvac")),
+    "damper_stuck": ("damper_stuck", _equipment("hvac")),
+    "drinker_pump_failure": ("drinker_pump_failure", _equipment("animal-protection")),
+    "drinker_line_leak": ("drinker_line_leak", _equipment("animal-protection")),
+    "feeder_blocked": ("feeder_blocked", _equipment("animal-protection")),
+    "tank_fill_valve_failure": ("tank_fill_valve_failure", _equipment("animal-protection")),
+    "water_cut": ("water_cut", lambda spec: _first(spec.faults[0], end_tick=None)),
+    # The Matrix has no hurricane: its strongest windstorm is the tornado family; the menu takes a warned strike.
+    "hurricane": ("tornado", lambda spec: _first(spec.faults[0], issue_warning=True, tornado_strike=True)),
+    "fire": ("fire", lambda spec: _first(spec.faults[0], zone="barn") and spec.faults[0]["params"]["mode"] == "flaming"),
+    "flood": ("flood", lambda spec: True),
+    "power_outage": ("power_outage", lambda spec: len(spec.faults[0]["devices"]) == len(NODE_IDS)
+                     and spec.faults[0].get("end_tick") is not None),
     "supply_overvoltage": ("overvoltage", lambda spec: spec.tags.get("pattern") == "shared"),
 }
+#: The menu's kinds, five faults each; the fifth kind, a missing peer, is the radio cut (POST /links/{node}/cut).
+FAULT_MENU: dict[str, tuple[ScenarioId, ...]] = {
+    "incubator": ("heater_relay_stuck", "heater_open_circuit", "fan1_failure", "humidifier_pump_failure",
+                  "humidity_sensor_drift"),
+    "hvac": ("supply_fan_failure", "return_fan_failure", "compressor_failure", "filter_clogging", "damper_stuck"),
+    "animal_protection": ("drinker_pump_failure", "drinker_line_leak", "feeder_blocked", "tank_fill_valve_failure",
+                          "water_cut"),
+    "disaster": ("hurricane", "fire", "flood", "power_outage", "supply_overvoltage"),
+}
+TICK_KEYS = ("inject_tick", "end_tick", "tick", "from_tick", "until_tick")
+END_KEYS = ("end_tick", "until_tick")
 
 
-def load_fault_tools() -> tuple[Any, Any]:
-    """The snapshot library's episode builder (`_make`) and its fault injector (`_faults`): the same code that made
-    the training episodes, so a demo fault is one the brains were trained on."""
+def _start(fault: Mapping[str, Any]) -> int:
+    return int(next(fault[key] for key in ("inject_tick", "tick", "from_tick") if fault.get(key) is not None))
+
+
+def _machines(fault: Mapping[str, Any]) -> list[NodeId]:
+    """The machines a library fault touches (the alerts it arms, decision 0023)."""
+    if "device" in fault:
+        return [fault["device"]]
+    if "channel" in fault:
+        return [str(fault["channel"]).split(".", 1)[0]]  # type: ignore[list-item]
+    if "devices" in fault:
+        return [node for node in NODE_IDS if node in fault["devices"]]
+    if fault.get("kind") == "overvoltage":
+        return ["incubator-1", "incubator-2"] if fault.get("shared") else ["incubator-1"]
+    if fault.get("kind") == "water_cut":
+        return ["incubator-1", "incubator-2", "animal-protection"]
+    return list(NODE_IDS)                                  # fire, storms, floods: the whole site
+
+
+def load_fault_tools() -> tuple[Any, Any, Any]:
+    """The snapshot library's episode builder (`_make`), its fault injector (`_faults`) and its starting-state setter
+    (`_apply_initial`): the same code that made the training episodes, so a demo fault is one the brains were trained
+    on."""
     load_snapshot()
-    from farm_poc_snapshot.scenarios.episode import _faults
+    from farm_poc_snapshot.scenarios.episode import _apply_initial, _faults
     from farm_poc_snapshot.scenarios.library import _make
-    return _make, _faults
+    return _make, _faults, _apply_initial
 
 
 def load_release(release: Path = RELEASE) -> types.SimpleNamespace:
@@ -208,11 +261,12 @@ def load_release(release: Path = RELEASE) -> types.SimpleNamespace:
     from farm_poc.nodes.cmm import CognitiveMemory
     from farm_poc.nodes.contracts import MACHINE_TYPES
     from farm_poc.nodes.runtime import NodeRuntime
-    from farm_poc.scenarios.episode import _faults
+    from farm_poc.scenarios.episode import _apply_initial, _faults
     from farm_poc.scenarios.library import _make
     return types.SimpleNamespace(torch=torch, Decider=Decider, TrainedNodeBrain=TrainedNodeBrain, load_brain=load_brain,
                                  MatrixEngine=MatrixEngine, CognitiveMemory=CognitiveMemory,
                                  MACHINE_TYPES=MACHINE_TYPES, NodeRuntime=NodeRuntime, faults=_faults, make=_make,
+                                 apply_initial=_apply_initial,
                                  brains=release / "brains")
 
 
@@ -247,6 +301,7 @@ class FarmRuntime:
             self._release.torch.set_num_threads(threads)
             self._engine_cls, self._runtime_cls = self._release.MatrixEngine, self._release.NodeRuntime
             self._make_spec, self._inject = self._release.make, self._release.faults
+            self._apply_initial = self._release.apply_initial
             day = self._make_spec(DAY_FAMILY, DAY_VARIANT, False)
             self.config = copy.deepcopy(dict(config or day.config))
             self.start_hour = float(self.config.get("weather", {}).get("start_hour", 0.0))
@@ -256,7 +311,7 @@ class FarmRuntime:
         else:
             self.config = dict(config or {})
             self._engine_cls, self._runtime_cls = load_snapshot()
-            self._make_spec, self._inject = load_fault_tools()
+            self._make_spec, self._inject, self._apply_initial = load_fault_tools()
         self._demo_specs: dict[ScenarioId, tuple[int, Any]] = {}
         self.engine: Any = None
         self.runtime: Any = None
@@ -288,6 +343,7 @@ class FarmRuntime:
         self._speed_samples: list[tuple[float, float]] = []
         self._pending: dict[str, Any] = {}
         self.demo_fault: FaultResult | None = None            # one demo fault per farm run; a reset clears it
+        self.alerts_for: set[str] = set()                    # the calm farm (decision 0023): a reset is calm again
         log(self.logger, logging.INFO, "farm reset", seed=self.seed, episode=self.engine.world.episode_id,
             feed_id=self.feed_id)
 
@@ -469,7 +525,8 @@ class FarmRuntime:
         farm_time, day = self.farm_time()
         return SimState(tick=self.tick, time_s=self.time_s, farm_time=farm_time, day=day, running=self.running,
                         target_speed=self.speed, actual_speed=round(self.actual_speed(), 3), label=self.label,
-                        episode_id=self.feed_id, feed_id=self.feed_id)  # never the engine's own id (E9)
+                        episode_id=self.feed_id, feed_id=self.feed_id,  # never the engine's own id (E9)
+                        alerts_for=[node for node in NODE_IDS if node in self.alerts_for])
 
     def link_state(self) -> LinkStatus:
         offline: list[NodeId] = [node for node in NODE_IDS if not self.engine.world.devices[node].online]
@@ -561,24 +618,21 @@ class FarmRuntime:
                                        "run; reset the farm to start another")
             variant, spec = self.demo_spec(scenario_id)
             start = self.tick                                   # due at the next engine step
-            shift = start - int(spec.faults[0]["inject_tick"])
-            faults = []
-            for fault in spec.faults:
-                moved = dict(fault)
-                moved["inject_tick"] = int(fault["inject_tick"]) + shift
-                if fault.get("end_tick") is not None:
-                    moved["end_tick"] = int(fault["end_tick"]) + shift
-                faults.append(moved)
+            shift = start - _start(spec.faults[0])
+            faults = [{key: (int(value) + shift if key in TICK_KEYS and value is not None else value)
+                       for key, value in fault.items()} for fault in spec.faults]
+            # The library's starting state for the fault (a feed hopper running low, a tank near its refill level, a
+            # half-empty backup battery): without it some faults have nothing to act on.
+            self._apply_initial(self.engine, spec)
             self._inject(self.engine, self.runtime, types.SimpleNamespace(faults=faults))
-            fault = faults[0]
-            devices: list[NodeId] = ([fault["device"]] if "device" in fault else
-                                     ["incubator-1", "incubator-2"] if fault.get("shared") else ["incubator-1"])
+            devices = [node for node in NODE_IDS if any(node in _machines(fault) for fault in faults)]
             farm_time, _ = self.farm_time()
             self.demo_fault = FaultResult(scenario_id=scenario_id, family=DEMO_FAULTS[scenario_id][0],
                                           variant=variant, devices=devices, tick=start,
-                                          end_tick=max((f["end_tick"] for f in faults if f.get("end_tick") is not None),
+                                          end_tick=max((f[k] for f in faults for k in END_KEYS if f.get(k) is not None),
                                                        default=None),
                                           time_s=start * self.step_seconds, farm_time=farm_time, feed_id=self.feed_id)
+            self.alerts_for |= set(devices)
             log(self.logger, logging.INFO, "demo fault injected", scenario_id=scenario_id,
                 family=self.demo_fault.family, variant=variant, devices=devices, tick=start, feed_id=self.feed_id,
                 faults=_plain(faults))
@@ -615,6 +669,7 @@ class FarmRuntime:
         async with self._publish_lock:
             ticks = max(1, int(round(seconds / self.step_seconds)))
             self.runtime.bus.isolate(node, self.tick, self.tick + ticks)
+            self.alerts_for |= set(NODE_IDS) - {node}           # the others notice their missing peer
             log(self.logger, logging.INFO, "radio link cut", node=node, ticks=ticks)
             await self.publish_clock(force=True)
             return self.link_state()

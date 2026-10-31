@@ -95,6 +95,7 @@ export const SimState = z.strictObject({
   label: FeedLabel,
   episode_id: z.string(),
   feed_id: FeedId,
+  alerts_for: z.array(NodeId).max(4).default([]),
 })
 
 export const Capabilities = z.strictObject({
@@ -356,7 +357,28 @@ export const OkResponse = z
   .refine((r) => r.ok === (r.reason === ""), { message: "ok, or refused with a reason" })
 
 /** Everything `/ws/chat` sends to the website. */
-export const ScenarioId = z.enum(["heater_relay_stuck", "supply_fan_failure", "humidity_sensor_drift", "supply_overvoltage"])
+export const ScenarioId = z.enum([
+  "heater_relay_stuck",
+  "heater_open_circuit",
+  "fan1_failure",
+  "humidifier_pump_failure",
+  "humidity_sensor_drift",
+  "supply_fan_failure",
+  "return_fan_failure",
+  "compressor_failure",
+  "filter_clogging",
+  "damper_stuck",
+  "drinker_pump_failure",
+  "drinker_line_leak",
+  "feeder_blocked",
+  "tank_fill_valve_failure",
+  "water_cut",
+  "hurricane",
+  "fire",
+  "flood",
+  "power_outage",
+  "supply_overvoltage",
+])
 
 /** POST /faults/{scenario_id}: which library fault started, on which machines, from which tick of which farm run. */
 export const FaultResult = z.strictObject({

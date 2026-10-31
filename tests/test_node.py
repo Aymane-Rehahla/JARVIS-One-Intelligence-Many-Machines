@@ -297,6 +297,44 @@ async def test_the_document_refresh_survives_a_failed_rebuild(farm: Farm, monkey
     assert own is not None and own.reason == "change"
 
 
+async def arm(farm: Farm, nodes: list[NodeId]) -> None:
+    """The farm clock naming the machines whose escalations may reach the owner (the calm farm, decision 0023)."""
+    await farm.link.publish("farm.sim", SimState(tick=8, time_s=8.0, farm_time="06:08", day=1, running=True,
+                                                 target_speed=1.0, actual_speed=1.0, label="live: simulated brains",
+                                                 feed_id="0000000000a1", episode_id="e", alerts_for=nodes))
+    await until(lambda: all(node.sim is not None and node.sim.alerts_for == nodes for node in farm.nodes.values()))
+
+
+@pytest.mark.asyncio
+async def test_the_calm_farm_tells_the_owner_only_about_machines_a_user_faulted(farm: Farm) -> None:
+    """The user's demand (31 Oct): a normal day escalates nothing; only an injected fault's machines may alert."""
+    alerts: list[OwnerAlert] = []
+
+    async def heard(alert: OwnerAlert, subject: str) -> None:
+        alerts.append(alert)
+    await farm.link.subscribe("jarvis.incubator-1.alert", OwnerAlert, heard)
+    await farm.start("incubator-1")
+    await farm.start("hvac")
+    await until(lambda: farm.nodes["incubator-1"].known() == ["incubator-1", "hvac"])
+
+    def escalate(node: NodeId, tick: int) -> FarmAssessment:
+        return FarmAssessment(node=node, tick=tick, time_s=float(tick), farm_time="06:09", label="live: simulated brains",
+                              feed_id="0000000000a1", assessment="ESCALATE_TO_USER", diagnosis="HEATER_FAULT",
+                              confidence=0.9, brain="rule", incident_id=f"{node}-equipment-{tick:04d}",
+                              evidence=["HEATER_FAULT"])
+    await arm(farm, [])
+    await farm.link.publish("farm.incubator-1.assessment", escalate("incubator-1", 9))
+    await farm.link.publish("farm.hvac.assessment", escalate("hvac", 9))
+    await asyncio.sleep(0.5)
+    assert alerts == []                                                   # calm: the brains' own escalations stay quiet
+    await arm(farm, ["hvac"])
+    await farm.link.publish("farm.incubator-1.assessment", escalate("incubator-1", 10))
+    await farm.link.publish("farm.hvac.assessment", escalate("hvac", 10))
+    await until(lambda: len(alerts) == 1)
+    await asyncio.sleep(0.3)
+    assert [a.node for a in alerts] == ["hvac"]
+
+
 @pytest.mark.asyncio
 async def test_alerts_reach_the_owner_from_incubator_1s_own_machine_and_through_the_radio(farm: Farm) -> None:
     """6C (decision 0019): incubator-1 alerts on its own machine directly and on a peer's notice; once per level."""
@@ -308,6 +346,7 @@ async def test_alerts_reach_the_owner_from_incubator_1s_own_machine_and_through_
     await farm.start("incubator-1")
     await farm.start("hvac")
     await until(lambda: farm.nodes["incubator-1"].known() == ["incubator-1", "hvac"])
+    await arm(farm, ["incubator-1", "hvac"])
 
     def escalate(node: NodeId, level: str = "ESCALATE_TO_USER", tick: int = 9) -> FarmAssessment:
         return FarmAssessment(node=node, tick=tick, time_s=float(tick), farm_time="06:09", label="live: simulated brains",

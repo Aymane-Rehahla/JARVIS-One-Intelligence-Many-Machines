@@ -19,6 +19,7 @@ import {
   setSimulationSpeed,
   startSimulation,
   type FarmState,
+  type DeviceId,
   type ScenarioId,
   type SimulationSpeed,
 } from "@/services/matrix"
@@ -49,6 +50,8 @@ export type DemoFarm = {
   reset: () => void
   setSpeed: (speed: SimulationSpeed) => void
   inject: (scenarioId: ScenarioId) => void
+  /** A missing peer: live only (the demo farm has no radio). */
+  cutLink?: (node: DeviceId) => void
   acknowledge: (eventId: string) => void
   acknowledgeAllEvents: () => void
   clearResolved: () => void

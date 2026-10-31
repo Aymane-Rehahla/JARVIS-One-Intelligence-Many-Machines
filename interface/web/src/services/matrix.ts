@@ -18,7 +18,36 @@ export type DeviceId = "incubator-1" | "incubator-2" | "hvac" | "animal-protecti
 export const DEVICE_IDS: DeviceId[] = ["incubator-1", "incubator-2", "hvac", "animal-protection"]
 
 /** Named after the matching fault families in the real scenario library. */
-export type ScenarioId = "heater_relay_stuck" | "supply_fan_failure" | "humidity_sensor_drift" | "supply_overvoltage"
+export type ScenarioId =
+  | "heater_relay_stuck"
+  | "heater_open_circuit"
+  | "fan1_failure"
+  | "humidifier_pump_failure"
+  | "humidity_sensor_drift"
+  | "supply_fan_failure"
+  | "return_fan_failure"
+  | "compressor_failure"
+  | "filter_clogging"
+  | "damper_stuck"
+  | "drinker_pump_failure"
+  | "drinker_line_leak"
+  | "feeder_blocked"
+  | "tank_fill_valve_failure"
+  | "water_cut"
+  | "hurricane"
+  | "fire"
+  | "flood"
+  | "power_outage"
+  | "supply_overvoltage"
+
+/** The fault menu's kinds; the fifth, a missing peer, is a radio cut (not a scenario). */
+export type FaultKind = "incubator" | "hvac" | "animal_protection" | "disaster"
+export const FAULT_KINDS: { id: FaultKind; label: string }[] = [
+  { id: "incubator", label: "Incubator" },
+  { id: "hvac", label: "HVAC" },
+  { id: "animal_protection", label: "Animal protection" },
+  { id: "disaster", label: "Disaster" },
+]
 
 export type Metric = {
   label: string
@@ -185,6 +214,9 @@ export type FarmState = {
 
 export type Scenario = {
   id: ScenarioId
+  kind: FaultKind
+  /** Scripted for the offline demo farm too (the others run only in the live Matrix). */
+  scripted?: true
   label: string
   shortLabel: string
   description: string
@@ -200,6 +232,8 @@ export type Scenario = {
 export const SCENARIOS: Scenario[] = [
   {
     id: "heater_relay_stuck",
+    kind: "incubator",
+    scripted: true,
     label: "Incubator heater relay stuck on",
     shortLabel: "Heater relay stuck",
     description:
@@ -209,6 +243,8 @@ export const SCENARIOS: Scenario[] = [
   },
   {
     id: "supply_fan_failure",
+    kind: "hvac",
+    scripted: true,
     label: "HVAC supply fan failure",
     shortLabel: "Supply fan failure",
     description:
@@ -218,6 +254,8 @@ export const SCENARIOS: Scenario[] = [
   },
   {
     id: "humidity_sensor_drift",
+    kind: "incubator",
+    scripted: true,
     label: "Incubator humidity sensor drift",
     shortLabel: "Sensor drift",
     description:
@@ -227,12 +265,174 @@ export const SCENARIOS: Scenario[] = [
   },
   {
     id: "supply_overvoltage",
+    kind: "disaster",
+    scripted: true,
     label: "Farm supply overvoltage",
     shortLabel: "Overvoltage",
     description:
       "The farm's mains rise to 263 V. Both incubators' overvoltage relays trip above 260 V and switch their heaters off.",
     devices: ["incubator-1", "incubator-2"],
     durationS: 900,
+  },
+  {
+    id: "heater_open_circuit",
+    kind: "incubator",
+    label: "Incubator heater open circuit",
+    shortLabel: "Heater open circuit",
+    description:
+      "Incubator 1's heating element breaks. The controller keeps asking for heat but none comes, so the eggs slowly cool.",
+    devices: ["incubator-1"],
+    durationS: 0,
+  },
+  {
+    id: "fan1_failure",
+    kind: "incubator",
+    label: "Incubator circulation fan failure",
+    shortLabel: "Fan 1 failure",
+    description:
+      "Incubator 1's first circulation fan stops. The air inside stratifies and the temperature readings spread apart.",
+    devices: ["incubator-1"],
+    durationS: 0,
+  },
+  {
+    id: "humidifier_pump_failure",
+    kind: "incubator",
+    label: "Incubator humidifier pump failure",
+    shortLabel: "Humidifier pump",
+    description:
+      "Incubator 2's humidifier pump stops, so the humidity falls below its 55 % target.",
+    devices: ["incubator-2"],
+    durationS: 0,
+  },
+  {
+    id: "return_fan_failure",
+    kind: "hvac",
+    label: "HVAC return fan failure",
+    shortLabel: "Return fan failure",
+    description:
+      "The central unit's return fan stops, so air no longer comes back from the rooms to be conditioned.",
+    devices: ["hvac"],
+    durationS: 0,
+  },
+  {
+    id: "compressor_failure",
+    kind: "hvac",
+    label: "HVAC compressor failure",
+    shortLabel: "Compressor failure",
+    description:
+      "The cooling compressor stops. On a warm afternoon the barn and the workspace warm up.",
+    devices: ["hvac"],
+    durationS: 0,
+  },
+  {
+    id: "filter_clogging",
+    kind: "hvac",
+    label: "HVAC filter clogging",
+    shortLabel: "Filter clogging",
+    description:
+      "The air filter clogs over time: the pressure drop across it rises and the airflow falls.",
+    devices: ["hvac"],
+    durationS: 0,
+  },
+  {
+    id: "damper_stuck",
+    kind: "hvac",
+    label: "HVAC damper stuck",
+    shortLabel: "Damper stuck",
+    description:
+      "The outdoor-air damper sticks in place and no longer follows its command.",
+    devices: ["hvac"],
+    durationS: 0,
+  },
+  {
+    id: "drinker_pump_failure",
+    kind: "animal_protection",
+    label: "Drinker pump failure",
+    shortLabel: "Drinker pump",
+    description:
+      "The pump feeding the chickens' drinkers stops, so the drinker lines run dry.",
+    devices: ["animal-protection"],
+    durationS: 0,
+  },
+  {
+    id: "drinker_line_leak",
+    kind: "animal_protection",
+    label: "Drinker line leak",
+    shortLabel: "Drinker leak",
+    description:
+      "A drinker line leaks: water use rises and the tank empties faster than the flock drinks.",
+    devices: ["animal-protection"],
+    durationS: 0,
+  },
+  {
+    id: "feeder_blocked",
+    kind: "animal_protection",
+    label: "Feeder blocked",
+    shortLabel: "Feeder blocked",
+    description:
+      "The barn feeder jams while its hopper is running low, so feed stops reaching the flock.",
+    devices: ["animal-protection"],
+    durationS: 0,
+  },
+  {
+    id: "tank_fill_valve_failure",
+    kind: "animal_protection",
+    label: "Tank fill valve failure",
+    shortLabel: "Fill valve",
+    description:
+      "The drinker tank's fill valve fails just as the tank needs a refill, so the level keeps falling.",
+    devices: ["animal-protection"],
+    durationS: 0,
+  },
+  {
+    id: "water_cut",
+    kind: "animal_protection",
+    label: "Farm water cut",
+    shortLabel: "Water cut",
+    description:
+      "The farm's water main stops: both incubators and the drinker tank lose their supply at once.",
+    devices: ["incubator-1", "incubator-2", "animal-protection"],
+    durationS: 0,
+  },
+  {
+    id: "hurricane",
+    kind: "disaster",
+    label: "Hurricane",
+    shortLabel: "Hurricane",
+    description:
+      "A warned windstorm hits the farm at full strength (the Matrix's tornado storm, its strongest wind).",
+    devices: ["incubator-1", "incubator-2", "hvac", "animal-protection"],
+    durationS: 0,
+  },
+  {
+    id: "fire",
+    kind: "disaster",
+    label: "Fire in the barn",
+    shortLabel: "Fire",
+    description:
+      "A flaming fire starts in the barn. Smoke and heat spread and the flock is in danger.",
+    devices: ["incubator-1", "incubator-2", "hvac", "animal-protection"],
+    durationS: 0,
+  },
+  {
+    id: "flood",
+    kind: "disaster",
+    label: "Flood",
+    shortLabel: "Flood",
+    description:
+      "Water rises across the site over several hours.",
+    devices: ["incubator-1", "incubator-2", "hvac", "animal-protection"],
+    durationS: 0,
+  },
+  {
+    id: "power_outage",
+    kind: "disaster",
+    label: "Power outage",
+    shortLabel: "Power outage",
+    description:
+      "The farm loses mains power. The machines fall back on their backup batteries until power returns.",
+    devices: ["incubator-1", "incubator-2", "hvac", "animal-protection"],
+    durationS: 0,
   },
 ]
 
@@ -602,7 +802,7 @@ function finishScenario(state: FarmState): void {
   state.simulation.nextBeat = 0
 }
 
-const SCRIPTS: Record<ScenarioId, Beat[]> = {
+const SCRIPTS: Partial<Record<ScenarioId, Beat[]>> = {
   heater_relay_stuck: [
     {
       atS: 30,
@@ -780,7 +980,7 @@ export function advanceTick(state: FarmState): FarmState {
 function playDueBeats(state: FarmState): void {
   const scenarioId = state.simulation.activeScenario
   if (!scenarioId || state.simulation.scenarioStartS === null) return
-  const beats = SCRIPTS[scenarioId]
+  const beats = SCRIPTS[scenarioId] ?? []
   const startS = state.simulation.scenarioStartS
   const stepEndS = state.simulation.timeS
   while (state.simulation.activeScenario === scenarioId && state.simulation.nextBeat < beats.length && startS + beats[state.simulation.nextBeat].atS <= stepEndS) {
@@ -798,7 +998,7 @@ export function injectScenario(state: FarmState, scenarioId: ScenarioId): FarmSt
   const next = cloneState(state)
   if (next.source !== "demo") return next
   const scenario = findScenario(scenarioId)
-  if (!scenario || next.simulation.activeScenario) return next
+  if (!scenario?.scripted || next.simulation.activeScenario) return next
   next.simulation.activeScenario = scenario.id
   next.simulation.scenarioStartS = next.simulation.timeS
   next.simulation.nextBeat = 0

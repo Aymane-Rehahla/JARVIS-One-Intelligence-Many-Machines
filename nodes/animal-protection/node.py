@@ -445,7 +445,9 @@ class Node:
             return
         self.assessment = assessment
         self.bus.publish("farm.assessment", assessment)
-        if assessment.assessment in ("ESCALATE_TO_USER", "DANGER"):        # the alert path never waits on the feed
+        # The alert path never waits on the feed. The calm farm (decision 0023): only a machine the farm clock names
+        # may reach the owner; the brains' own escalations on a normal day stay on the feed and the events page.
+        if assessment.assessment in ("ESCALATE_TO_USER", "DANGER") and self.sim is not None                 and assessment.node in self.sim.alerts_for:
             self._spawn(self.alert_desk.own(assessment) if self.alert_desk is not None
                         else self.alert_watcher.on_assessment(assessment))
 

@@ -20,7 +20,7 @@ from pydantic import BaseModel
 import farm_runtime as fr
 from comms.nats_link import NatsLink
 from comms.peer_network import RadioRules
-from contracts import NODE_IDS, FarmAssessment, FarmStatus, LinkStatus, SimState, load_node_config
+from contracts import NODE_IDS, FarmAssessment, FarmIncident, FarmStatus, LinkStatus, SimState, load_node_config
 from node import READING_KEYS, Node
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -276,6 +276,36 @@ async def test_one_demo_fault_per_run_and_a_reset_clears_it() -> None:
     assert (await runtime.inject_fault("heater_relay_stuck")).feed_id == runtime.feed_id
 
 
+def test_the_fault_menu_has_five_kinds_of_five_faults_each_from_the_library() -> None:
+    """The user's menu (31 Oct): incubator, HVAC, animal protection and disaster faults, five each, every one an
+    ordinary library variant (the missing-peer kind is the radio cut, below)."""
+    runtime, _ = farm()
+    assert sorted(fr.FAULT_MENU) == ["animal_protection", "disaster", "hvac", "incubator"]
+    assert all(len(ids) == 5 for ids in fr.FAULT_MENU.values())
+    assert sorted(i for ids in fr.FAULT_MENU.values() for i in ids) == sorted(fr.SCENARIO_IDS)
+    for scenario_id in fr.SCENARIO_IDS:
+        variant, spec = runtime.demo_spec(scenario_id)
+        assert spec.tags["novel"] is False, scenario_id
+        assert spec.as_dict() == runtime._make_spec(spec.family, variant, False).as_dict(), scenario_id
+
+
+@pytest.mark.asyncio
+async def test_the_calm_farm_arms_alerts_only_for_what_the_user_broke() -> None:
+    """SimState.alerts_for (decision 0023): empty on a normal day; an injected fault's machines; a missing peer arms
+    the other three (they notice it); a reset is calm again."""
+    runtime, _ = farm(running=False)
+    assert runtime.sim_state().alerts_for == []
+    await runtime.inject_fault("supply_fan_failure")
+    assert runtime.sim_state().alerts_for == ["hvac"]
+    await runtime.control("reset")
+    assert runtime.sim_state().alerts_for == []
+    await runtime.cut("incubator-2", 600.0)
+    assert runtime.sim_state().alerts_for == ["incubator-1", "hvac", "animal-protection"]
+    await runtime.control("reset")
+    await runtime.inject_fault("fire")
+    assert runtime.sim_state().alerts_for == list(NODE_IDS)
+
+
 def test_the_matrix_api_demo_faults() -> None:
     runtime, _ = farm(running=False)
     with TestClient(fr.create_api(runtime)) as client:
@@ -324,7 +354,7 @@ def _hidden_words(runtime: fr.FarmRuntime, result: fr.FaultResult) -> set[str]:
 
 
 #: Readings a machine publishes by itself whose value happens to equal a fault's word (6W review, L2).
-MACHINE_TELEMETRY = {("power_status", "overvoltage")}
+MACHINE_TELEMETRY = {("power_status", "overvoltage"), ("housing_zone_id", "barn")}
 
 
 def _strings(value: Any, path: str = "") -> list[tuple[str, str]]:
@@ -366,12 +396,18 @@ async def test_the_epistemic_wall_holds_for_120_ticks_after_a_demo_fault(scenari
     patterns = {word: re.compile(rf"(?<![A-Za-z0-9_]){re.escape(word)}(?![A-Za-z0-9_])") for word in sorted(words)}
     leaks: dict[str, str] = {}
     telemetry: set[str] = set()
+    detected: set[str] = set()
     for _, message in link.sent:
         payload = message.model_dump(mode="json")
         readings = payload.pop("readings", None) if isinstance(message, FarmStatus) else None
         text = json.dumps(payload)
+        # A brain naming what it found (a fire, a flood) is its detection, the point of the demo, not a leak: only
+        # the kind the brain itself concluded is excused, and only in its own assessment or incident.
+        concluded = payload.get("incident_kind") if isinstance(message, FarmAssessment) else             payload.get("kind") if isinstance(message, FarmIncident) else None
         for word, pattern in patterns.items():
-            if (match := pattern.search(text)) is not None:
+            if word == concluded:
+                detected.add(word)
+            elif (match := pattern.search(text)) is not None:
                 leaks.setdefault(word, text[max(0, match.start() - 60):match.end() + 60])
         for path, value in _strings(readings or {}):
             for word, pattern in patterns.items():
@@ -382,7 +418,7 @@ async def test_the_epistemic_wall_holds_for_120_ticks_after_a_demo_fault(scenari
                     else:
                         leaks.setdefault(word, f"{field} = {value!r}")
     print(f"\n{scenario_id}: {len(link.sent)} messages scanned for {sorted(words)}; "
-          f"the machine's own telemetry: {sorted(telemetry) or 'none'}")
+          f"the machine's own telemetry: {sorted(telemetry) or 'none'}; the brains concluded: {sorted(detected) or 'none'}")
     assert len(link.sent) > 120 * len(NODE_IDS) and leaks == {}
 
 
