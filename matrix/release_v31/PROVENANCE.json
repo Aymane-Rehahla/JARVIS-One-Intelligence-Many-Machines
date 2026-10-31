@@ -1,0 +1,652 @@
+{
+ "release": "v3.1",
+ "installer": "tools/install_release.py",
+ "word_map": {
+  "old name": "testbed"
+ },
+ "engines": {
+  "animal_protection": {
+   "tensors": 44,
+   "parameters": 597389,
+   "dropped_keys": [
+    "schema_hash"
+   ],
+   "loads_with_weights_only": true
+  },
+  "hvac": {
+   "tensors": 44,
+   "parameters": 586906,
+   "dropped_keys": [
+    "schema_hash"
+   ],
+   "loads_with_weights_only": true
+  },
+  "incubator": {
+   "tensors": 44,
+   "parameters": 583747,
+   "dropped_keys": [
+    "schema_hash"
+   ],
+   "loads_with_weights_only": true
+  }
+ },
+ "memory_cmm_identical_to_code": true,
+ "files": [
+  {
+   "path": "base ctm/continuous-thought-machines-main/LICENSE",
+   "source": "upstream/LICENSE",
+   "release_sha256": "0dc1811264bb76e119d3f58a8e775d79abeb1708c9486d3861354c1688062350",
+   "installed_sha256": "0dc1811264bb76e119d3f58a8e775d79abeb1708c9486d3861354c1688062350",
+   "how": "copied"
+  },
+  {
+   "path": "base ctm/continuous-thought-machines-main/models/constants.py",
+   "source": "upstream/models/constants.py",
+   "release_sha256": "14ac6935c39fbc8b11742e21739be07788a917b9ccaaafeccaa35386a21c797f",
+   "installed_sha256": "14ac6935c39fbc8b11742e21739be07788a917b9ccaaafeccaa35386a21c797f",
+   "how": "copied"
+  },
+  {
+   "path": "base ctm/continuous-thought-machines-main/models/ctm.py",
+   "source": "upstream/models/ctm.py",
+   "release_sha256": "0f650628d7c5fd647ca4978d61371afa77a0d8092097a46c57e62f07497ad81b",
+   "installed_sha256": "0f650628d7c5fd647ca4978d61371afa77a0d8092097a46c57e62f07497ad81b",
+   "how": "copied"
+  },
+  {
+   "path": "base ctm/continuous-thought-machines-main/models/ctm_rl.py",
+   "source": "upstream/models/ctm_rl.py",
+   "release_sha256": "cc2f9f6ce29960d7c1e137f8984fb57fd9aee0350760bfa5b5e77969341a8ac7",
+   "installed_sha256": "cc2f9f6ce29960d7c1e137f8984fb57fd9aee0350760bfa5b5e77969341a8ac7",
+   "how": "copied"
+  },
+  {
+   "path": "base ctm/continuous-thought-machines-main/models/modules.py",
+   "source": "upstream/models/modules.py",
+   "release_sha256": "0fbd35b57a722f83b964168fd70a431b9f26a47ffe27d6ce2f1f588b23e73c5f",
+   "installed_sha256": "0fbd35b57a722f83b964168fd70a431b9f26a47ffe27d6ce2f1f588b23e73c5f",
+   "how": "copied"
+  },
+  {
+   "path": "base ctm/continuous-thought-machines-main/models/resnet.py",
+   "source": "upstream/models/resnet.py",
+   "release_sha256": "cdae88aec0d2983eb9313b590992e154619b2905cdf3419a4aee3bcec23835a3",
+   "installed_sha256": "cdae88aec0d2983eb9313b590992e154619b2905cdf3419a4aee3bcec23835a3",
+   "how": "copied"
+  },
+  {
+   "path": "base ctm/continuous-thought-machines-main/models/utils.py",
+   "source": "upstream/models/utils.py",
+   "release_sha256": "c01b303b2c8996fdb98fc33d78946353b6075b44f6b26467e22bd509c45dcb49",
+   "installed_sha256": "c01b303b2c8996fdb98fc33d78946353b6075b44f6b26467e22bd509c45dcb49",
+   "how": "copied"
+  },
+  {
+   "path": "brains/animal_protection/decide.json",
+   "source": "brains/animal_protection/decide.json",
+   "release_sha256": "2325e71b477740911eb7fc4f3f847403ef3abdd944736336d21ff498ae931bbf",
+   "installed_sha256": "2325e71b477740911eb7fc4f3f847403ef3abdd944736336d21ff498ae931bbf",
+   "how": "copied"
+  },
+  {
+   "path": "brains/animal_protection/reasoning_engine_APv3.1.pt",
+   "source": "brains/animal_protection/reasoning_engine_APv3.1.pt",
+   "release_sha256": "b0a6f854a36b80e64596ca341644fe292baa484a2ead3b6c04fde3bc0d804366",
+   "installed_sha256": "fc27de19c6e26b0b51a2670c5e32b5920cf5f9c68132a3a9edbe6028babd23af",
+   "how": "re-saved"
+  },
+  {
+   "path": "brains/animal_protection/stats.npz",
+   "source": "brains/animal_protection/stats.npz",
+   "release_sha256": "7a69720171e5a6d80188cd0d2c560d2aab78996a384c4ff610888e29425cdc63",
+   "installed_sha256": "7a69720171e5a6d80188cd0d2c560d2aab78996a384c4ff610888e29425cdc63",
+   "how": "copied"
+  },
+  {
+   "path": "brains/hvac/decide.json",
+   "source": "brains/hvac/decide.json",
+   "release_sha256": "f508ca9144b992fb984c8f8670ce3fdbf3946c94a9e9c1f3b11af4affe381dad",
+   "installed_sha256": "f508ca9144b992fb984c8f8670ce3fdbf3946c94a9e9c1f3b11af4affe381dad",
+   "how": "copied"
+  },
+  {
+   "path": "brains/hvac/reasoning_engine_HVACv3.1.pt",
+   "source": "brains/hvac/reasoning_engine_HVACv3.1.pt",
+   "release_sha256": "d9fbf373267d9ccf53aa1209fe8c5324353654aef2c9803be46ae12564c26192",
+   "installed_sha256": "8d571312ef682e4dffdae7056263cceeb831c8a506984bb634fa9d571ef2b6c4",
+   "how": "re-saved"
+  },
+  {
+   "path": "brains/hvac/stats.npz",
+   "source": "brains/hvac/stats.npz",
+   "release_sha256": "3c3232d780ba519a123375e5be9d429bf9da7e377a42da895b715b11e67b4bc1",
+   "installed_sha256": "3c3232d780ba519a123375e5be9d429bf9da7e377a42da895b715b11e67b4bc1",
+   "how": "copied"
+  },
+  {
+   "path": "brains/incubator/decide.json",
+   "source": "brains/incubator/decide.json",
+   "release_sha256": "4ff475a65076a8fa73ac230913ddbb8b9b36bb5e3fff2ea006652662e1c1a9f4",
+   "installed_sha256": "4ff475a65076a8fa73ac230913ddbb8b9b36bb5e3fff2ea006652662e1c1a9f4",
+   "how": "copied"
+  },
+  {
+   "path": "brains/incubator/reasoning_engine_INCv3.1.pt",
+   "source": "brains/incubator/reasoning_engine_INCv3.1.pt",
+   "release_sha256": "82372b1976b4ea07f3a438a5b1df8b18f44c5e0cd425dfa3c6f60a9894c925c1",
+   "installed_sha256": "7f8a69f86964f99181ca651e7cc4ec9df817bc21148590ca072f849118e7eaab",
+   "how": "re-saved"
+  },
+  {
+   "path": "brains/incubator/stats.npz",
+   "source": "brains/incubator/stats.npz",
+   "release_sha256": "6329a212cd00237266ffeef5300ffde2d8a658de725935be3544bb1c0de6a9af",
+   "installed_sha256": "6329a212cd00237266ffeef5300ffde2d8a658de725935be3544bb1c0de6a9af",
+   "how": "copied"
+  },
+  {
+   "path": "ctm_training/__init__.py",
+   "source": "code_snapshot/ctm_training/__init__.py",
+   "release_sha256": "6ce5186db9c3ffcae15d35e40cec8867db9c166070c2940622185c16fc5b177a",
+   "installed_sha256": "d20a7467042833d742b6b3c91fc78eb4871f8a1d71814e341d420d7e3fa42427",
+   "how": "renamed"
+  },
+  {
+   "path": "ctm_training/b1.py",
+   "source": "code_snapshot/ctm_training/b1.py",
+   "release_sha256": "a2037bc977bf6cdb0ce0e5009bd3bab494a8303ed81cb2c3d21132cde20167e9",
+   "installed_sha256": "1d0bf79083f25914956d2af013cdd19b73c1f19a1c8cddad726193123fc6d1d7",
+   "how": "renamed"
+  },
+  {
+   "path": "ctm_training/data.py",
+   "source": "code_snapshot/ctm_training/data.py",
+   "release_sha256": "6eb36de871545f350eb3934d4b68aa5bbaddcd37fa39e807df2aa48c7226ecdb",
+   "installed_sha256": "6eb36de871545f350eb3934d4b68aa5bbaddcd37fa39e807df2aa48c7226ecdb",
+   "how": "copied"
+  },
+  {
+   "path": "ctm_training/decide.py",
+   "source": "code_snapshot/ctm_training/decide.py",
+   "release_sha256": "b1050ab5698eb39153853f4fd42b0243120febaa509a6e3d9b1eb26e293392cf",
+   "installed_sha256": "b1050ab5698eb39153853f4fd42b0243120febaa509a6e3d9b1eb26e293392cf",
+   "how": "copied"
+  },
+  {
+   "path": "ctm_training/fix_loop.py",
+   "source": "code_snapshot/ctm_training/fix_loop.py",
+   "release_sha256": "c752b81882b2156bb2e2182930db7c674a6887882a5e90b329b351c870f3f914",
+   "installed_sha256": "c752b81882b2156bb2e2182930db7c674a6887882a5e90b329b351c870f3f914",
+   "how": "copied"
+  },
+  {
+   "path": "ctm_training/life_loop.py",
+   "source": "code_snapshot/ctm_training/life_loop.py",
+   "release_sha256": "d975fed0d9182ed5e56f4a3b60154ec6f7f9c3b827917094c686373396bb95d5",
+   "installed_sha256": "45fd45dc9274a0ddd98ce095380e7522571fad911923876d6b117a972c54c1b0",
+   "how": "renamed"
+  },
+  {
+   "path": "ctm_training/live.py",
+   "source": "code_snapshot/ctm_training/live.py",
+   "release_sha256": "48a7d0e8d2d1a1f0f694be139e0364cc353624d124beb087606e13802769d3e3",
+   "installed_sha256": "48a7d0e8d2d1a1f0f694be139e0364cc353624d124beb087606e13802769d3e3",
+   "how": "copied"
+  },
+  {
+   "path": "ctm_training/model.py",
+   "source": "code_snapshot/ctm_training/model.py",
+   "release_sha256": "7b7e6333e164288920ee34bcc9018b71a71b602bcf54c0c6a80334cf4ee71b1d",
+   "installed_sha256": "1292af44dbe5a064371580cb5fec1f9c865aaba68f4cf415b0709104f67e9542",
+   "how": "renamed"
+  },
+  {
+   "path": "ctm_training/practice.py",
+   "source": "code_snapshot/ctm_training/practice.py",
+   "release_sha256": "5b149d3ce33543f5a49752c89964fb89e9c75a57606657689543deff17e51e36",
+   "installed_sha256": "5b149d3ce33543f5a49752c89964fb89e9c75a57606657689543deff17e51e36",
+   "how": "copied"
+  },
+  {
+   "path": "ctm_training/release.py",
+   "source": "code_snapshot/ctm_training/release.py",
+   "release_sha256": "07a315e18904ad7c1bb3ecc6f9b6c2661260d0ad914b7e88d4e5d29e06145091",
+   "installed_sha256": "dea21d672375026b392e2d78f7d31a3df6df5f5f932f7f0496e1d4ec0d71c86c",
+   "how": "renamed"
+  },
+  {
+   "path": "ctm_training/run.py",
+   "source": "code_snapshot/ctm_training/run.py",
+   "release_sha256": "6f0d8a3d6c07cc89b27504db5584f607875e3d1c273ed208c544b1370ddbc575",
+   "installed_sha256": "4720e848c07c08da5373a4f79640246526695be5bdccb441f0311fe69a683638",
+   "how": "renamed"
+  },
+  {
+   "path": "ctm_training/score.py",
+   "source": "code_snapshot/ctm_training/score.py",
+   "release_sha256": "b58492648062f669fd52ca605e61e4a02d4f700592478ac109e4e45030236548",
+   "installed_sha256": "b58492648062f669fd52ca605e61e4a02d4f700592478ac109e4e45030236548",
+   "how": "copied"
+  },
+  {
+   "path": "ctm_training/train.py",
+   "source": "code_snapshot/ctm_training/train.py",
+   "release_sha256": "e375e5110d227f3ba32cc67ba85f2524518d79e36e6dde920328c817412f9076",
+   "installed_sha256": "7e2311ef50fb742e7a6b9c896539a8d71dd0b6418d4797f1628dbe4a1e69f315",
+   "how": "renamed"
+  },
+  {
+   "path": "farm_poc/__init__.py",
+   "source": "code_snapshot/farm_poc/__init__.py",
+   "release_sha256": "6d8ac510a555ce6ebbcc5c1a8ab9bb74ee4231633d30d9d2fa4afb74a7a67049",
+   "installed_sha256": "fa8cfdc8fa95d78ce87d79ea7d194e42ff56fd911ddfddc4d4b9a824e29d1696",
+   "how": "renamed"
+  },
+  {
+   "path": "farm_poc/controllers/__init__.py",
+   "source": "code_snapshot/farm_poc/controllers/__init__.py",
+   "release_sha256": "9de25f738c564e673fe5b2724497345c1ba431d2edc9f6c3d8d4a0562453e7f6",
+   "installed_sha256": "9de25f738c564e673fe5b2724497345c1ba431d2edc9f6c3d8d4a0562453e7f6",
+   "how": "copied"
+  },
+  {
+   "path": "farm_poc/controllers/animal_protection_controller.py",
+   "source": "code_snapshot/farm_poc/controllers/animal_protection_controller.py",
+   "release_sha256": "c62dfa1142f0eb1104f25ef8c734a6f40c5751add3427ebc4dd9a78e358ca6c5",
+   "installed_sha256": "c62dfa1142f0eb1104f25ef8c734a6f40c5751add3427ebc4dd9a78e358ca6c5",
+   "how": "copied"
+  },
+  {
+   "path": "farm_poc/controllers/base_controller.py",
+   "source": "code_snapshot/farm_poc/controllers/base_controller.py",
+   "release_sha256": "8a5b1a4d684a8cd9f478bc74e133e13bbf03c378e0da1ecfbc0871cabf743021",
+   "installed_sha256": "8a5b1a4d684a8cd9f478bc74e133e13bbf03c378e0da1ecfbc0871cabf743021",
+   "how": "copied"
+  },
+  {
+   "path": "farm_poc/controllers/hvac_controller.py",
+   "source": "code_snapshot/farm_poc/controllers/hvac_controller.py",
+   "release_sha256": "378252bb9a013b2d1f74832ab7015ce333ed191d8498b05c7a3a159f14a2459e",
+   "installed_sha256": "378252bb9a013b2d1f74832ab7015ce333ed191d8498b05c7a3a159f14a2459e",
+   "how": "copied"
+  },
+  {
+   "path": "farm_poc/controllers/incubator_controller.py",
+   "source": "code_snapshot/farm_poc/controllers/incubator_controller.py",
+   "release_sha256": "6e71a3eecf9ba74d18c54f723d0e19eba88d8a47be9d6107cb604924b99b7e75",
+   "installed_sha256": "6e71a3eecf9ba74d18c54f723d0e19eba88d8a47be9d6107cb604924b99b7e75",
+   "how": "copied"
+  },
+  {
+   "path": "farm_poc/device_computer/__init__.py",
+   "source": "code_snapshot/farm_poc/device_computer/__init__.py",
+   "release_sha256": "3d46448bb7ad5ecb470896441e1ddccf311ea131a9235d2072a12fcf15e1952c",
+   "installed_sha256": "3d46448bb7ad5ecb470896441e1ddccf311ea131a9235d2072a12fcf15e1952c",
+   "how": "copied"
+  },
+  {
+   "path": "farm_poc/device_computer/device_computer.py",
+   "source": "code_snapshot/farm_poc/device_computer/device_computer.py",
+   "release_sha256": "b3afe9378e4d1a04024f4afd4a3a5af1ab7b3886727db6476101ec699d22d4bf",
+   "installed_sha256": "b3afe9378e4d1a04024f4afd4a3a5af1ab7b3886727db6476101ec699d22d4bf",
+   "how": "copied"
+  },
+  {
+   "path": "farm_poc/device_computer/incubator_computer.py",
+   "source": "code_snapshot/farm_poc/device_computer/incubator_computer.py",
+   "release_sha256": "d4169153ebaee5a0654f606b6e6ccc2c3c0d65ee35644a06702d08436be15ebd",
+   "installed_sha256": "d4169153ebaee5a0654f606b6e6ccc2c3c0d65ee35644a06702d08436be15ebd",
+   "how": "copied"
+  },
+  {
+   "path": "farm_poc/devices/__init__.py",
+   "source": "code_snapshot/farm_poc/devices/__init__.py",
+   "release_sha256": "52f95fb271f31821d03205f00a5180a49c640143ee50095adf3e5567928e2e6b",
+   "installed_sha256": "52f95fb271f31821d03205f00a5180a49c640143ee50095adf3e5567928e2e6b",
+   "how": "copied"
+  },
+  {
+   "path": "farm_poc/devices/animal_protection.py",
+   "source": "code_snapshot/farm_poc/devices/animal_protection.py",
+   "release_sha256": "74a9f67eae0aa2ef3e1dbcc0d20fcffe83a663287fa3bd870d27184be8a5feb2",
+   "installed_sha256": "74a9f67eae0aa2ef3e1dbcc0d20fcffe83a663287fa3bd870d27184be8a5feb2",
+   "how": "copied"
+  },
+  {
+   "path": "farm_poc/devices/base_device.py",
+   "source": "code_snapshot/farm_poc/devices/base_device.py",
+   "release_sha256": "ba96ef098338347617ef145cdd3c166500d32deb6fba08744a7f4d1babee20ae",
+   "installed_sha256": "ba96ef098338347617ef145cdd3c166500d32deb6fba08744a7f4d1babee20ae",
+   "how": "copied"
+  },
+  {
+   "path": "farm_poc/devices/hvac.py",
+   "source": "code_snapshot/farm_poc/devices/hvac.py",
+   "release_sha256": "a71bd92638231fe259ff6cee75b7b4b78e88d41069460b41fc54d34a2637920b",
+   "installed_sha256": "a71bd92638231fe259ff6cee75b7b4b78e88d41069460b41fc54d34a2637920b",
+   "how": "copied"
+  },
+  {
+   "path": "farm_poc/devices/incubator.py",
+   "source": "code_snapshot/farm_poc/devices/incubator.py",
+   "release_sha256": "aca7629d1a7a2e43f518db82fa131f2a4cca4f51ef499cb061ac15c74ab24eab",
+   "installed_sha256": "aca7629d1a7a2e43f518db82fa131f2a4cca4f51ef499cb061ac15c74ab24eab",
+   "how": "copied"
+  },
+  {
+   "path": "farm_poc/devices/telemetry_utils.py",
+   "source": "code_snapshot/farm_poc/devices/telemetry_utils.py",
+   "release_sha256": "b55c8c99fe16f31e101a308b0380d8ef3bd1152ce0db613a108a432c9ee83669",
+   "installed_sha256": "b55c8c99fe16f31e101a308b0380d8ef3bd1152ce0db613a108a432c9ee83669",
+   "how": "copied"
+  },
+  {
+   "path": "farm_poc/fastcopy.py",
+   "source": "code_snapshot/farm_poc/fastcopy.py",
+   "release_sha256": "efbcd5fe241b53047647251c51cdf0cb99a7bd973749650454c8f4d96e971eb2",
+   "installed_sha256": "efbcd5fe241b53047647251c51cdf0cb99a7bd973749650454c8f4d96e971eb2",
+   "how": "copied"
+  },
+  {
+   "path": "farm_poc/matrix/__init__.py",
+   "source": "code_snapshot/farm_poc/matrix/__init__.py",
+   "release_sha256": "40889cc96be38751db1fd015481a554af2eb94cfb3177fe0dd5d771534a43d62",
+   "installed_sha256": "40889cc96be38751db1fd015481a554af2eb94cfb3177fe0dd5d771534a43d62",
+   "how": "copied"
+  },
+  {
+   "path": "farm_poc/matrix/animals.py",
+   "source": "code_snapshot/farm_poc/matrix/animals.py",
+   "release_sha256": "2cb81174fdf8cc8d250a7b2f3c5b24c3244641a3242b6ba4cb987c369bf45d0d",
+   "installed_sha256": "2cb81174fdf8cc8d250a7b2f3c5b24c3244641a3242b6ba4cb987c369bf45d0d",
+   "how": "copied"
+  },
+  {
+   "path": "farm_poc/matrix/communications.py",
+   "source": "code_snapshot/farm_poc/matrix/communications.py",
+   "release_sha256": "583fa04f065713bb05cc79de180f8e1fdf887fa9e83cb98e2baa927e4ba4d77c",
+   "installed_sha256": "0607b9654a36cac43c1cc0d642cd2dd8e5546ee009a87773a357260a26dc8f01",
+   "how": "renamed"
+  },
+  {
+   "path": "farm_poc/matrix/engine.py",
+   "source": "code_snapshot/farm_poc/matrix/engine.py",
+   "release_sha256": "2120662bd67d051c196caa04c74d1d0448638a0ced20d8c14d893788eddca93e",
+   "installed_sha256": "03650eaa0ee75b3832e047a6513bfe2df389010f8f3fa8b71fe8d1b9f6f8bd84",
+   "how": "renamed"
+  },
+  {
+   "path": "farm_poc/matrix/equipment_faults.py",
+   "source": "code_snapshot/farm_poc/matrix/equipment_faults.py",
+   "release_sha256": "7630b3b68cdbd59d91def3b2ae9414d489cd081ecd21243605da68875d3dec33",
+   "installed_sha256": "7630b3b68cdbd59d91def3b2ae9414d489cd081ecd21243605da68875d3dec33",
+   "how": "copied"
+  },
+  {
+   "path": "farm_poc/matrix/evaluator.py",
+   "source": "code_snapshot/farm_poc/matrix/evaluator.py",
+   "release_sha256": "18cd4a781e18b6ce5e2a7c4f8a91857df2bba645a8c6ae1632356fa3b945e6de",
+   "installed_sha256": "18cd4a781e18b6ce5e2a7c4f8a91857df2bba645a8c6ae1632356fa3b945e6de",
+   "how": "copied"
+  },
+  {
+   "path": "farm_poc/matrix/fire.py",
+   "source": "code_snapshot/farm_poc/matrix/fire.py",
+   "release_sha256": "523abe5b6126622c96b02f42d8a5ddef519d16c717f5499baf2eb8f3c29e87af",
+   "installed_sha256": "523abe5b6126622c96b02f42d8a5ddef519d16c717f5499baf2eb8f3c29e87af",
+   "how": "copied"
+  },
+  {
+   "path": "farm_poc/matrix/physical_world.py",
+   "source": "code_snapshot/farm_poc/matrix/physical_world.py",
+   "release_sha256": "352659cf5303dda7a4effaeb00a29eda4a2fc598daf4f66dfc6d1e296074f22a",
+   "installed_sha256": "352659cf5303dda7a4effaeb00a29eda4a2fc598daf4f66dfc6d1e296074f22a",
+   "how": "copied"
+  },
+  {
+   "path": "farm_poc/matrix/scenario.py",
+   "source": "code_snapshot/farm_poc/matrix/scenario.py",
+   "release_sha256": "ab20a9f2b82f45aedbb1d046a27f86523872c8a306a952f2d70e65bc1537f0aa",
+   "installed_sha256": "ab20a9f2b82f45aedbb1d046a27f86523872c8a306a952f2d70e65bc1537f0aa",
+   "how": "copied"
+  },
+  {
+   "path": "farm_poc/matrix/sensors.py",
+   "source": "code_snapshot/farm_poc/matrix/sensors.py",
+   "release_sha256": "6f7c52dbadc0c81ea31647c5564401accd279e5076fd10251850b6a3b440cddc",
+   "installed_sha256": "fadb83250f984a721bdbe567f71fa55e010279bc189ebea0c05a3aaa13c97642",
+   "how": "renamed"
+  },
+  {
+   "path": "farm_poc/matrix/simulation_clock.py",
+   "source": "code_snapshot/farm_poc/matrix/simulation_clock.py",
+   "release_sha256": "f8e5ddb96f604d338b251333ada4173b743214d901cec91a6696e846e7d46a8c",
+   "installed_sha256": "f8e5ddb96f604d338b251333ada4173b743214d901cec91a6696e846e7d46a8c",
+   "how": "copied"
+  },
+  {
+   "path": "farm_poc/matrix/weather.py",
+   "source": "code_snapshot/farm_poc/matrix/weather.py",
+   "release_sha256": "24f209cd8c737221f2b88203671e71ff612693fe63be4e3332f59ee818c2d200",
+   "installed_sha256": "2163ee69a7a7ca549ec66c7d561d04d81c9622d5ca82d6342865b3f375d35d5f",
+   "how": "renamed"
+  },
+  {
+   "path": "farm_poc/matrix/world_state.py",
+   "source": "code_snapshot/farm_poc/matrix/world_state.py",
+   "release_sha256": "ab66f5b68cc57be347f230a7242065c8d60e59522329c250db1f0f59c8debebe",
+   "installed_sha256": "ab66f5b68cc57be347f230a7242065c8d60e59522329c250db1f0f59c8debebe",
+   "how": "copied"
+  },
+  {
+   "path": "farm_poc/nodes/__init__.py",
+   "source": "code_snapshot/farm_poc/nodes/__init__.py",
+   "release_sha256": "c151ec5ac85e34eb41c5c44fc500a7a77797e6c010ecba6d2ea6c36744ccf8de",
+   "installed_sha256": "c151ec5ac85e34eb41c5c44fc500a7a77797e6c010ecba6d2ea6c36744ccf8de",
+   "how": "copied"
+  },
+  {
+   "path": "farm_poc/nodes/bus.py",
+   "source": "code_snapshot/farm_poc/nodes/bus.py",
+   "release_sha256": "9559cd9e030ecf91ccafae60e9fe6e688410c7f42422fa245fbb44d849784d62",
+   "installed_sha256": "c0b8260140733e5d6e78a70da8ea10154cb34922503f73ecf85384597388c6f0",
+   "how": "renamed"
+  },
+  {
+   "path": "farm_poc/nodes/cmm.py",
+   "source": "code_snapshot/farm_poc/nodes/cmm.py",
+   "release_sha256": "d1d4b62aa5d08c2576dc672fa5b8a95d46b1d23295637168750e1e66924a5b38",
+   "installed_sha256": "d1d4b62aa5d08c2576dc672fa5b8a95d46b1d23295637168750e1e66924a5b38",
+   "how": "copied"
+  },
+  {
+   "path": "farm_poc/nodes/contracts.py",
+   "source": "code_snapshot/farm_poc/nodes/contracts.py",
+   "release_sha256": "14437d0f5e21094c69ec3d3e231fac2ee3f2e3bc87fc974113f0f16d8ffb8df4",
+   "installed_sha256": "14437d0f5e21094c69ec3d3e231fac2ee3f2e3bc87fc974113f0f16d8ffb8df4",
+   "how": "copied"
+  },
+  {
+   "path": "farm_poc/nodes/ctm_brain.py",
+   "source": "code_snapshot/farm_poc/nodes/ctm_brain.py",
+   "release_sha256": "e64ee6e046e75cb33f7cbfe849fb6753ba5b12b23a50d0afb1bc137ac4932634",
+   "installed_sha256": "ec160c2db8cbd106bf3b1747e762ab2a24e9dc1cf1e77ef2bf6177441679653a",
+   "how": "renamed"
+  },
+  {
+   "path": "farm_poc/nodes/encoders.py",
+   "source": "code_snapshot/farm_poc/nodes/encoders.py",
+   "release_sha256": "8f6df037bdc5e1b142c17a23d8c857bb981961339518ce5ea8c54b63d0231405",
+   "installed_sha256": "8f6df037bdc5e1b142c17a23d8c857bb981961339518ce5ea8c54b63d0231405",
+   "how": "copied"
+  },
+  {
+   "path": "farm_poc/nodes/evidence.py",
+   "source": "code_snapshot/farm_poc/nodes/evidence.py",
+   "release_sha256": "4a569791c2720a4303ef3c3defa4a92cefdac3ced762b6b8d9fe8a0ea70b4636",
+   "installed_sha256": "4a569791c2720a4303ef3c3defa4a92cefdac3ced762b6b8d9fe8a0ea70b4636",
+   "how": "copied"
+  },
+  {
+   "path": "farm_poc/nodes/gate.py",
+   "source": "code_snapshot/farm_poc/nodes/gate.py",
+   "release_sha256": "a250840a9560044991ddf6a4be24d066f481ff8647487a54ac9dcd9801e37796",
+   "installed_sha256": "a250840a9560044991ddf6a4be24d066f481ff8647487a54ac9dcd9801e37796",
+   "how": "copied"
+  },
+  {
+   "path": "farm_poc/nodes/memory.py",
+   "source": "code_snapshot/farm_poc/nodes/memory.py",
+   "release_sha256": "70bfc60de979d7ffce06d373cf31e98ad62fbdb0ec1ff02d06d273e1ee65bdec",
+   "installed_sha256": "70bfc60de979d7ffce06d373cf31e98ad62fbdb0ec1ff02d06d273e1ee65bdec",
+   "how": "copied"
+  },
+  {
+   "path": "farm_poc/nodes/node.py",
+   "source": "code_snapshot/farm_poc/nodes/node.py",
+   "release_sha256": "c1043299939b54ef2cea23f4c2a4389ad56ed759d93c5bf930a3d8f763197b4b",
+   "installed_sha256": "c1043299939b54ef2cea23f4c2a4389ad56ed759d93c5bf930a3d8f763197b4b",
+   "how": "copied"
+  },
+  {
+   "path": "farm_poc/nodes/rule_brain.py",
+   "source": "code_snapshot/farm_poc/nodes/rule_brain.py",
+   "release_sha256": "92affe7457eae0599071511a207505f80ef82e2eb6be3e11826b3c37b13b7e7c",
+   "installed_sha256": "92affe7457eae0599071511a207505f80ef82e2eb6be3e11826b3c37b13b7e7c",
+   "how": "copied"
+  },
+  {
+   "path": "farm_poc/nodes/runtime.py",
+   "source": "code_snapshot/farm_poc/nodes/runtime.py",
+   "release_sha256": "91a57e57b69875a9efaf609989de46b23218ca0ad6cee5794229cd0cd605d797",
+   "installed_sha256": "91a57e57b69875a9efaf609989de46b23218ca0ad6cee5794229cd0cd605d797",
+   "how": "copied"
+  },
+  {
+   "path": "farm_poc/peers/__init__.py",
+   "source": "code_snapshot/farm_poc/peers/__init__.py",
+   "release_sha256": "f7d4080c6f214f54256d26abe6f739b87386717baadfb15bf3fb8065849baaab",
+   "installed_sha256": "f7d4080c6f214f54256d26abe6f739b87386717baadfb15bf3fb8065849baaab",
+   "how": "copied"
+  },
+  {
+   "path": "farm_poc/peers/peer_behaviors.py",
+   "source": "code_snapshot/farm_poc/peers/peer_behaviors.py",
+   "release_sha256": "84e3dd1d19b5c3c0fe1b6f57171ce6894188add6dfbb7e7532f0e0d7ac957809",
+   "installed_sha256": "84e3dd1d19b5c3c0fe1b6f57171ce6894188add6dfbb7e7532f0e0d7ac957809",
+   "how": "copied"
+  },
+  {
+   "path": "farm_poc/peers/peer_registry.py",
+   "source": "code_snapshot/farm_poc/peers/peer_registry.py",
+   "release_sha256": "972638d835cf6abcbb1cbd5c6bf1a13ffd5b535f6902738afc51f7777c7e8ed9",
+   "installed_sha256": "972638d835cf6abcbb1cbd5c6bf1a13ffd5b535f6902738afc51f7777c7e8ed9",
+   "how": "copied"
+  },
+  {
+   "path": "farm_poc/peers/peer_scripts.py",
+   "source": "code_snapshot/farm_poc/peers/peer_scripts.py",
+   "release_sha256": "3e5a93cc5216b4551aba5ff3ddc0043b938383e1a1e424b70ab3339992d0fdf1",
+   "installed_sha256": "3e5a93cc5216b4551aba5ff3ddc0043b938383e1a1e424b70ab3339992d0fdf1",
+   "how": "copied"
+  },
+  {
+   "path": "farm_poc/peers/simulated_jarvis.py",
+   "source": "code_snapshot/farm_poc/peers/simulated_jarvis.py",
+   "release_sha256": "8d8603a59ad95920b27a30228bd15f5f5aafb873eba8102792462bbc6defde6e",
+   "installed_sha256": "8d8603a59ad95920b27a30228bd15f5f5aafb873eba8102792462bbc6defde6e",
+   "how": "copied"
+  },
+  {
+   "path": "farm_poc/scenarios/__init__.py",
+   "source": "code_snapshot/farm_poc/scenarios/__init__.py",
+   "release_sha256": "cd91f87b092e6cb45e921598c161ff1c5a86603021548c7684109a073307762e",
+   "installed_sha256": "cd91f87b092e6cb45e921598c161ff1c5a86603021548c7684109a073307762e",
+   "how": "copied"
+  },
+  {
+   "path": "farm_poc/scenarios/build.py",
+   "source": "code_snapshot/farm_poc/scenarios/build.py",
+   "release_sha256": "6e8fcf9d68227bdc6befd8eaa1911085de1dd402d344f95b72606a257326a332",
+   "installed_sha256": "8b21df6816b298bc2bbfce7e7645bc4ba9db4edad9ff7036e5cce936a00ff225",
+   "how": "renamed"
+  },
+  {
+   "path": "farm_poc/scenarios/episode.py",
+   "source": "code_snapshot/farm_poc/scenarios/episode.py",
+   "release_sha256": "67b18b78f16de5825b621680851488e035ffb993adae6462245c818715dd5c76",
+   "installed_sha256": "67b18b78f16de5825b621680851488e035ffb993adae6462245c818715dd5c76",
+   "how": "copied"
+  },
+  {
+   "path": "farm_poc/scenarios/labels.py",
+   "source": "code_snapshot/farm_poc/scenarios/labels.py",
+   "release_sha256": "628545b8ff67c44e00aad5b135662217200e42db2dd47d89dc4b92300a41cce5",
+   "installed_sha256": "628545b8ff67c44e00aad5b135662217200e42db2dd47d89dc4b92300a41cce5",
+   "how": "copied"
+  },
+  {
+   "path": "farm_poc/scenarios/library.py",
+   "source": "code_snapshot/farm_poc/scenarios/library.py",
+   "release_sha256": "6d30af43ef1f5fa3eb8057f8aa7c670945b3313cb068d6ecf7bd67318be8003e",
+   "installed_sha256": "6d30af43ef1f5fa3eb8057f8aa7c670945b3313cb068d6ecf7bd67318be8003e",
+   "how": "copied"
+  },
+  {
+   "path": "farm_poc/scenarios/life.py",
+   "source": "code_snapshot/farm_poc/scenarios/life.py",
+   "release_sha256": "fe5a54f27367e693e8c5fe64eda57aff576b111a186e981808e1b30435582a2c",
+   "installed_sha256": "fe5a54f27367e693e8c5fe64eda57aff576b111a186e981808e1b30435582a2c",
+   "how": "copied"
+  },
+  {
+   "path": "farm_poc/scenarios/metrics.py",
+   "source": "code_snapshot/farm_poc/scenarios/metrics.py",
+   "release_sha256": "c28e67221c0b50d14f492d6d21f1a43999fe39131566a8f4fa177f7742dd17cf",
+   "installed_sha256": "c28e67221c0b50d14f492d6d21f1a43999fe39131566a8f4fa177f7742dd17cf",
+   "how": "copied"
+  },
+  {
+   "path": "farm_poc/scenarios/visibility.py",
+   "source": "code_snapshot/farm_poc/scenarios/visibility.py",
+   "release_sha256": "47f9f352c6de9533c9b0a5ac3e058184d4d4c760b61c739788ab4e56e29a1158",
+   "installed_sha256": "47f9f352c6de9533c9b0a5ac3e058184d4d4c760b61c739788ab4e56e29a1158",
+   "how": "copied"
+  },
+  {
+   "path": "farm_poc/transport/__init__.py",
+   "source": "code_snapshot/farm_poc/transport/__init__.py",
+   "release_sha256": "e7f4da67827ee3efdef3f580da654e9b33230cffb7c86bd2107cec06beeb2149",
+   "installed_sha256": "e7f4da67827ee3efdef3f580da654e9b33230cffb7c86bd2107cec06beeb2149",
+   "how": "copied"
+  },
+  {
+   "path": "farm_poc/transport/adapter.py",
+   "source": "code_snapshot/farm_poc/transport/adapter.py",
+   "release_sha256": "016ec14c3fe8b858aec13cf444146d1c16e200d0df2d2c226bfa1b67461e1683",
+   "installed_sha256": "016ec14c3fe8b858aec13cf444146d1c16e200d0df2d2c226bfa1b67461e1683",
+   "how": "copied"
+  },
+  {
+   "path": "farm_poc/transport/message_delivery.py",
+   "source": "code_snapshot/farm_poc/transport/message_delivery.py",
+   "release_sha256": "789e366b810c9e27e9232a070cb78937e7c095d15a09b9774a10ef0ece6fd4c5",
+   "installed_sha256": "789e366b810c9e27e9232a070cb78937e7c095d15a09b9774a10ef0ece6fd4c5",
+   "how": "copied"
+  },
+  {
+   "path": "farm_poc/transport/rj45_adapter.py",
+   "source": "code_snapshot/farm_poc/transport/rj45_adapter.py",
+   "release_sha256": "7b1761b4c733bb83e9f52a4aef201d6e0df855e84d7c79a10f4ff0131c5810c4",
+   "installed_sha256": "7b1761b4c733bb83e9f52a4aef201d6e0df855e84d7c79a10f4ff0131c5810c4",
+   "how": "copied"
+  },
+  {
+   "path": "farm_poc/transport/simulated_io.py",
+   "source": "code_snapshot/farm_poc/transport/simulated_io.py",
+   "release_sha256": "22bbbc95678c9edaa211f2527652e514a3fdbf4c7665a851bfce0a0603278c0e",
+   "installed_sha256": "22bbbc95678c9edaa211f2527652e514a3fdbf4c7665a851bfce0a0603278c0e",
+   "how": "copied"
+  }
+ ]
+}

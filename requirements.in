@@ -4,8 +4,7 @@
 # Install from the lock only:
 #   .venv\Scripts\python -m pip install --require-hashes -r requirements.lock
 #
-# Not installed yet (step 6E, after the owner decides on emotion2vec+, whose model is 1.12 GB):
-#   funasr, torch, torchaudio. A dry run in step 6.0 checked that they resolve to Windows wheels on Python 3.12.
+# Not installed (decision 0016 cut the tone hint, emotion2vec+): funasr, torchaudio.
 
 # --- runtime ---
 pydantic>=2.7,<3          # contracts, node.toml, tool schemas (Q1)
@@ -22,6 +21,7 @@ sherpa-onnx>=1.12         # Silero VAD, Parakeet, Kokoro (6E)
 openwakeword>=0.6         # "hey jarvis" (6E)
 soundfile>=0.12           # audio files (6E tests)
 sounddevice>=0.5          # microphone and speaker (6E)
+torch==2.14.1             # the trained brains, step 6D: the training's own version (decision 0015)
 
 # --- development and tests ---
 pip-tools>=7.4

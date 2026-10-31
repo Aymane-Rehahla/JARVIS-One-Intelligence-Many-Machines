@@ -4,3 +4,6 @@
 *.bat text eol=crlf
 # The read-only farm snapshot keeps its original bytes (some files use CRLF).
 _dev/farm_poc_snapshot/** -text
+
+# The installed release (decision 0015): stored byte for byte, as PROVENANCE.json records it
+matrix/release_v31/** -text

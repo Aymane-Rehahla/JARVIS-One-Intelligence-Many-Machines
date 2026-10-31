@@ -9,6 +9,7 @@ content is not read are model weights of 50 MB or more: they are byte-identical 
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import os
@@ -98,10 +99,27 @@ def _save_cache(clean: dict[str, list[int]]) -> None:
     CACHE.write_text(json.dumps(clean), encoding="utf-8")
 
 
+def _installed_package_hashes() -> dict[str, str]:
+    """`.venv` file -> the SHA-256 its package's RECORD gives (pip checked every wheel against requirements.lock's
+    hashes when it installed it, step 6D's torch included)."""
+    site = ROOT / ".venv" / "Lib" / "site-packages"
+    hashes: dict[str, str] = {}
+    for record in site.glob("*.dist-info/RECORD"):
+        for line in record.read_text(encoding="utf-8").splitlines():
+            name, _, rest = line.partition(",")
+            digest = rest.split(",")[0]
+            if digest.startswith("sha256="):
+                encoded = digest.removeprefix("sha256=")
+                raw = base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4))
+                hashes[(site / name).resolve().relative_to(ROOT).as_posix()] = raw.hex()
+    return hashes
+
+
 def test_big_files_are_only_manifest_checked_model_weights() -> None:
-    """Big files are model weights listed in models/MANIFEST.json, or the website's 3D models (kept out of git, and
-    copied into the build) listed with their SHA-256 in interface/web/assets-manifest.json; the latter are also read
-    by the content scan above."""
+    """Big files are model weights listed in models/MANIFEST.json, the website's 3D models (kept out of git, and
+    copied into the build) listed with their SHA-256 in interface/web/assets-manifest.json (also read by the content
+    scan above), or files of an installed package whose content is exactly what its RECORD says (torch's libraries,
+    step 6D)."""
     manifest = json.loads((ROOT / "models" / "MANIFEST.json").read_text(encoding="utf-8"))["files"]
     web = ROOT / "interface" / "web"
     assets = {f"interface/web/{folder}/{entry['path']}": entry["sha256"]      # public/, and its copy in the build
@@ -109,8 +127,13 @@ def test_big_files_are_only_manifest_checked_model_weights() -> None:
               for folder in ("public", "dist")}
     _, files = _walk(ROOT)
     big = [p for p in files if not p.relative_to(ROOT).as_posix().startswith(SKIPPED) and p.stat().st_size >= BIG_BYTES]
+    packages = _installed_package_hashes() if any(p.relative_to(ROOT).as_posix().startswith(".venv/") for p in big) else {}
     for path in big:
         rel = path.relative_to(ROOT).as_posix()
+        if rel.startswith(".venv/"):
+            assert rel in packages, f"{rel} is big and belongs to no installed package"
+            assert hashlib.sha256(path.read_bytes()).hexdigest() == packages[rel], f"{rel} differs from its RECORD"
+            continue
         if rel in assets:
             assert hashlib.sha256(path.read_bytes()).hexdigest() == assets[rel], f"{rel} differs from its manifest"
             continue

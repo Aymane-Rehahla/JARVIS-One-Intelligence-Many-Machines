@@ -16,11 +16,12 @@ markers = [
 
 [tool.coverage.run]
 source = ["tools", "nodes", "interface/gateway", "matrix", "launcher"]
+omit = ["matrix/release_v31/*"]            # the release's frozen code (decision 0015); still in the old-name scan
 
 [tool.pyright]
 include = ["tools", "tests", "nodes", "interface/gateway", "matrix", "launcher"]
-exclude = ["**/__pycache__", "interface/web", "_dev", ".venv", "tools/export_mind.py"]
-extraPaths = ["tools", "nodes/incubator-1", "matrix", "interface/gateway", "launcher", "_dev"]
+exclude = ["**/__pycache__", "interface/web", "_dev", ".venv", "tools/export_mind.py", "matrix/release_v31"]
+extraPaths = ["tools", "nodes/incubator-1", "matrix", "interface/gateway", "launcher", "_dev", "matrix/release_v31"]
 pythonVersion = "3.12"
 pythonPlatform = "Windows"
 typeCheckingMode = "standard"
