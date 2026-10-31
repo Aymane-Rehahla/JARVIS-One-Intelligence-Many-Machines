@@ -191,3 +191,52 @@ async def test_a_missing_microphone_is_a_status_not_a_crash() -> None:
     await made.handle_ptt(ptt(False))
     await until(lambda: made.state == "idle")
     await made.stop()
+
+
+def alert(level: str, alert_id: str = "a-1") -> OwnerAlert:
+    return OwnerAlert(alert_id=alert_id, node="hvac", level=level, incident_id="hvac-equipment-0001",  # type: ignore[arg-type]
+                      text="Sir, the HVAC needs you. Farm time 06:09.", farm_time="06:09", feed_id="0000000000a1",
+                      label="live: simulated brains", reworded=False, sent_utc=utc_now())
+
+
+@pytest.mark.asyncio
+async def test_pressing_again_stops_the_reply_but_keeps_waiting_alerts() -> None:
+    """Review (31 Oct): a second press cleared the queue but the old turn went on adding sentences, so JARVIS kept
+    talking into the microphone; and the clear dropped an ESCALATE alert waiting behind the reply."""
+    answer = reply("One. ", "Two. ", "Three. ", "Four. ", delay=0.2)
+    made, _, tts = await box(answer)
+    await made.handle_ptt(ptt(True))
+    await made.handle_ptt(ptt(False))
+    await until(lambda: len(tts.spoken) >= 1)
+    await made.announce(alert("ESCALATE_TO_USER"))
+    await made.handle_ptt(ptt(True))                                  # the owner asks again
+    spoken = len(tts.spoken)
+    await asyncio.sleep(0.6)
+    assert len(tts.spoken) == spoken, "nothing is said while the owner talks"
+    assert made._turn is not None and made._turn.done()
+    await made.handle_ptt(ptt(False))
+    await until(lambda: any("HVAC needs you" in s[0] for s in tts.spoken))
+    await made.stop()
+
+
+@pytest.mark.asyncio
+async def test_a_lost_release_ends_listening_after_the_longest_utterance(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review (31 Oct): with the release lost (the tab closed), the box stayed "listening" for ever."""
+    import voice.pipeline as pipeline
+    monkeypatch.setattr(pipeline, "MAX_UTTERANCE_S", 0.2)
+    made, _, _ = await box(reply("Fine, sir. "))
+    await made.handle_ptt(ptt(True))
+    await until(lambda: not made.push_to_talk and made.state != "listening", timeout_s=3.0)
+    await made.stop()
+
+
+@pytest.mark.asyncio
+async def test_a_recorded_microphone_stays_labelled() -> None:
+    """Review (31 Oct): the recorded-file label was the status detail, which the first "thinking" erased."""
+    made, statuses, _ = await box(reply("Fine, sir. "))
+    made.label = "test: the microphone is the recorded file q.wav"
+    await made.handle_ptt(ptt(True))
+    await made.handle_ptt(ptt(False))
+    await until(lambda: made.state == "idle" and len(statuses) > 4)
+    assert all("recorded file" in s.detail for s in statuses[-3:])
+    await made.stop()

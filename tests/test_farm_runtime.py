@@ -413,17 +413,22 @@ def test_the_owner_acknowledgement_marks_that_nodes_delivered_notifications() ->
         assert len(notes) == 1 and notes[0]["status"] == "delivered"
         incident = notes[0]["incident_id"]
         assert incident in published                                  # the published id is the notification's
-        assert client.post(f"/alerts/hvac/{incident}/ack").status_code == 404           # another node's
-        assert client.post("/alerts/incubator-1/no-such-incident/ack").status_code == 404
-        answer = client.post(f"/alerts/incubator-1/{incident}/ack")
+        run = {"feed_id": runtime.feed_id}
+        assert client.post(f"/alerts/hvac/{incident}/ack", params=run).status_code == 404           # another node's
+        assert client.post("/alerts/incubator-1/no-such-incident/ack", params=run).status_code == 404
+        assert client.post(f"/alerts/incubator-1/{incident}/ack").status_code == 422     # the run is always named
+        answer = client.post(f"/alerts/incubator-1/{incident}/ack", params=run)
         assert answer.status_code == 200
         assert answer.json() == {"node": "incubator-1", "incident_id": incident, "acknowledged": 1,
                                  "farm_time": runtime.farm_time()[0]}
         assert notes[0]["status"] == "acknowledged" and notes[0]["acknowledged_s"] == runtime.engine.clock.time
-        again = client.post(f"/alerts/incubator-1/{incident}/ack")
+        again = client.post(f"/alerts/incubator-1/{incident}/ack", params=run)
         assert again.status_code == 404 and "no delivered, unacknowledged" in again.json()["detail"]
         assert client.post("/sim/reset").status_code == 200                              # a new run has none
-        assert client.post(f"/alerts/incubator-1/{incident}/ack").status_code == 404
+        assert client.post(f"/alerts/incubator-1/{incident}/ack",
+                           params={"feed_id": runtime.feed_id}).status_code == 404
+        stale = client.post(f"/alerts/incubator-1/{incident}/ack", params=run)            # a click from the old run
+        assert stale.status_code == 409 and "another farm run" in stale.json()["detail"]
 
 
 def test_the_farm_clock_never_carries_the_engines_episode_id() -> None:

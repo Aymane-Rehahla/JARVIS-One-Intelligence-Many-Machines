@@ -48,7 +48,7 @@ SAMPLES = [
              citations=[Citation(node="hvac", file="hvac_manual.md", section="Supply fan")],
              tools=[ToolUse(node="hvac", tool="get_status", ok=True, duration_ms=4)],
              timings=ReplyTimings(first_chunk_ms=900, total_ms=2100, llm_ms=1700, tools_ms=240),
-             confirm=AckOffer(node="hvac", incident_id="hvac-equipment-0001", token="t0k3n", expires_utc=utc_now(),
+             confirm=AckOffer(node="hvac", incident_id="hvac-equipment-0001", feed_id="0000000000a1", token="t0k3n", expires_utc=utc_now(),
                               summary="hvac incident hvac-equipment-0001 (supply fan failure)")),
     ChatDone(request_id="c-2", conversation_id="conv-1", text="I only talk; the machines act through their safety gate.",
              chunks=0, outcome="refused", reason="asked for a machine action", numbers_checked=0,
@@ -59,7 +59,8 @@ SAMPLES = [
     AlertNotice(notice_id="n-1", sender="hvac", target="incubator-1", sent_utc=utc_now(),
                 assessment=FarmAssessment(**FARM, assessment="ESCALATE_TO_USER", diagnosis="SUPPLY_FAN_FAULT",
                                           confidence=0.9, brain="rule")),
-    AckCommand(request_id="k-1", node="hvac", incident_id="hvac-equipment-0001", confirm_token="t0k3n",
+    AckCommand(request_id="k-1", node="hvac", incident_id="hvac-equipment-0001", feed_id="0000000000a1",
+               confirm_token="t0k3n",
                sent_utc=utc_now()),
     AckResult(request_id="k-1", node="hvac", incident_id="hvac-equipment-0001", ok=False, reason="token already used"),
     LlmFailureSwitches(llm_timeout=["hvac"], silent_peer=["animal-protection"], set_utc=utc_now()),
@@ -114,7 +115,7 @@ def test_chat_replies_and_results_are_consistent() -> None:
         ChatDone(**done, outcome="error")                                       # every other outcome says why
     with pytest.raises(ValueError, match="states the farm time"):
         ChatDone(**done, outcome="fallback", reason="hvac is silent")
-    offer = AckOffer(node="hvac", incident_id="i-1", token="t", expires_utc=utc_now(), summary="hvac incident i-1")
+    offer = AckOffer(node="hvac", incident_id="i-1", feed_id="0000000000a1", token="t", expires_utc=utc_now(), summary="hvac incident i-1")
     with pytest.raises(ValueError, match="only an answered reply"):
         ChatDone(**done, outcome="refused", reason="no", confirm=offer)
     with pytest.raises(ValueError, match="ok, or refused"):

@@ -174,6 +174,7 @@ export const ReplyTimings = z.strictObject({
 export const AckOffer = z.strictObject({
   node: NodeId,
   incident_id: IncidentId,
+  feed_id: FeedId, // the farm run: incident ids start again in every run
   token: z.string().min(1).max(256),
   expires_utc: z.string(),
   summary: z.string().min(1).max(300),

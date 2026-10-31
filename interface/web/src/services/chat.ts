@@ -287,10 +287,10 @@ async function request<T>(url: string, init: RequestInit, check: (json: unknown)
   }
 }
 
-/** The owner's confirm click: POST /alerts/{node}/{incident_id}/ack with the offer's token. */
+/** The owner's confirm click: POST /alerts/{node}/{incident_id}/ack with the offer's token and farm run. */
 export function acknowledge(base: string, offer: AckOffer): Promise<ActionResult<AckResponse>> {
   return request(`${base}/alerts/${offer.node}/${encodeURIComponent(offer.incident_id)}/ack`, {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ confirm_token: offer.token }),
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ confirm_token: offer.token, feed_id: offer.feed_id }),
   }, (json) => AckResponse.safeParse(json))
 }
 

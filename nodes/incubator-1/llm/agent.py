@@ -61,7 +61,9 @@ READINGS_SHOWN = 12
 MANUAL_CHARS = 600
 WARM_S = 30.0                    # the warm-up's own deadline (cold prefill 6.5 s, or a server still loading)
 MAX_CITATIONS = 3
+CITE_WORDS = 3                   # distinctive words a reply shares with a passage it cites (E2's SUPPORT_WORDS)
 QUEUE_SIZE = 64
+STOP_S = 2.0                     # how long a stopped turn may take to wind down its own task
 CONFIRM_SECONDS = 60
 
 _I = re.IGNORECASE
@@ -110,6 +112,9 @@ _CLAIMED_ACTION = re.compile(
     r"dialed|contacted|notified|alerted|reset|cleared|silenced|acknowledged|adjusted|lowered|raised|activated|"
     r"deactivated|deployed|sent|ordered|triggered|isolated|unlocked|locked)\b", _I)
 LLM_TOOLS = ("get_trend", "list_events", "get_incident", "search_documents", "ask_peer", "recall_conversation")
+#: Tools whose results the model may read but no number or action may be verified against: the conversation holds the
+#: owner's words and JARVIS's older replies, never the machines' data (review, 31 Oct).
+WORDS_NOT_DATA = frozenset({"recall_conversation"})
 
 
 #: Words too common in replies and manuals to show that a passage was used.
@@ -120,6 +125,29 @@ animal protection farm hours minutes seconds owner""".split())
 
 def _content_words(text: str) -> set[str]:
     return {w for w in re.findall(r"[a-z]{5,}", text.lower()) if w not in _COMMON}
+
+
+def _machine_words(evidence: list[dict[str, Any]]) -> str:
+    """The words of the machines' events, incidents and decisions in this turn's data, where an action they took would
+    be recorded: never a manual, and never a reading (readings say "off" all the time: `"heating": {"state": "off"}`)."""
+    words: list[str] = []
+
+    def walk(value: Any) -> None:
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if key not in ("readings", "results"):
+                    words.append(str(key))
+                    walk(item)
+        elif isinstance(value, list):
+            for item in value:
+                walk(item)
+        elif isinstance(value, str):
+            words.append(value)
+
+    for entry in evidence:
+        if "documents" not in str(entry.get("name", "")):
+            walk(entry.get("data"))
+    return " ".join(words).lower().replace("_", " ")
 
 
 def _cut(text: str, limit: int) -> str:
@@ -139,8 +167,10 @@ def split_sentences(buffer: str) -> tuple[list[str], str]:
         char = buffer[index]
         end: int | None = None
         if char in ".!?" and index + 1 < len(buffer) and buffer[index + 1] in " \n\t":
-            word = buffer[start:index + 1].split()[-1].lower() if buffer[start:index + 1].split() else ""
-            if word not in _ABBREVIATIONS and not re.fullmatch(r"\d{1,2}\.", word):
+            so_far = buffer[start:index + 1].split()
+            word = so_far[-1].lower() if so_far else ""
+            marker = len(so_far) == 1 and re.fullmatch(r"\d{1,2}\.", word)   # "1." opening a list item
+            if word not in _ABBREVIATIONS and not marker:
                 end = index + 1
         elif char == "\n" and index + 1 < len(buffer) and buffer[index + 1] == "\n":
             end = index + 1
@@ -284,25 +314,28 @@ class Agent:
         sent: list[str] = []
         deadline = turn.started + self.turn_s
         timed_out = False
-        while True:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                timed_out = True
-                break
-            try:
-                piece = await asyncio.wait_for(queue.get(), remaining)
-            except TimeoutError:
-                timed_out = True
-                break
-            if piece is None:
-                break
-            if turn.first_chunk_at is None:
-                turn.first_chunk_at = time.monotonic()
-            sent.append(piece)
-            yield ChatChunk(request_id=request_id, seq=len(sent) - 1, text=piece)
-        if not task.done():
-            task.cancel()
-        results = await asyncio.gather(task, return_exceptions=True)
+        try:
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    timed_out = True
+                    break
+                try:
+                    piece = await asyncio.wait_for(queue.get(), remaining)
+                except TimeoutError:
+                    timed_out = True
+                    break
+                if piece is None:
+                    break
+                if turn.first_chunk_at is None:
+                    turn.first_chunk_at = time.monotonic()
+                sent.append(piece)
+                yield ChatChunk(request_id=request_id, seq=len(sent) - 1, text=piece)
+        finally:                                   # also when the reader is cancelled: the turn stops using the model
+            if not task.done():
+                task.cancel()
+            await asyncio.wait({task}, timeout=STOP_S)
+        failure = task.exception() if task.done() and not task.cancelled() else None
         if timed_out:
             turn.outcome, turn.reason = "fallback", f"the turn's deadline ({self.turn_s:g} s) passed"
             closing = fallback_text(list(turn.machines.values()), "deadline") if turn.machines else ""
@@ -310,9 +343,9 @@ class Agent:
                 piece = ("" if not sent or sent[-1].endswith(" ") else " ") + closing
                 sent.append(piece)
                 yield ChatChunk(request_id=request_id, seq=len(sent) - 1, text=piece)
-        elif isinstance(results[0], BaseException) and not isinstance(results[0], asyncio.CancelledError):
-            self.logger.error("agent turn failed", exc_info=results[0])
-            turn.outcome, turn.reason = "error", f"internal error: {type(results[0]).__name__}"
+        elif failure is not None:
+            self.logger.error("agent turn failed", exc_info=failure)
+            turn.outcome, turn.reason = "error", f"internal error: {type(failure).__name__}"
         yield await self._finish(turn, sent)
 
     # --- one turn ----------------------------------------------------------------------------------------------
@@ -339,6 +372,10 @@ class Agent:
             where = route(text, self_node=self.node.id)
             turn.focus = tuple(where.machines)
             if _ACK.search(text):
+                if source == "voice":                  # a spoken reply has no Confirm button: no offer, no token
+                    turn.outcome, turn.reason = "refused", "acknowledging needs the chat page's Confirm click"
+                    await send("To acknowledge an alert, please use the chat page, sir: it needs your Confirm click.")
+                    return
                 await self._offer_ack(text, where, turn, send)
                 return
             await self._gather(text, where, turn)
@@ -353,7 +390,8 @@ class Agent:
             if turn.outcome in ("answered", "fallback"):
                 await self._state_farm_time(turn, send)
         finally:
-            await queue.put(None)
+            with contextlib.suppress(asyncio.QueueFull):  # a full queue: its reader stopped reading (rule 9: no wait)
+                queue.put_nowait(None)
 
     @staticmethod
     def _refusal(text: str) -> str | None:
@@ -594,13 +632,12 @@ class Agent:
         if _TOOL_TALK.search(sentence):
             turn.unverified_sentences += 1
             return "it named a tool, which is not for the owner"
-        data = None
+        actions = None
         for pattern, word in _STATED_ACTIONS:
             if pattern.search(sentence):
-                if data is None:                                    # the machines' own data: never a manual
-                    data = json.dumps([e for e in turn.evidence if "documents" not in str(e.get("name", ""))],
-                                      default=str).lower()
-                if word not in data:
+                if actions is None:
+                    actions = _machine_words(turn.evidence)
+                if not re.search(rf"{word}", actions):
                     turn.unverified_sentences += 1
                     return "it stated a machine action that is not in the data"
         report = verify_reply(sentence, turn.evidence)
@@ -635,7 +672,7 @@ class Agent:
             turn.tool_calls_valid += 1
         turn.tools.append(ToolUse(node=self.node.id, tool=name, ok=outcome.ok,
                                   duration_ms=int((time.monotonic() - started) * 1000)))
-        if outcome.ok:
+        if outcome.ok and name not in WORDS_NOT_DATA:
             turn.evidence.append({"name": f"{self.node.id}.{name}", "data": outcome.data})
             if name == "search_documents":
                 machine = turn.machines.setdefault(self.node.id, MachineData(node=self.node.id))
@@ -656,8 +693,9 @@ class Agent:
         await send(self._join(turn.pieces, f"That is as of farm time {farm_time}."))
 
     def _citations(self, turn: Turn) -> list[Citation]:
-        """The passages the reply drew on: one that shares a distinctive word with what was said (a template reply
-        from the data cites none). E2 (31 Oct): citing every retrieved passage made 9 of 12 citations unsupported."""
+        """The passages the reply drew on: one that shares CITE_WORDS distinctive words with what was said, the bar E2
+        judges support by (a template reply from the data cites none). E2 (31 Oct): citing every retrieved passage
+        made 9 of 12 citations unsupported."""
         if turn.outcome != "answered":
             return []
         said = _content_words("".join(turn.pieces))
@@ -665,7 +703,7 @@ class Agent:
         for node, data in turn.machines.items():
             for passage in data.documents[:2]:
                 file, section = passage.get("file"), passage.get("section")
-                if not said & _content_words(str(passage.get("text") or "")):
+                if len(said & _content_words(str(passage.get("text") or ""))) < CITE_WORDS:
                     continue
                 if isinstance(file, str) and file:
                     citation = Citation(node=node, file=file[:200], section=str(section or "")[:200])
@@ -701,11 +739,12 @@ class Agent:
                        f"at farm time {data.farm_time or farm_time}, sir.")
             return
         incident_id = str(incident["incident_id"])[:80]
-        token = self.node.confirm_tokens.issue(node, incident_id)
+        feed_id = str(self.node.feed_id)
+        token = self.node.confirm_tokens.issue(node, incident_id, feed_id)
         expires = (datetime.now(timezone.utc) + timedelta(seconds=CONFIRM_SECONDS)).isoformat(timespec="seconds")
         kind = words(str(incident.get("kind") or (data.assessment or {}).get("diagnosis") or "alert"))
         summary = f"{NAMES[node]}: {kind} (incident {incident_id}), as of farm time {data.farm_time}"[:300]
-        turn.confirm = AckOffer(node=node, incident_id=incident_id, token=token, expires_utc=expires, summary=summary)
+        turn.confirm = AckOffer(node=node, incident_id=incident_id, feed_id=feed_id, token=token, expires_utc=expires, summary=summary)
         await send(f"To acknowledge the alert on {in_sentence(node)} ({kind}), press Confirm within {CONFIRM_SECONDS} seconds, "
                    f"sir. It tells the machine you have seen it; it changes nothing on the machine. "
                    f"Its data is as of farm time {data.farm_time}.")

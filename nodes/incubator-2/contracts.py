@@ -440,6 +440,7 @@ class AckOffer(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
     node: NodeId                                       # the machine whose incident it is
     incident_id: str = Field(min_length=1, max_length=80)
+    feed_id: str = Field(pattern=FEED_ID)              # the farm run: incident ids start again in every run
     token: str = Field(min_length=1, max_length=256)
     expires_utc: str
     summary: str = Field(min_length=1, max_length=300)   # what a click acknowledges, in words
@@ -550,13 +551,14 @@ class AlertNotice(Contract):
 
 class AckCommand(Contract):
     """`jarvis.incubator-1.ack` (request-reply, gateway → incubator-1): the owner clicked "confirm" on an AckOffer.
-    incubator-1 checks the token (single-use, bound to this node and incident) and audits the decision; only then
+    incubator-1 checks the token (single-use, bound to this node, incident and farm run) and audits the decision; only then
     does the gateway pass the acknowledgement to the Matrix API."""
 
     type: Literal["ack_command"] = "ack_command"
     request_id: str = Field(pattern=REQUEST_ID)
     node: NodeId
     incident_id: str = Field(min_length=1, max_length=80)
+    feed_id: str = Field(pattern=FEED_ID)              # the farm run of the offer; refused once the farm was reset
     confirm_token: str = Field(min_length=1, max_length=256)
     sent_utc: str
 

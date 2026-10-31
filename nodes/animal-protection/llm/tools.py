@@ -21,7 +21,7 @@ from typing import Any, Literal, cast, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError
 
-from contracts import NODE_IDS, REQUEST_ID, FeedLabel, NodeConfig, NodeId, Topic
+from contracts import FEED_ID, NODE_IDS, REQUEST_ID, FeedLabel, NodeConfig, NodeId, Topic
 from llm.audit import Auditor
 from llm.capabilities import classify_topic
 from llm.conversation import LlmStore
@@ -79,6 +79,7 @@ class RecallArgs(StrictModel):
 class AcknowledgeArgs(StrictModel):
     node: NodeId
     incident_id: str = Field(min_length=1)
+    feed_id: str = Field(pattern=FEED_ID)                   # the farm run the owner saw the incident in
     confirm_token: str = Field(min_length=1)
 
 
@@ -212,17 +213,17 @@ class ConfirmTokens:
             raise ValueError("confirmation secret must not be empty")
         self._used: OrderedDict[str, int] = OrderedDict()
 
-    def issue(self, node: str, incident_id: str, *, now_s: int | None = None) -> str:
-        """Create a testable token for one node's incident, expiring 60 seconds from the supplied or current Unix
-        time."""
+    def issue(self, node: str, incident_id: str, feed_id: str, *, now_s: int | None = None) -> str:
+        """Create a testable token for one node's incident in one farm run (incident ids start again in every run),
+        expiring 60 seconds from the supplied or current Unix time."""
         expiry = (int(time.time()) if now_s is None else now_s) + 60
-        message = f"{node}:{incident_id}:{expiry}"
+        message = f"{node}:{incident_id}:{feed_id}:{expiry}"
         signature = hmac.new(self._secret, message.encode("utf-8"), hashlib.sha256).hexdigest()
         return f"{expiry}.{signature}"
 
-    def verify(self, node: str, incident_id: str, token: str, *, now_s: int | None = None) -> bool:
-        """Check signature, node and incident binding, expiry and single use; reject after the bounded replay set
-        fills."""
+    def verify(self, node: str, incident_id: str, feed_id: str, token: str, *, now_s: int | None = None) -> bool:
+        """Check signature, node, incident and farm-run binding, expiry and single use; reject after the bounded
+        replay set fills."""
         now = int(time.time()) if now_s is None else now_s
         for old_token, expiry in list(self._used.items()):
             if expiry < now:
@@ -236,7 +237,7 @@ class ConfirmTokens:
             return False
         if expiry <= now or expiry > now + 60:
             return False
-        expected = hmac.new(self._secret, f"{node}:{incident_id}:{expiry}".encode("utf-8"),
+        expected = hmac.new(self._secret, f"{node}:{incident_id}:{feed_id}:{expiry}".encode("utf-8"),
                             hashlib.sha256).hexdigest()
         if not hmac.compare_digest(signature, expected):
             return False
@@ -338,7 +339,8 @@ class ToolRegistry:
                                        f"unavailable: {self.node_config.id} is not the speaking node", given)
         if name == "acknowledge_alert":
             acknowledge = cast(AcknowledgeArgs, parsed)
-            if not self.confirm.verify(acknowledge.node, acknowledge.incident_id, acknowledge.confirm_token):
+            if not self.confirm.verify(acknowledge.node, acknowledge.incident_id, acknowledge.feed_id,
+                                       acknowledge.confirm_token):
                 return await self._refusal(name, request_id, inputs, "invalid confirmation token", given)
         try:
             async with self.auditor.step(request_id, "tool_call", name, _audited(inputs, given)) as step:
@@ -472,8 +474,10 @@ class ToolRegistry:
         """The owner's confirmed approval (6C): the token was checked in call(); for this node's own machine the
         incident must be active. The tool delivers nothing itself: the gateway passes an approval to the Matrix API."""
         args = cast(AcknowledgeArgs, raw)
+        feed_id, _ = self._feed()
+        if feed_id is not None and args.feed_id != feed_id:          # rule 7: the farm was reset since the offer
+            raise _ToolFailure("the alert belongs to another farm run")
         if args.node == self.node_config.id:
-            feed_id, _ = self._feed()
             incident = await self.store.incident(args.incident_id, feed_id=feed_id) if feed_id is not None else None
             if incident is None or incident.get("state") == "closed":
                 raise _ToolFailure("no active incident to acknowledge")

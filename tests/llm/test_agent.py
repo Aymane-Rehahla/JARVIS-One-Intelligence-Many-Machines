@@ -155,6 +155,9 @@ def test_sentences_end_at_punctuation_but_not_inside_numbers_or_abbreviations() 
     done, rest = split_sentences("It is 37.5 °C, e.g. warm. The fan is at 1,200 rpm! Next")
     assert done == ["It is 37.5 °C, e.g. warm. ", "The fan is at 1,200 rpm! "] and rest == "Next"
     assert split_sentences("Waiting for the end.") == ([], "Waiting for the end.")
+    # review (31 Oct): a sentence ending in a one- or two-digit number did not end; a list marker still does not
+    assert split_sentences("Humidity is 55. The fan is fine. Next") == (["Humidity is 55. ", "The fan is fine. "], "Next")
+    assert split_sentences("1. Check the fan. Next") == (["1. Check the fan. "], "Next")
 
 
 @pytest.mark.asyncio
@@ -224,7 +227,9 @@ async def test_the_turn_never_outlives_its_deadline(rig: dict[str, Any]) -> None
 
 @pytest.mark.asyncio
 async def test_a_question_about_the_hvac_asks_the_hvac_and_cites_its_manual(rig: dict[str, Any]) -> None:
-    engine = ScriptedEngine("The HVAC's supply fan has stopped, sir: airflow is 0 m³/h at farm time 06:03.")
+    # the reply uses the manual's passage ("If the supply fan stops, cooling and heating stop.")
+    engine = ScriptedEngine("The HVAC's supply fan has stopped, sir, so cooling and heating stop: airflow is 0 m³/h "
+                            "at farm time 06:03.")
     _, done = await ask(Agent(rig["node"], engine, PERSONA), "What's wrong with the HVAC?")
     assert {topic for node, topic in rig["peers"].asked if node == "hvac"} >= {"status", "readings", "documents"}
     assert done.outcome == "answered" and done.farm_time == "06:03"
@@ -265,9 +270,9 @@ async def test_acknowledging_offers_a_single_use_confirm_button(rig: dict[str, A
     _, done = await ask(Agent(rig["node"], engine, PERSONA), "Acknowledge the HVAC alert.")
     assert done.outcome == "answered" and done.confirm is not None and engine.requests == []
     offer = done.confirm
-    assert offer.node == "hvac" and offer.incident_id == "hvac-equipment-0001"
-    assert rig["confirm"].verify("hvac", "hvac-equipment-0001", offer.token)
-    assert not rig["confirm"].verify("hvac", "hvac-equipment-0001", offer.token)          # single use
+    assert offer.node == "hvac" and offer.incident_id == "hvac-equipment-0001" and offer.feed_id == FEED
+    assert rig["confirm"].verify("hvac", "hvac-equipment-0001", FEED, offer.token)
+    assert not rig["confirm"].verify("hvac", "hvac-equipment-0001", FEED, offer.token)          # single use
     # seen in the live run (31 Oct): "To acknowledge the The HVAC alert, equipment, ..."
     assert done.text.startswith("To acknowledge the alert on the HVAC (equipment), press Confirm within 60 seconds")
 
@@ -389,9 +394,41 @@ async def test_a_passage_the_reply_did_not_use_is_not_cited(rig: dict[str, Any])
     engine = ScriptedEngine("The HVAC is in trouble, sir, as of farm time 06:03.")
     _, done = await ask(Agent(rig["node"], engine, PERSONA), "What's wrong with the HVAC?")
     assert done.outcome == "answered" and done.citations == []
+    # review (31 Oct): one shared word ("supply") cited the passage; E2 judges support with 3 shared words
+    engine = ScriptedEngine("The supply side is quiet, sir, as of farm time 06:03.")
+    _, done = await ask(Agent(rig["node"], engine, PERSONA), "What's wrong with the HVAC?")
+    assert done.outcome == "answered" and done.citations == []
     engine = ScriptedEngine(EngineError("server unreachable"))
     _, done = await ask(Agent(rig["node"], engine, PERSONA), "What's wrong with the HVAC?")
     assert done.outcome == "fallback" and done.citations == []          # a template from the data cites no manual
+
+
+@pytest.mark.asyncio
+async def test_a_number_or_action_found_only_in_the_conversation_is_never_said(rig: dict[str, Any]) -> None:
+    """Review (31 Oct): a recalled owner turn ("Is the incubator at 45 degrees?", "should I restart it?") was part of
+    the turn's evidence, so "Incubator one is at 45 °C now" and "The HVAC is restarting" verified. Words are not data."""
+    conversation = await rig["store"].new_conversation("earlier")
+    await rig["store"].add_turn(conversation, "r-0", "owner", "Is the incubator at 45 degrees? Should I restart it?")
+    for said, word in (("Incubator one is at 45 °C now, sir.", "45"), ("The incubator is restarting, sir.", "restarting")):
+        engine = ScriptedEngine([("recall_conversation", '{"query": "incubator"}')], said,
+                                "Its temperature is 37.5 °C at farm time 06:02.")
+        _, done = await ask(Agent(rig["node"], engine, PERSONA), "How is the incubator?")
+        assert any(t.tool == "recall_conversation" and t.ok for t in done.tools)
+        assert word not in done.text and "37.5" in done.text
+
+
+@pytest.mark.asyncio
+async def test_a_reading_that_is_off_is_not_a_machine_switching_off(rig: dict[str, Any]) -> None:
+    """Review (31 Oct): the stated-action check searched the whole data for "off", and readings say "off" all the time
+    (`"heating": {"state": "off"}`), so "The incubator is switching off" passed. An action must be an event or a
+    decision of the machine, never a reading."""
+    status = rig["view"].status
+    rig["view"].status = FarmStatus(**{**status.model_dump(), "readings": {**status.readings,
+                                                                          "heating": {"state": "off"},
+                                                                          "door_lamp": "off"}})
+    engine = ScriptedEngine("The incubator is switching off now, sir.", "Its heating is off at farm time 06:02.")
+    _, done = await ask(Agent(rig["node"], engine, PERSONA), "How is the incubator?")
+    assert "switching off" not in done.text and "heating is off" in done.text
 
 
 @pytest.mark.asyncio
@@ -402,3 +439,55 @@ async def test_a_machine_action_found_only_in_a_manual_is_never_said(rig: dict[s
     rig["peers"].manual = "Maintenance: the HVAC is restarted and its faults are cleared every night."
     _, done = await ask(Agent(rig["node"], engine, PERSONA), "What's wrong with the HVAC?")
     assert "restarted" not in done.text and "cleared" not in done.text
+
+
+@pytest.mark.asyncio
+async def test_a_cancelled_turn_stops_its_own_work_on_the_model(rig: dict[str, Any]) -> None:
+    """Review (31 Oct): cancelling the reader of a turn (a second push-to-talk, Node.stop) left the turn's producer
+    task running on the single-slot 2B server, with no deadline over it any more. The producer is cancelled too."""
+
+    class Slow(ScriptedEngine):
+        cancelled = False
+
+        async def chat_stream(self, messages: list[dict[str, Any]], **options: Any) -> AsyncGenerator[StreamDelta, None]:
+            if options.get("max_tokens") == 1:
+                return
+            yield StreamDelta(text="The incubator is fine, sir. Its")
+            try:
+                await asyncio.sleep(30)
+            except asyncio.CancelledError:
+                Slow.cancelled = True
+                raise
+            yield StreamDelta(text="More. ")
+
+    agent = Agent(rig["node"], Slow(), PERSONA)
+    first = asyncio.Event()
+
+    async def read() -> None:
+        async for item in agent.reply("How is the incubator?", request_id="r-9", conversation_id=None, source="voice"):
+            if isinstance(item, ChatChunk):
+                first.set()
+
+    reader = asyncio.create_task(read())
+    await asyncio.wait_for(first.wait(), 5)
+    started = time.monotonic()
+    reader.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await reader
+    for _ in range(100):
+        if Slow.cancelled:
+            break
+        await asyncio.sleep(0.01)
+    assert Slow.cancelled and time.monotonic() - started < 2.0
+
+
+@pytest.mark.asyncio
+async def test_acknowledging_by_voice_points_to_the_chat_page(rig: dict[str, Any]) -> None:
+    """Review (31 Oct): a voice request to acknowledge said "press Confirm within 60 seconds", but a voice reply has no
+    button. By voice there is no offer and no token; the reply says where to do it."""
+    done: ChatDone | None = None
+    async for item in Agent(rig["node"], ScriptedEngine(), PERSONA).reply(
+            "Acknowledge the HVAC alert.", request_id="v-1", conversation_id=None, source="voice"):
+        if isinstance(item, ChatDone):
+            done = item
+    assert done is not None and done.confirm is None and "chat page" in done.text and "Confirm within" not in done.text

@@ -114,6 +114,25 @@ async def test_one_notice_per_incident_and_level_and_a_rising_level_alerts_again
     assert len(sent) == 3 and all(n.target == "incubator-1" and n.sender == "hvac" for n in sent)
 
 
+@pytest.mark.asyncio
+async def test_a_notice_the_radio_lost_is_sent_again_on_the_next_assessment() -> None:
+    """Review (31 Oct): the alert was marked as told before the radio said whether the notice left, so a cut link or a
+    lost notice at DANGER lost that alert for good, however long the DANGER lasted."""
+    sent: list[AlertNotice] = []
+    radio_up = False
+
+    async def send(notice: AlertNotice) -> bool:
+        if radio_up:
+            sent.append(notice)
+        return radio_up
+    watcher = AlertWatcher("hvac", send)
+    await watcher.on_assessment(assessment("DANGER"))               # the link is cut: lost
+    radio_up = True
+    await watcher.on_assessment(assessment("DANGER"))               # the same DANGER, a tick later: told now
+    await watcher.on_assessment(assessment("DANGER"))               # and only once
+    assert [n.assessment.assessment for n in sent] == ["DANGER"]
+
+
 class Link:
     def __init__(self) -> None:
         self.sent: list[tuple[str, Any]] = []

@@ -68,6 +68,8 @@ class LiveRig:
     nodes: dict[str, Node] = field(default_factory=dict)
     servers: dict[str, Any] = field(default_factory=dict)
     specs: dict[str, Any] = field(default_factory=dict)
+    #: request id -> the evidence of that finished turn (every outcome; the evaluations verify every reply against it)
+    evidence: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
 
     async def __aenter__(self) -> LiveRig:
         try:
@@ -138,6 +140,15 @@ class LiveRig:
         speaker = self.nodes["incubator-1"]
         if speaker.agent is not None:
             await self._until(lambda: speaker.agent is not None and speaker.agent.warm_ms is not None, 90.0)
+            finish = speaker.agent._finish  # pyright: ignore[reportPrivateUsage]
+
+            async def keep(turn: Any, sent: list[str]) -> Any:
+                done = await finish(turn, sent)
+                self.evidence[done.request_id] = list(turn.evidence)
+                while len(self.evidence) > 500:
+                    self.evidence.pop(next(iter(self.evidence)))
+                return done
+            speaker.agent._finish = keep  # type: ignore[method-assign]
         await self._until(lambda: all(self.nodes["incubator-1"].peers[n].capabilities is not None
                                       for n in NODE_IDS if n != "incubator-1"), 30.0)
 

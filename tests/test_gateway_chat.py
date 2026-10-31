@@ -31,6 +31,7 @@ from contracts import (MENTOR_LLM_FAILURES, AckCommand, AckResult, AuditRecord, 
 
 LOG = logging.getLogger("test-gateway-chat")
 FARM = dict(farm_time="06:08", label="live: simulated brains")
+RUN = "0000000000a1"
 
 
 @dataclass
@@ -86,7 +87,8 @@ class Rig:
 
 def matrix_mock(calls: list[str], state: dict[str, Any]) -> httpx.MockTransport:
     def handle(request: httpx.Request) -> httpx.Response:
-        calls.append(f"{request.method} {request.url.path} {len(request.content)}")
+        query = f"?{request.url.query.decode()}" if request.url.query else ""
+        calls.append(f"{request.method} {request.url.path}{query} {len(request.content)}")
         status, body = state["status"], state["body"]
         return httpx.Response(status, content=json.dumps(body).encode(), headers={"content-type": "application/json"})
     return httpx.MockTransport(handle)
@@ -281,20 +283,21 @@ async def test_failure_switches_are_published_shown_and_republished(rig: Rig, mo
 @pytest.mark.asyncio
 async def test_a_confirmed_acknowledgement_reaches_the_matrix(rig: Rig) -> None:
     async with httpx.AsyncClient(base_url=rig.url) as client:
-        done = await client.post("/alerts/hvac/hvac-equipment-0001/ack", json={"confirm_token": "123.abc"})
+        done = await client.post("/alerts/hvac/hvac-equipment-0001/ack", json={"confirm_token": "123.abc", "feed_id": RUN})
     assert done.status_code == 200
     assert done.json() == {"schema_version": 1, "type": "ack_response", "node": "hvac", "incident_id": "hvac-equipment-0001", "ok": True,
                            "stage": "done", "reason": ""}
     (command,) = rig.incubator.acks
-    assert (command.node, command.incident_id, command.confirm_token) == ("hvac", "hvac-equipment-0001", "123.abc")
-    assert rig.matrix_calls == ["POST /alerts/hvac/hvac-equipment-0001/ack 0"]
+    assert (command.node, command.incident_id, command.feed_id, command.confirm_token) == (
+        "hvac", "hvac-equipment-0001", RUN, "123.abc")
+    assert rig.matrix_calls == [f"POST /alerts/hvac/hvac-equipment-0001/ack?feed_id={RUN} 0"]   # the run, to the Matrix
 
 
 @pytest.mark.asyncio
 async def test_a_refused_token_never_reaches_the_matrix(rig: Rig) -> None:
     rig.incubator.ack_ok = False
     async with httpx.AsyncClient(base_url=rig.url) as client:
-        refused = await client.post("/alerts/hvac/hvac-equipment-0001/ack", json={"confirm_token": "used"})
+        refused = await client.post("/alerts/hvac/hvac-equipment-0001/ack", json={"confirm_token": "used", "feed_id": RUN})
     assert refused.json()["stage"] == "token" and "invalid confirmation token" in refused.json()["reason"]
     assert rig.matrix_calls == []
 
@@ -304,8 +307,10 @@ async def test_no_token_or_a_bad_path_is_refused_before_anything(rig: Rig) -> No
     async with httpx.AsyncClient(base_url=rig.url) as client:
         assert (await client.post("/alerts/hvac/hvac-equipment-0001/ack", json={})).status_code == 422
         assert (await client.post("/alerts/hvac/hvac-equipment-0001/ack")).status_code == 422
-        assert (await client.post("/alerts/barn/x/ack", json={"confirm_token": "t"})).status_code == 422
-        assert (await client.post("/alerts/hvac/hvac-equipment-0001/ack", json={"confirm_token": "t"},
+        assert (await client.post("/alerts/hvac/hvac-equipment-0001/ack", json={"confirm_token": "t"})
+                ).status_code == 422                                              # the farm run is always named
+        assert (await client.post("/alerts/barn/x/ack", json={"confirm_token": "t", "feed_id": RUN})).status_code == 422
+        assert (await client.post("/alerts/hvac/hvac-equipment-0001/ack", json={"confirm_token": "t", "feed_id": RUN},
                                   headers={"origin": "http://evil.example"})).status_code == 403
     assert rig.incubator.acks == [] and rig.matrix_calls == []
 
@@ -321,7 +326,7 @@ async def test_a_matrix_refusal_or_bad_answer_stops_at_the_matrix_stage(rig: Rig
                                                                         why: str) -> None:
     rig.matrix.update(status=status, body=body)
     async with httpx.AsyncClient(base_url=rig.url) as client:
-        answer_ = await client.post("/alerts/hvac/hvac-equipment-0001/ack", json={"confirm_token": "t"})
+        answer_ = await client.post("/alerts/hvac/hvac-equipment-0001/ack", json={"confirm_token": "t", "feed_id": RUN})
     assert answer_.status_code == 200
     assert answer_.json()["stage"] == "matrix" and not answer_.json()["ok"] and why in answer_.json()["reason"]
 
@@ -330,7 +335,7 @@ async def test_a_matrix_refusal_or_bad_answer_stops_at_the_matrix_stage(rig: Rig
 async def test_no_answer_from_incubator_1_stops_at_the_token_stage(rig: Rig) -> None:
     await rig.incubator.link.close()
     async with httpx.AsyncClient(base_url=rig.url) as client:
-        answer_ = await client.post("/alerts/hvac/hvac-equipment-0001/ack", json={"confirm_token": "t"})
+        answer_ = await client.post("/alerts/hvac/hvac-equipment-0001/ack", json={"confirm_token": "t", "feed_id": RUN})
     assert answer_.json()["stage"] == "token" and "did not confirm" in answer_.json()["reason"]
     assert rig.matrix_calls == []
 

@@ -53,7 +53,7 @@ SEND = {"send": "What's wrong with the HVAC?", "id": "m1"}
 
 def check() -> dict[str, Any]:
     now = datetime(2026, 10, 31, 12, 0, 0, tzinfo=timezone.utc)
-    offer = AckOffer(node="hvac", incident_id="hvac-equipment-0001", token="1.abc",
+    offer = AckOffer(node="hvac", incident_id="hvac-equipment-0001", feed_id="0000000000a1", token="1.abc",
                      expires_utc=(now + timedelta(seconds=60)).isoformat().replace("+00:00", "Z"),
                      summary="Acknowledge the HVAC's supply fan alert")
     cases = {

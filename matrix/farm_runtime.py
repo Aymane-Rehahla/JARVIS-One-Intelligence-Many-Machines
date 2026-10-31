@@ -20,10 +20,11 @@ The Matrix API (127.0.0.1, `matrix_api` in launcher/ports.toml) is how the gatew
     POST /faults/{scenario_id}     one of the website's four demo faults, from the next tick (6W; decision 0020):
                                    404 unknown, 409 when one is already active in this farm run (a reset clears it).
                                    The answer goes to the caller only; nothing about it is published.
-    POST /alerts/{node}/{incident_id}/ack   the owner acknowledged that node's alert (6C, P2 section 4 step 5): the
+    POST /alerts/{node}/{incident_id}/ack?feed_id=   the owner acknowledged that node's alert (6C, P2 section 4 step 5): the
                                    Matrix's own owner acknowledgement, on every delivered and not yet acknowledged
                                    owner notification of this farm run from that node for that incident. 200
-                                   {"node", "incident_id", "acknowledged": N, "farm_time"}; 404 when there is none.
+                                   {"node", "incident_id", "acknowledged": N, "farm_time"}; 404 when there is none; 409 when
+                                   feed_id names another farm run (incident ids start again in every run).
 
 The snapshot's NodeRuntime imports its CTM brain module, which needs torch; this environment has no torch and the test
 feed runs rule brains only, so that one module is replaced by a stub that refuses to build a CTM (decision 0012).
@@ -583,12 +584,15 @@ class FarmRuntime:
                 faults=_plain(faults))
             return self.demo_fault
 
-    async def acknowledge(self, node: NodeId, incident_id: str) -> dict[str, Any]:
+    async def acknowledge(self, node: NodeId, incident_id: str, feed_id: str) -> dict[str, Any]:
         """The owner's acknowledgement (the click the gateway passed on after incubator-1 checked its token): the
         Matrix's phone service marks that node's delivered owner notifications for this incident as acknowledged now,
         as its simulated owner would have later. The brains see it only as they always see an acknowledgement.
-        LookupError when this farm run has none to mark."""
+        LookupError when this farm run has none to mark; ValueError when the click is from another farm run (incident
+        ids start again in every run, rule 7)."""
         async with self._publish_lock:
+            if feed_id != self.feed_id:
+                raise ValueError(f"the alert belongs to another farm run ({feed_id}; this run is {self.feed_id})")
             comms = self.engine.comms
             now = float(self.engine.clock.time)
             marked = []
@@ -665,11 +669,13 @@ def create_api(farm: FarmRuntime) -> FastAPI:
         return await farm.restore(node)
 
     @app.post("/alerts/{node}/{incident_id}/ack")
-    async def acknowledge(node: NodeId, incident_id: str) -> dict[str, Any]:
+    async def acknowledge(node: NodeId, incident_id: str, feed_id: str) -> dict[str, Any]:
         try:
-            return await farm.acknowledge(node, incident_id)
+            return await farm.acknowledge(node, incident_id, feed_id)
         except LookupError as error:
             raise HTTPException(404, str(error)) from error
+        except ValueError as error:
+            raise HTTPException(409, str(error)) from error
 
     return app
 

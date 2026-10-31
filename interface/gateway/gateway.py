@@ -60,7 +60,7 @@ from pydantic import (BaseModel, ConfigDict, Field, JsonValue, RootModel, Valida
 from comms.jsonlog import log, program_logger  # noqa: E402
 from comms.nats_link import NatsLink, RequestFailed  # noqa: E402
 from contracts import (CLIENT_MSG_ID, CONTROL_CHARACTERS, CONVERSATION_ID, FARM_LINKS, FARM_SIM,  # noqa: E402
-                       FARM_TIME, MACHINES, MENTOR_LLM_FAILURES, NODE_IDS, REQUEST_ID, AckCommand, AckResult,
+                       FARM_TIME, FEED_ID, MACHINES, MENTOR_LLM_FAILURES, NODE_IDS, REQUEST_ID, AckCommand, AckResult,
                        AuditRecord, Capabilities, ChatChunk, ChatDone, ChatRequest, Contract, ContractError,
                        FarmAssessment, FarmEvent, FarmStatus, FaultResult, Heartbeat, LinkStatus, LlmFailureSwitches,
                        Machine, NodeId, OwnerAlert, PushToTalk, ScenarioId, SimState, VoiceSettings, VoiceSettingsResult,
@@ -81,9 +81,9 @@ AUDIT_QUEUE = 40                                           # audit records waiti
 SOCKET_QUEUE = 256                                         # messages waiting per /ws/chat socket; oldest dropped first
 MAX_CHAT_MESSAGE = 16_384                                  # characters in one /ws/chat message (a ChatSend is far less)
 MENTOR_REPUBLISH_S = 10.0                                  # the current LlmFailureSwitches again, for a restarted node
-ACK_TIMEOUT_S = 5.0
+ACK_TIMEOUT_S = 5.0                                        # incubator-1's answer to an AckCommand
 VOICE_TIMEOUT_S = 3.0                                      # incubator-1's answer to VoiceSettings
-VOICE_QUEUE = 16                                           # VoiceStatus messages waiting per /ws/voice socket                                        # incubator-1's answer to an AckCommand
+VOICE_QUEUE = 16                                           # VoiceStatus messages waiting per /ws/voice socket
 IDLE_CHECK_S = 1.0                                         # a socket's sender wakes at least this often
 INCIDENT_ID = r"^[^/\\\x00-\x1f]{1,80}$"                    # a path segment: no slash or backslash, no control character
 
@@ -164,6 +164,7 @@ class AckBody(BaseModel):
 
     model_config = ConfigDict(extra="forbid", strict=True)
     confirm_token: str = Field(min_length=1, max_length=256)
+    feed_id: str = Field(pattern=FEED_ID)                   # the AckOffer's farm run (rule 7)
 
 
 class AckResponse(Contract):
@@ -559,7 +560,7 @@ class Gateway:
 
     # --- 6C: acknowledging an alert (ground rule 3: the owner's words, then the owner's click) ---
 
-    async def acknowledge(self, node: NodeId, incident_id: str, confirm_token: str) -> AckResponse:
+    async def acknowledge(self, node: NodeId, incident_id: str, confirm_token: str, feed_id: str) -> AckResponse:
         """incubator-1 checks the token; only then is the Matrix API told. The answer says how far it got."""
 
         def stopped(stage: Literal["token", "matrix"], reason: str) -> AckResponse:
@@ -568,7 +569,8 @@ class Gateway:
             return AckResponse(node=node, incident_id=incident_id, ok=False, stage=stage, reason=_short(reason))
 
         request_id = f"k-{secrets.token_hex(6)}"
-        command = AckCommand(request_id=request_id, node=node, incident_id=incident_id, confirm_token=confirm_token,
+        command = AckCommand(request_id=request_id, node=node, incident_id=incident_id, feed_id=feed_id,
+                             confirm_token=confirm_token,
                              sent_utc=utc_now())
         try:
             result = await self.link.request(jarvis_subject("incubator-1", "ack"), command, AckResult,
@@ -580,7 +582,8 @@ class Gateway:
         if not result.ok:
             return stopped("token", f"incubator-1 refused: {result.reason}")
         try:
-            response = await self.matrix.post(f"/alerts/{node}/{quote(incident_id, safe='')}/ack")
+            response = await self.matrix.post(f"/alerts/{node}/{quote(incident_id, safe='')}/ack",
+                                              params={"feed_id": feed_id})
         except httpx.TimeoutException:
             return stopped("matrix", f"the Matrix API did not answer within {MATRIX_TIMEOUT_S:g} s")
         except httpx.HTTPError as error:
@@ -795,7 +798,7 @@ def create_app(gateway: Gateway, *, website_port: int = 5173) -> FastAPI:
     @app.post("/alerts/{node}/{incident_id}/ack")
     async def acknowledge(node: NodeId, body: AckBody,
                           incident_id: Annotated[str, PathParam(pattern=INCIDENT_ID)]) -> dict[str, Any]:
-        return (await gateway.acknowledge(node, incident_id, body.confirm_token)).model_dump(mode="json")
+        return (await gateway.acknowledge(node, incident_id, body.confirm_token, body.feed_id)).model_dump(mode="json")
 
     # --- 6E routes ---
 

@@ -105,15 +105,21 @@ async def start_voice(node: Node, link: NatsLink, logger: logging.Logger) -> Any
         audio = FileAudio.from_wav(Path(recorded))
         audio.play, audio.stop_playing = speakers.play, speakers.stop_playing
         log(logger, logging.WARNING, "the microphone is replaced by a recorded file", file=Path(recorded).name)
-    box = VoiceBox(answer=agent.reply if agent is not None else no_agent, publish=publish, stt=stt, tts=tts,
+    box = VoiceBox(answer=node.owner_turn if agent is not None else no_agent, publish=publish, stt=stt, tts=tts,
                    audio=audio, vad=vad, store=node.store, logger=logger)
     if agent is not None:
         agent.add_alert_listener(box.announce)
     await box.start()
     if recorded:
-        box.detail = f"test: the microphone is the recorded file {Path(recorded).name}"
+        box.label = f"test: the microphone is the recorded file {Path(recorded).name}"
     await box.serve(link)
-    asyncio.get_running_loop().run_in_executor(None, lambda: (stt.load(), tts.load()))
+    loading = asyncio.get_running_loop().run_in_executor(None, lambda: (stt.load(), tts.load()))
+
+    def loaded(future: asyncio.Future[Any]) -> None:              # a failed load is logged, never lost
+        if not future.cancelled() and future.exception() is not None:
+            log(logger, logging.ERROR, "the voice models did not load", error=repr(future.exception())[:300])
+    loading.add_done_callback(loaded)
+    box.loading = loading
     log(logger, logging.INFO, "voice box started", mic=box.audio.mic)
     return box
 

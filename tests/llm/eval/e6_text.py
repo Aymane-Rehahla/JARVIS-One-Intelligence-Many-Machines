@@ -76,19 +76,25 @@ def main(argv: list[str] | None = None) -> int:
     text: dict[str, Any] = {}
     for kind in ("all", "simple", "peers"):
         chosen = [r for r in rows if kind == "all" or r["kind"] == kind]
-        text[kind] = {"first_chunk_ms": stats([float(r["first_chunk_ms"]) for r in chosen if r["first_chunk_ms"] is not None]),
-                      "total_ms": stats([float(r["total_ms"]) for r in chosen if r["total_ms"] is not None]),
-                      "answered": sum(r["outcome"] == "answered" for r in chosen), "of": len(chosen)}
+        answered = [r for r in chosen if r["outcome"] == "answered"]       # the target is about real answers
+        text[kind] = {"first_chunk_ms": stats([float(r["first_chunk_ms"]) for r in answered if r["first_chunk_ms"] is not None]),
+                      "total_ms": stats([float(r["total_ms"]) for r in answered if r["total_ms"] is not None]),
+                      "first_chunk_ms_every_outcome": stats([float(r["first_chunk_ms"]) for r in chosen
+                                                             if r["first_chunk_ms"] is not None]),
+                      "answered": len(answered), "of": len(chosen)}
     measured["text"] = text
+    measured["text_commit"] = git_commit()
     measured["text_rows"] = rows
     first_p50 = text["all"]["first_chunk_ms"]["p50"]
+    measured["text_passed"] = None if first_p50 is None else first_p50 <= 1500.0
     path = write_result(EvalResult(
         id="E6", title="Latency", target="first chunk <= 1.5 s p50 (text); voice: see the voice keys",
         passed=None if first_p50 is None else first_p50 <= 1500.0, measured=measured,
         command=f".venv\\Scripts\\python tests\\llm\\eval\\e6_text.py --runs {args.runs}", commit=git_commit(),
         seeds=[7], models={}, started_utc=started_utc, duration_s=round(time.monotonic() - started, 1),
         notes="Text part through the gateway on this PC (RX 580, Vulkan; f16 KV cache; warm prompt cache). The first "
-              "chunk is a whole verified sentence, not a first token."))
+              "chunk is a whole verified sentence, not a first token. The latencies are of answered replies; "
+              "first_chunk_ms_every_outcome counts fallbacks and refusals too."))
     print(f"E6 text: first chunk p50 {first_p50} ms -> {path}")
     return 0
 

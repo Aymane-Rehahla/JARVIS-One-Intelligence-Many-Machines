@@ -9,6 +9,11 @@
           "title": "Expires Utc",
           "type": "string"
         },
+        "feed_id": {
+          "pattern": "^[0-9a-f]{12}$",
+          "title": "Feed Id",
+          "type": "string"
+        },
         "incident_id": {
           "maxLength": 80,
           "minLength": 1,
@@ -41,6 +46,7 @@
       "required": [
         "node",
         "incident_id",
+        "feed_id",
         "token",
         "expires_utc",
         "summary"

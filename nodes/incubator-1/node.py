@@ -21,7 +21,7 @@ import logging
 import secrets
 import time
 from collections import deque
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -34,7 +34,7 @@ from comms.mcp import NodeMCP
 from comms.nats_link import NatsLink
 from comms.peer_network import PeerNetwork, RadioRules
 from contracts import (FARM_LINKS, FARM_SIM, NODE_IDS, AckCommand, AckResult, AlertNotice, AskError, AskReply,
-                       AskRequest, Capabilities, ChatDone, ChatRequest, FarmAssessment, FarmEvent, FarmIncident,
+                       AskRequest, Capabilities, ChatChunk, ChatDone, ChatRequest, FarmAssessment, FarmEvent, FarmIncident,
                        FarmStatus, Heartbeat, LinkStatus, NodeConfig, NodeId, ProbeRequest, ReplyTimings, SimState,
                        Topic, farm_subject, jarvis_subject, utc_now)
 from llm.alerts import AlertDesk, AlertWatcher
@@ -368,17 +368,25 @@ class Node:
 
     async def _serve_turn(self, request: ChatRequest) -> None:
         """One owner turn: every piece the agent yields goes out on jarvis.incubator-1.reply, in order."""
+        async for item in self.owner_turn(request.text, request_id=request.request_id,
+                                          conversation_id=request.conversation_id, source=request.source):
+            await self.link.publish(jarvis_subject(self.id, "reply"), item, request_id=request.request_id)
+
+    async def owner_turn(self, text: str, *, request_id: str, conversation_id: str | None,
+                         source: Literal["chat", "voice"]) -> AsyncIterator[ChatChunk | ChatDone]:
+        """The agent's reply to one owner turn, chat or voice, at most MAX_TURNS_AT_ONCE at once (the 2B server has
+        one slot); a turn past the limit gets a ChatDone saying so at once."""
         agent = self.agent
-        if agent is None:
-            await self._busy(request, "the agent is not running")
-            return
-        if self._turns.locked():
-            await self._busy(request, "JARVIS is already answering two questions")
+        reason = ("the agent is not running" if agent is None else
+                  "JARVIS is already answering two questions" if self._turns.locked() else "")
+        if agent is None or reason:
+            yield ChatDone(request_id=request_id, conversation_id=conversation_id or "none", text="", chunks=0,
+                           outcome="error", reason=reason, numbers_checked=0, timings=ReplyTimings(total_ms=0))
             return
         async with self._turns:
-            async for item in agent.reply(request.text, request_id=request.request_id,
-                                          conversation_id=request.conversation_id, source=request.source):
-                await self.link.publish(jarvis_subject(self.id, "reply"), item, request_id=request.request_id)
+            async for item in agent.reply(text, request_id=request_id, conversation_id=conversation_id,
+                                          source=source):
+                yield item
 
     async def _on_ack(self, command: AckCommand, subject: str) -> AckResult:
         """The owner's confirm click (through the gateway): the token is checked and the approval audited by the
@@ -388,14 +396,16 @@ class Node:
             return AckResult(request_id=command.request_id, node=command.node, incident_id=command.incident_id,
                              ok=False, reason="node tools are not ready")
         outcome = await registry.call("acknowledge_alert", {"node": command.node, "incident_id": command.incident_id,
+                                                            "feed_id": command.feed_id,
                                                             "confirm_token": command.confirm_token},
                                       request_id=command.request_id, caller="owner")
         return AckResult(request_id=command.request_id, node=command.node, incident_id=command.incident_id,
                          ok=outcome.ok, reason="" if outcome.ok else (outcome.error or "refused")[:300])
 
-    async def _send_notice(self, notice: AlertNotice) -> None:
-        """This node's own alert, through the radio to incubator-1 (incubator-1's own goes to its desk directly)."""
-        await self.radio.notify(notice)
+    async def _send_notice(self, notice: AlertNotice) -> bool:
+        """This node's own alert, through the radio to incubator-1 (incubator-1's own goes to its desk directly).
+        False when it did not leave (a cut link or a lost notice): the watcher sends it again."""
+        return await self.radio.notify(notice)
 
     async def _on_probe(self, probe: ProbeRequest, subject: str) -> AskReply:
         return await self.radio.ask(probe.target, probe.topic, probe.question, deadline_s=probe.deadline_ms / 1000)

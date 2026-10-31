@@ -129,7 +129,15 @@ def resave_engine(source: Path) -> tuple[bytes, dict[str, Any]]:
 
 
 def install(release: Path, upstream: Path, modules: dict[str, list[str]], out: Path) -> dict[str, Any]:
-    """Write everything into `out` (emptied first, so a second run gives the same files) and return the provenance."""
+    """Write everything into `out` (emptied first, so a second run gives the same files) and return the provenance.
+    `out` is emptied only when it is an earlier install (it has PROVENANCE.json) and never overlaps the release or the
+    upstream CTM folder (rule 2: they are read only)."""
+    where = out.resolve()
+    for source in (release.resolve(), upstream.resolve()):
+        if where == source or source in where.parents or where in source.parents:
+            raise InstallError("--out is inside the release or the upstream CTM folder, or holds one of them")
+    if where.exists() and any(where.iterdir()) and not (where / "PROVENANCE.json").is_file():
+        raise InstallError("--out is not an earlier install (it has files but no PROVENANCE.json): never emptied")
     plan: list[tuple[str, str, bytes]] = []                   # (installed path, source inside the release, bytes)
     for path in modules["code_snapshot"]:
         if path.endswith(".py") and "__pycache__" not in path:

@@ -101,7 +101,7 @@ async def run(real: int) -> dict[str, Any]:
             agent = rig.nodes["incubator-1"].agent
             assert agent is not None
             audio_real = FileAudio()
-            live = VoiceBox(answer=agent.reply, publish=publish, stt=stt, tts=tts, audio=audio_real, vad=vad)
+            live = VoiceBox(answer=rig.nodes["incubator-1"].owner_turn, publish=publish, stt=stt, tts=tts, audio=audio_real, vad=vad)
             await live.start()
             for index in range(real):
                 question = (SIMPLE if index % 2 == 0 else PEERS)[(index // 2) % (len(SIMPLE) if index % 2 == 0 else len(PEERS))]
@@ -135,10 +135,22 @@ def main(argv: list[str] | None = None) -> int:
             kind: stats(ms([r for r in rows if r["kind"] == kind], "first_audio_ms")) for kind in ("simple", "peers")}
     measured["voice"] = voice
     measured["voice_rows"] = json.loads(json.dumps({k: v for k, v in found.items()}, default=str))
-    text_pass = (old or {}).get("passed")
+    measured["voice_commit"] = git_commit()
+    measured.setdefault("text_commit", (old or {}).get("commit"))
+    # every target judged (review, 31 Oct): the text part's verdict, and the voice targets on the real agent
+    text_pass = (old or {}).get("measured", {}).get("text_passed", (old or {}).get("passed"))
+    measured["text_passed"] = text_pass
+    real = voice.get("real_agent_first_audio_ms") or {}
+    simple = (real.get("simple") or {}).get("p50")
+    peers = (real.get("peers") or {}).get("p50")
+    alert_p95 = (voice["alert_to_audio_ms"] or {}).get("p95")
+    voice_pass = None if simple is None or peers is None or alert_p95 is None else (
+        simple <= 2500.0 and peers <= 4000.0 and alert_p95 <= 3000.0)
+    measured["voice_passed"] = voice_pass
+    passed = None if text_pass is None or voice_pass is None else bool(text_pass and voice_pass)
     write_result(EvalResult(
         id="E6", title="Latency", target="first chunk <= 1.5 s p50 (text); voice <= 2.5 s p50 simple, <= 4 s with "
-        "peers; alert <= 3 s", passed=text_pass, measured=measured,
+        "peers; alert <= 3 s (p95)", passed=passed, measured=measured,
         command=(old or {}).get("command", "") + " ; .venv\\Scripts\\python tests\\llm\\eval\\e6_voice.py"
         + (f" --real {args.real}" if args.real else ""), commit=git_commit(), seeds=[7], models={},
         started_utc=(old or {}).get("started_utc", started_utc),

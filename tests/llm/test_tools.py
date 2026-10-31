@@ -20,6 +20,7 @@ from llm.documents import Documents, HashEmbedder
 from llm.tools import ConfirmTokens, ToolRegistry
 
 ROOT = Path(__file__).resolve().parents[2]
+FEED = "0000000000a1"
 
 
 class FakePeers:
@@ -83,7 +84,7 @@ async def test_each_tool_succeeds_with_typed_data_and_audit(rig: dict[str, Any])
     conversation_id = await store.new_conversation("HVAC")
     await store.add_turn(conversation_id, "history-1", "owner", "Check the airflow")
     confirm: ConfirmTokens = rig["confirm"]
-    token = confirm.issue("incubator-1", "incident-1")
+    token = confirm.issue("incubator-1", "incident-1", FEED)
     calls = [
         ("get_status", {"fields": ["supply_air_temperature_c"]}),
         ("get_assessment", {}),
@@ -93,7 +94,7 @@ async def test_each_tool_succeeds_with_typed_data_and_audit(rig: dict[str, Any])
         ("search_documents", {"query": "compressor", "k": 4}),
         ("ask_peer", {"node": "animal-protection", "question": "is there smoke or flood?"}),
         ("recall_conversation", {"query": "airflow", "limit": 5}),
-        ("acknowledge_alert", {"node": "incubator-1", "incident_id": "incident-1", "confirm_token": token}),
+        ("acknowledge_alert", {"node": "incubator-1", "incident_id": "incident-1", "feed_id": FEED, "confirm_token": token}),
     ]
     for index, (name, args) in enumerate(calls):
         result = await registry.call(name, args, request_id=f"tool-{index}", caller="owner")
@@ -105,7 +106,7 @@ async def test_each_tool_succeeds_with_typed_data_and_audit(rig: dict[str, Any])
             assert sum(row["kind"] == "peer_question" for row in rows) == 1
     assert registry.tools["get_status"].permission == "read"
     assert rig["peers"].calls == [("animal-protection", "hazard_check", "tool-6")]
-    approval = await registry.call("acknowledge_alert", {"node": "incubator-1", "incident_id": "incident-1",
+    approval = await registry.call("acknowledge_alert", {"node": "incubator-1", "incident_id": "incident-1", "feed_id": FEED,
                                                          "confirm_token": token}, request_id="ack-reused",
                                    caller="owner")
     assert not approval.ok and approval.error == "invalid confirmation token"      # the approval above used it up
@@ -145,8 +146,8 @@ async def test_empty_data_paths_are_explicit(rig: dict[str, Any]) -> None:
     assert events.ok and events.data["events"] == []
     assert documents.ok and documents.data["results"] == [] and documents.data["status"] == "no approved documents"
     assert recall.ok and recall.data["turns"] == []
-    token = rig["confirm"].issue("incubator-1", "missing")
-    ack = await registry.call("acknowledge_alert", {"node": "incubator-1", "incident_id": "missing",
+    token = rig["confirm"].issue("incubator-1", "missing", FEED)
+    ack = await registry.call("acknowledge_alert", {"node": "incubator-1", "incident_id": "missing", "feed_id": FEED,
                                                     "confirm_token": token},
                               request_id="empty-ack", caller="owner")
     assert not ack.ok and ack.error == "no active incident to acknowledge"
@@ -159,7 +160,7 @@ async def test_speaker_only_tools_are_refused_on_silent_nodes(rig: dict[str, Any
     for index, (name, args) in enumerate((
             ("ask_peer", {"node": "hvac", "question": "status"}),
             ("recall_conversation", {"query": "past"}),
-            ("acknowledge_alert", {"node": "hvac", "incident_id": "i1", "confirm_token": "forged"}))):
+            ("acknowledge_alert", {"node": "hvac", "incident_id": "i1", "feed_id": FEED, "confirm_token": "forged"}))):
         result = await registry.call(name, args, request_id=f"silent-{index}", caller="owner")
         assert not result.ok and "not the speaking node" in (result.error or "")
         assert (await rig["auditor"].timings(f"silent-{index}"))[0]["kind"] == "refusal"
@@ -168,24 +169,42 @@ async def test_speaker_only_tools_are_refused_on_silent_nodes(rig: dict[str, Any
 @pytest.mark.asyncio
 async def test_confirmation_forgery_expiry_and_reuse_are_refused(rig: dict[str, Any]) -> None:
     confirm: ConfirmTokens = rig["confirm"]
-    token = confirm.issue("incubator-1", "incident-1")
-    assert not confirm.verify("incubator-1", "other-incident", token)
-    assert not confirm.verify("hvac", "incident-1", token)                    # bound to the node as well
-    expired = confirm.issue("incubator-1", "incident-1", now_s=100)
-    assert not confirm.verify("incubator-1", "incident-1", expired, now_s=161)
-    valid = confirm.issue("incubator-1", "incident-1")
-    assert confirm.verify("incubator-1", "incident-1", valid)
-    assert not confirm.verify("incubator-1", "incident-1", valid)
-    result = await rig["registry"].call("acknowledge_alert", {"node": "incubator-1", "incident_id": "incident-1",
+    token = confirm.issue("incubator-1", "incident-1", FEED)
+    assert not confirm.verify("incubator-1", "other-incident", FEED, token)
+    assert not confirm.verify("hvac", "incident-1", FEED, token)                    # bound to the node as well
+    expired = confirm.issue("incubator-1", "incident-1", FEED, now_s=100)
+    assert not confirm.verify("incubator-1", "incident-1", FEED, expired, now_s=161)
+    valid = confirm.issue("incubator-1", "incident-1", FEED)
+    assert confirm.verify("incubator-1", "incident-1", FEED, valid)
+    assert not confirm.verify("incubator-1", "incident-1", FEED, valid)
+    result = await rig["registry"].call("acknowledge_alert", {"node": "incubator-1", "incident_id": "incident-1", "feed_id": FEED,
                                                               "confirm_token": "bad"},
                                         request_id="refused-token", caller="owner")
     assert not result.ok and result.error == "invalid confirmation token"
     assert (await rig["auditor"].timings("refused-token"))[0]["kind"] == "refusal"
-    good = confirm.issue("incubator-1", "incident-1")
-    by_llm = await rig["registry"].call("acknowledge_alert", {"node": "incubator-1", "incident_id": "incident-1",
+    good = confirm.issue("incubator-1", "incident-1", FEED)
+    by_llm = await rig["registry"].call("acknowledge_alert", {"node": "incubator-1", "incident_id": "incident-1", "feed_id": FEED,
                                                               "confirm_token": good},
                                         request_id="llm-ack", caller="llm")
     assert not by_llm.ok and (await rig["auditor"].timings("llm-ack"))[0]["kind"] == "refusal"
+
+
+@pytest.mark.asyncio
+async def test_a_confirmation_belongs_to_one_farm_run(rig: dict[str, Any]) -> None:
+    """Review (31 Oct): incident ids start again in every farm run, so a token issued in one run acknowledged the
+    same-named incident of the next. The token and the approval are bound to the run's feed_id (rule 7)."""
+    confirm: ConfirmTokens = rig["confirm"]
+    await rig["store"].upsert_incident(FarmIncident(node="incubator-1", tick=7, time_s=120.0, farm_time="06:02",
+                                                    label="live: simulated brains", feed_id=FEED,
+                                                    incident_id="incident-1", state="opened", summary={}))
+    old_run = "0000000000a0"
+    assert not confirm.verify("incubator-1", "incident-1", FEED, confirm.issue("incubator-1", "incident-1", old_run))
+    for index, node in enumerate(("incubator-1", "hvac")):
+        token = confirm.issue(node, "incident-1", old_run)
+        result = await rig["registry"].call("acknowledge_alert", {"node": node, "incident_id": "incident-1",
+                                                                  "feed_id": old_run, "confirm_token": token},
+                                            request_id=f"old-run-{index}", caller="owner")
+        assert not result.ok and "another farm run" in (result.error or "")
 
 
 @pytest.mark.asyncio
@@ -196,7 +215,7 @@ async def test_confirmation_forgery_expiry_and_reuse_are_refused(rig: dict[str, 
     ("search_documents", {"query": "manual"}),
     ("ask_peer", {"node": "animal-protection", "question": "is there smoke?"}),
     ("recall_conversation", {"query": "history"}),
-    ("acknowledge_alert", {"node": "incubator-1", "incident_id": "incident-1", "confirm_token": "placeholder"}),
+    ("acknowledge_alert", {"node": "incubator-1", "incident_id": "incident-1", "feed_id": FEED, "confirm_token": "placeholder"}),
 ])
 async def test_every_tool_deadline_returns_timeout_and_preserves_request_id(rig: dict[str, Any], name: str,
                                                                             args: dict[str, Any]) -> None:
@@ -208,7 +227,7 @@ async def test_every_tool_deadline_returns_timeout_and_preserves_request_id(rig:
 
     registry.tools[name] = replace(registry.tools[name], deadline_s=0.001, handler=slow)
     if name == "acknowledge_alert":
-        args["confirm_token"] = rig["confirm"].issue("incubator-1", "incident-1")
+        args["confirm_token"] = rig["confirm"].issue("incubator-1", "incident-1", FEED)
         await rig["store"].upsert_incident(FarmIncident(node="incubator-1", tick=7, time_s=120.0, farm_time="06:02",
                                                         label="live: simulated brains", feed_id="0000000000a1", incident_id="incident-1",
                                                         state="opened", summary={}))

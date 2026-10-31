@@ -7,7 +7,8 @@ source at 16 kHz, `VoiceSettings` (request-reply), and `OwnerAlert`s (`announce`
   as they arrive, sentence by sentence, each with the voice and speed in force when it starts.
 - `announce(alert)`: an alert is spoken at once: before anything still waiting; a DANGER alert also stops what is
   being said.
-- Pressing the button stops what is being said and starts listening; releasing it ends the utterance.
+- Pressing the button stops the reply being made and said (alerts stay queued) and starts listening; nothing is
+  said while the owner talks; releasing it, or MAX_UTTERANCE_S without a release, ends the utterance.
 - A missing microphone is `mic = "missing"`, never a crash. Everything is bounded: the utterance length, the queue of
   sentences, each stage's time.
 The models are injected (`vad.Vad`, `stt.SpeechToText`, `tts.TextToSpeech` or test fakes), so are the audio devices
@@ -38,6 +39,7 @@ MAX_QUEUE = 32                              # sentences waiting to be spoken
 STT_S = 15.0                                # transcription deadline for one utterance
 TTS_S = 15.0                                # synthesis deadline for one sentence
 STATUS_EVERY_S = 5.0
+STOP_S = 3.0                                # how long stop() waits for its tasks
 DEFAULT_VOICE = "bm_george"
 DEFAULT_SPEED = 1.0
 SETTINGS_KEY = "voice"
@@ -209,6 +211,8 @@ class VoiceBox:
         self.transcript: str | None = None
         self.request_id: str | None = None
         self.detail = ""
+        self.label = ""                                # kept on every status ("test: the microphone is a recorded file")
+        self.loading: Any = None                       # the models' background load (runtime.py)
         self.conversation_id: str | None = None
         self._queue: deque[Spoken] = deque()
         self._wake = asyncio.Event()
@@ -216,6 +220,8 @@ class VoiceBox:
         self._turn: asyncio.Task[None] | None = None
         self._status_loop: asyncio.Task[None] | None = None
         self._released_at: float | None = None
+        self._release_timer: asyncio.Task[None] | None = None
+        self._playing: Spoken | None = None
         self.timings: deque[dict[str, Any]] = deque(maxlen=200)      # E6: end of speech -> first audio, and more
         self._alert_at: dict[str, float] = {}
 
@@ -231,11 +237,11 @@ class VoiceBox:
         await self._set("idle", detail="" if self.audio.mic == "ok" else "no microphone: push-to-talk cannot hear")
 
     async def stop(self) -> None:
-        for task in (self._turn, self._speaker, self._status_loop):
-            if task is not None:
-                task.cancel()
-        await asyncio.gather(*(t for t in (self._turn, self._speaker, self._status_loop) if t is not None),
-                             return_exceptions=True)
+        tasks = [t for t in (self._turn, self._speaker, self._status_loop, self._release_timer) if t is not None]
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.wait(tasks, timeout=STOP_S)
         self.audio.stop_playing()
         await self._set("off")
 
@@ -261,7 +267,8 @@ class VoiceBox:
         return VoiceStatus(state=self.state, mic=self.audio.mic if self.audio.mic in ("ok", "missing", "busy", "off")  # type: ignore[arg-type]
                            else "missing", voice=self.voice, speed=self.speed, push_to_talk=self.push_to_talk,
                            transcript=(self.transcript or None) and self.transcript[:500], request_id=self.request_id,
-                           detail=self.detail[:200], sent_utc=utc_now())
+                           detail="; ".join(part for part in (self.label, self.detail) if part)[:200],
+                           sent_utc=utc_now())
 
     async def _publish(self) -> None:
         try:
@@ -301,19 +308,32 @@ class VoiceBox:
         if ptt.pressed:
             if self.push_to_talk:
                 return
-            self._interrupt()
+            if self._turn is not None and not self._turn.done():
+                self._turn.cancel()                    # the new question replaces the reply still being made
+            self._interrupt(keep_alerts=True)
             self.push_to_talk = True
             self.audio.start_capture()
+            self._release_timer = asyncio.create_task(self._release_later())
             await self._set("listening", detail="" if self.audio.mic == "ok" else f"microphone {self.audio.mic}")
             return
         if not self.push_to_talk:
             return
         self.push_to_talk = False
+        if self._release_timer is not None and self._release_timer is not asyncio.current_task():
+            self._release_timer.cancel()
+        self._wake.set()                               # alerts held while the owner talked are spoken now
         self._released_at = time.monotonic()
         samples = self.audio.stop_capture()[: int(MAX_UTTERANCE_S * SAMPLE_RATE)]
         if self._turn is not None and not self._turn.done():
             self._turn.cancel()
         self._turn = asyncio.create_task(self._understand(samples, self._released_at))
+
+    async def _release_later(self) -> None:
+        """A release that never comes (the tab closed) ends the utterance after MAX_UTTERANCE_S."""
+        await asyncio.sleep(MAX_UTTERANCE_S)
+        if self.push_to_talk:
+            log(self.logger, logging.WARNING, "push-to-talk released for the owner", after_s=MAX_UTTERANCE_S)
+            await self.handle_ptt(PushToTalk(pressed=False, sent_utc=utc_now()))
 
     def _speech(self, samples: np.ndarray) -> np.ndarray:
         """The VAD's speech in the utterance (all of it without a VAD)."""
@@ -378,9 +398,14 @@ class VoiceBox:
         (self._queue.appendleft if first else self._queue.append)(item)
         self._wake.set()
 
-    def _interrupt(self) -> None:
+    def _interrupt(self, *, keep_alerts: bool = False) -> None:
+        """Stop what is being said and drop what waits; with keep_alerts (the owner pressed the button), alerts stay
+        queued and an alert being said is not cut."""
+        kept = [item for item in self._queue if item.kind == "alert"] if keep_alerts else []
         self._queue.clear()
-        self.audio.stop_playing()
+        self._queue.extend(kept)
+        if not (keep_alerts and self._playing is not None and self._playing.kind == "alert"):
+            self.audio.stop_playing()
 
     async def announce(self, alert: OwnerAlert) -> None:
         """Speak an alert at once; DANGER stops anything being said."""
@@ -394,7 +419,7 @@ class VoiceBox:
 
     async def _speak_loop(self) -> None:
         while True:
-            if not self._queue:
+            if not self._queue or self.push_to_talk:   # nothing is said while the owner talks
                 self._wake.clear()
                 await self._wake.wait()
                 continue
@@ -405,11 +430,19 @@ class VoiceBox:
             except Exception as error:
                 log(self.logger, logging.WARNING, "a sentence could not be spoken", error=repr(error)[:200])
                 continue
+            if self.push_to_talk:                      # pressed while this sentence was being made
+                if item.kind == "alert":
+                    self._queue.appendleft(item)
+                continue
             if self.state != "speaking":
                 await self._set("speaking")
             started = time.monotonic()
             self._first_audio(item, started)
-            await self.audio.play(np.asarray(speech.samples, dtype=np.float32), int(speech.sample_rate))
+            self._playing = item
+            try:
+                await self.audio.play(np.asarray(speech.samples, dtype=np.float32), int(speech.sample_rate))
+            finally:
+                self._playing = None
             if not self._queue and not self.push_to_talk and (self._turn is None or self._turn.done()):
                 await self._set("idle")
 

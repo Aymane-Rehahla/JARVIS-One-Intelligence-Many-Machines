@@ -13,7 +13,7 @@ import sys
 import time
 from collections.abc import AsyncIterator, Callable
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import pytest
 import pytest_asyncio
@@ -321,3 +321,31 @@ async def test_alerts_reach_the_owner_from_incubator_1s_own_machine_and_through_
     assert [(a.node, a.level) for a in alerts] == [("incubator-1", "ESCALATE_TO_USER"), ("hvac", "ESCALATE_TO_USER"),
                                                    ("hvac", "DANGER")]
     assert all(a.text.endswith("Farm time 06:09.") and not a.reworded for a in alerts)
+
+
+@pytest.mark.asyncio
+async def test_voice_turns_share_the_limit_on_owner_turns() -> None:
+    """Review (31 Oct): the voice box called agent.reply directly, so two chat turns and a voice turn could all wait on
+    the 2B server's one slot. Every owner turn, chat or voice, goes through the same limit."""
+    from contracts import ChatDone, ReplyTimings
+    node = Node(load_node_config(ROOT / "nodes" / "incubator-1" / "node.toml"), NatsLink("incubator-1", logger=LOG),
+                logger=LOG)
+    gate = asyncio.Event()
+
+    class Slow:
+        async def reply(self, text: str, **options: Any) -> AsyncIterator[Any]:
+            await gate.wait()
+            yield ChatDone(request_id=options["request_id"], conversation_id="c-1", text="Done.", chunks=0,
+                           outcome="error", reason="test", numbers_checked=0, timings=ReplyTimings(total_ms=0))
+
+    node.agent = cast(Any, Slow())
+
+    async def drain(source: Literal["chat", "voice"], request_id: str) -> list[Any]:
+        return [item async for item in node.owner_turn("How is it?", request_id=request_id, conversation_id=None,
+                                                       source=source)]
+    holders = [asyncio.create_task(drain("chat", f"r-{index}")) for index in range(2)]
+    await asyncio.sleep(0.05)
+    (busy,) = await asyncio.wait_for(drain("voice", "v-1"), 2.0)
+    assert busy.outcome == "error" and "already answering" in busy.reason and busy.request_id == "v-1"
+    gate.set()
+    assert all(len(items) == 1 for items in await asyncio.gather(*holders))

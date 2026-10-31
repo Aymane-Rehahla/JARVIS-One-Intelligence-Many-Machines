@@ -69,12 +69,14 @@ class AlertWatcher:
         self._seen: OrderedDict[tuple[str, NodeId, str], int] = OrderedDict()
 
     async def on_assessment(self, assessment: FarmAssessment) -> AlertNotice | None:
-        """The notice sent for this assessment, or None (not an alert level, or already told)."""
+        """The notice sent for this assessment, or None (not an alert level, already told, or lost on the radio: then
+        the next assessment at that level sends it again; incubator-1's desk drops any repeat)."""
         if assessment.assessment not in ALERT_LEVELS or assessment.node != self.node:
             return None
         key = alert_key(assessment)
         rank = RANK[assessment.assessment]
-        if self._seen.get(key, 0) >= rank:
+        before = self._seen.get(key, 0)
+        if before >= rank:
             return None
         self._seen[key] = rank
         self._seen.move_to_end(key)
@@ -82,7 +84,10 @@ class AlertWatcher:
             self._seen.popitem(last=False)
         notice = AlertNotice(notice_id=f"n-{uuid.uuid4().hex[:12]}", sender=self.node, target=SPEAKER,
                              assessment=assessment, sent_utc=utc_now())
-        await self.send(notice)
+        if await self.send(notice) is False:              # the link is cut or the radio dropped it: not told
+            if self._seen.get(key) == rank:
+                self._seen[key] = before
+            return None
         return notice
 
 

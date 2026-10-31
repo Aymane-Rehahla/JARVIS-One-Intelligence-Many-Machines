@@ -5,8 +5,9 @@ with the supply-fan fault, every node's manual approved by a fixture, the gatewa
 `/ws/chat`. A recorder wraps the agent's own `verify_reply` call in its sentence gate (nothing else changes), so it
 sees every sentence the model wrote, before the gate decides, and this turn's evidence.
 - **E1 before:** of all numbers and times in the model's sentences (stopped ones and regenerations included), the
-  share that matched a tool result of the turn. **E1 after:** the same share in the replies as sent (the done text
-  verified again against the turn's evidence). Target: after = 100 %.
+  share that matched a tool result of the turn. **E1 after:** the same share in the replies as sent: every done
+  text, whatever its outcome (fallbacks and templates included), verified again against its turn's evidence (the
+  rig keeps each finished turn's evidence). Target: after = 100 %.
 - **E2:** for each citation, does the cited passage contain the reply's claim? Judged automatically and lexically
   (stated plainly in the result): a citation is supported when its passage shares at least SUPPORT_WORDS content
   words (4+ letters, not stopwords, not machine names) with the reply. Target >= 95 %.
@@ -81,8 +82,9 @@ async def run() -> dict[str, Any]:
                     done = answer.done or {}
                     conversation_id = done.get("conversation_id") or conversation_id
                     text = str(done.get("text", ""))
-                    evidence = seen[-1]["evidence"] if seen else []
-                    after = verify_reply(text, evidence) if evidence else None
+                    # every reply, whatever its outcome (a fallback's template included), against its turn's data
+                    evidence = rig.evidence.get(str(done.get("request_id")), seen[-1]["evidence"] if seen else [])
+                    after = verify_reply(text, evidence) if text else None
                     cited = []
                     for citation in done.get("citations") or []:
                         texts = [p["text"] for p in passages(evidence) if p.get("file") == citation["file"]

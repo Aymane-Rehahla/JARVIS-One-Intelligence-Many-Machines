@@ -93,3 +93,22 @@ def test_the_install_stops_on_anything_it_could_not_reverse_or_clean(tmp_path: P
     release, upstream, modules = fake_release(tmp_path, **options)  # type: ignore[arg-type]
     with pytest.raises(ir.InstallError, match=why):
         ir.install(release, upstream, modules, tmp_path / "out")
+
+
+def test_the_install_never_empties_a_folder_it_did_not_make(tmp_path: Path) -> None:
+    """Review (31 Oct): the install emptied whatever --out named; a mistaken --out (the release itself, a folder with
+    other files) would have been deleted (rule 2). It empties only an earlier install."""
+    release, upstream, modules = fake_release(tmp_path)
+    before = tree(release)
+    for out in (release, release / "brains", upstream, tmp_path):
+        with pytest.raises(ir.InstallError, match="not an earlier install|inside the release"):
+            ir.install(release, upstream, modules, out)
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / "keep.txt").write_text("mine", encoding="utf-8")
+    with pytest.raises(ir.InstallError, match="not an earlier install"):
+        ir.install(release, upstream, modules, other)
+    assert tree(release) == before and (other / "keep.txt").read_text(encoding="utf-8") == "mine"
+    out = tmp_path / "jarvis" / "release_v31"
+    ir.install(release, upstream, modules, out)
+    ir.install(release, upstream, modules, out)                       # an earlier install is replaced
