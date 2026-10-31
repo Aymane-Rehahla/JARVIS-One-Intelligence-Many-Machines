@@ -49,7 +49,8 @@ $downloadArgs = @("tools\download.py")
 if ($Assets) { $downloadArgs += @("--assets", $Assets) }
 & $python @downloadArgs
 if ($LASTEXITCODE) { throw "the download did not finish: run setup.ps1 again to resume" }
-if (-not $Assets) {
+if (-not $Assets) { & $python tools\farm_assets.py check *> $null }
+if (-not $Assets -and $LASTEXITCODE) {
     Write-Host "No 3D farm models given: everything works, but the 3D farm view stays empty." -ForegroundColor Yellow
     Write-Host "Add them later with: .\setup.ps1 -Assets <JARVIS-farm-assets.zip or its URL>" -ForegroundColor Yellow
 }
