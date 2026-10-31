@@ -15,11 +15,14 @@ Never write the three outside paths (the release folder, the training's Python, 
 | Evaluation scripts E1-E10, live rig, gate rules and documents fixes | `f5c9211` | logs/eval/*.json (results to WORKLOG) |
 | 6E: voice box, VAD/STT/TTS, voice routes, website voice panel, D1 passes | `1bf6ed6`, `00f6c8b` | decision 0022 |
 | Citations only when used; story and architecture docs | `bb917bb` | |
+| Gate: machine actions only from the machines' data | `02dbee3` | |
+| The 6C-6E review's 16 findings fixed (feed-bound ack, words not data, bounded turns, voice, alerts resent, evals) | `28e09cb` | WORKLOG "The independent review of 6C, 6D and 6E" |
+| Verifying every reply found two bugs (a colon after a time; a regeneration repeating sentences); `-VoiceWav` | `e4d849b` | |
 
 ## In flight
 
-- The evaluation chain (E1/E2 rerun done; E6 text, E8, E4, E6 voice with 10 real-agent runs) in the background.
-- An independent review of everything since `step-6W` (subagent, read-only).
+- The evaluation reruns on the fixed code (E1/E2, E8 done at `28e09cb`; E7 9/12 found the colon bug, fixed in
+  `e4d849b`; E6 text and voice running). Then E1/E2 and E7 again at `e4d849b`.
 
 ## Next
 
