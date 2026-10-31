@@ -20,11 +20,11 @@ It does everything, and can be run again to resume:
    openWakeWord), llama.cpp (Vulkan build b11829), the NATS server (v2.15.1) and a portable Node.js (v24.22.1);
 4. installs the website's packages.
 
-**The 3D farm models** (277 MB, too large for git) come as `JARVIS-farm-assets.zip`, attached to the GitHub release.
-Put the zip in the project folder before running setup, or add it later:
+**The 3D farm models** (277 MB, too large for git) are attached to the project's GitHub release as
+`JARVIS-farm-assets.zip`; setup downloads them by itself. To use a copy you already have:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\setup.ps1 -Assets <path to JARVIS-farm-assets.zip, or its URL>
+powershell -ExecutionPolicy Bypass -File .\setup.ps1 -Assets <path to JARVIS-farm-assets.zip>
 ```
 
 Without them everything works, but the 3D farm view stays empty.

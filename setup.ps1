@@ -7,13 +7,16 @@ Sets JARVIS up on a Windows PC: Python environment, models, programs, website. R
 2. Creates .venv and installs the exact, hashed Python packages from requirements.lock.
 3. Runs tools\download.py: the model weights (about 3.8 GB), llama.cpp, the NATS server and a portable Node.js, every
    file checked against its SHA-256. Running it again resumes and skips what is already in place.
-4. Unpacks the 3D farm models when a JARVIS-farm-assets.zip is beside the project (or given with -Assets).
+4. Adds the 3D farm models: a JARVIS-farm-assets.zip beside the project, -Assets, or the GitHub release.
 5. Installs the website's packages (npm ci).
 
 .PARAMETER Assets
-The 3D farm models: a local JARVIS-farm-assets.zip or its https URL (the GitHub release asset).
+The 3D farm models: a local JARVIS-farm-assets.zip or an https URL (default: the GitHub release).
 #>
 param([string]$Assets = "")
+
+# The 3D farm models (too large for git), attached to the project's GitHub release
+$AssetsRelease = "https://github.com/Aymane-Rehahla/JARVIS-One-Intelligence-Many-Machines/releases/download/v1.0/JARVIS-farm-assets.zip"
 
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
@@ -45,14 +48,19 @@ if (-not $Assets) {
         if (Test-Path (Join-Path $root $candidate)) { $Assets = (Resolve-Path (Join-Path $root $candidate)).Path; break }
     }
 }
-$downloadArgs = @("tools\download.py")
-if ($Assets) { $downloadArgs += @("--assets", $Assets) }
-& $python @downloadArgs
+& $python tools\download.py
 if ($LASTEXITCODE) { throw "the download did not finish: run setup.ps1 again to resume" }
-if (-not $Assets) { & $python tools\farm_assets.py check *> $null }
-if (-not $Assets -and $LASTEXITCODE) {
-    Write-Host "No 3D farm models given: everything works, but the 3D farm view stays empty." -ForegroundColor Yellow
-    Write-Host "Add them later with: .\setup.ps1 -Assets <JARVIS-farm-assets.zip or its URL>" -ForegroundColor Yellow
+$ErrorActionPreference = "Continue"                  # the check's own output is not an error of this script
+& $python tools\farm_assets.py check *> $null
+$assetsMissing = $LASTEXITCODE -ne 0
+$ErrorActionPreference = "Stop"
+if ($assetsMissing -or $Assets) {
+    if (-not $Assets) { $Assets = $AssetsRelease }
+    & $python tools\download.py --assets $Assets
+    if ($LASTEXITCODE) {
+        Write-Host "The 3D farm models could not be added: everything works, but the 3D farm view stays empty." -ForegroundColor Yellow
+        Write-Host "Add them later with: .\setup.ps1 -Assets <JARVIS-farm-assets.zip or its URL>" -ForegroundColor Yellow
+    }
 }
 
 Step "Website packages (npm ci)"
