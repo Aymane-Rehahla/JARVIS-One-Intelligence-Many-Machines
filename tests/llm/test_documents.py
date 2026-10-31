@@ -174,3 +174,129 @@ def test_empty_rom_is_a_valid_empty_index(tmp_path: Path) -> None:
     assert documents.search("anything") == []
     assert documents.infos() == []
     documents.close()
+
+
+SOURCE_LINK = "../../../../_dev/farm_poc_snapshot/devices/hvac.py"
+
+
+def write_doc(rom: Path, name: str, body: str) -> Path:
+    """An approved ROM document with the given Markdown body (its source is make_rom's copied HVAC device)."""
+    path = rom / name
+    path.write_text(f'+++\nnode = "hvac"\ntitle = "Guide"\nkind = "shared"\nversion = 1\nstatus = "approved"\n'
+                    f'sources = [{{ title = "device", link = "{SOURCE_LINK}" }}]\n+++\n{body}', encoding="utf-8")
+    return path
+
+
+def insert_passages(documents: Documents, texts: list[str]) -> None:
+    with documents._db:
+        documents._db.execute("INSERT INTO documents VALUES(?,?,?,?,?)", ("manual.md", "a" * 64, 1, "Manual", "shared"))
+        for ordinal, text in enumerate(texts, start=1):
+            documents._db.execute("INSERT INTO passages(file,section,ordinal,text,tokens) VALUES(?,?,?,?,?)",
+                                  ("manual.md", "Manual", ordinal, text, len(text.split())))
+
+
+def test_search_returns_a_whole_indexed_passage_longer_than_1200_characters(tmp_path: Path) -> None:
+    """Bug (a): results were cut to 1,200 characters although passages are bounded by tokens when split."""
+    rom = make_rom(tmp_path)
+    words = " ".join(f"compressor{index:03d}" for index in range(250))          # 3,249 characters, 325 tokens
+    document = write_doc(rom, "long.md", f"# Guide\n\n## Long section\n\n{words} the very end.\n")
+    write_approvals(rom, [document])
+    documents = Documents(rom, tmp_path / "docs_index.sqlite", HashEmbedder(), tokenizer_path=None)
+    assert documents.rebuild()
+    stored = [passage.text for passage in split_document(document, tokenizer_path=None)]
+    assert len(stored) == 1 and len(stored[0]) > 1200 and stored[0].endswith("the very end.")
+    results = documents.search("compressor000", 4)
+    assert [item["text"] for item in results] == stored
+    assert results[0]["truncated"] is False
+    documents.close()
+
+
+def test_search_marks_a_pathological_passage_it_cuts_for_the_bounded_tool_output(tmp_path: Path) -> None:
+    """A passage the splitter could not bound (one 9,000-character word) is cut to MAX_RESULT_CHARS, never silently."""
+    from llm.documents import MAX_RESULT_CHARS
+
+    rom = make_rom(tmp_path)
+    documents = Documents(rom, tmp_path / "docs_index.sqlite", HashEmbedder(), tokenizer_path=None)
+    insert_passages(documents, ["x" * 9000])
+    documents._keyword = types.MethodType(lambda self, query: [1], documents)
+    documents._vector = types.MethodType(lambda self, query: [1], documents)
+    [result] = documents.search("x", 4)
+    assert result["truncated"] is True and result["text"] == "x" * MAX_RESULT_CHARS
+    documents.close()
+
+
+def test_keyword_query_drops_stopwords_but_never_becomes_empty(tmp_path: Path) -> None:
+    """Bug (b): "what is the compressor" matched a passage made only of stopwords."""
+    rom = make_rom(tmp_path)
+    documents = Documents(rom, tmp_path / "docs_index.sqlite", HashEmbedder(), tokenizer_path=None)
+    insert_passages(documents, ["what is the use of it, and is it the one?", "the compressor stays off for 300 s"])
+    assert documents._keyword("what is the compressor") == [2]
+    assert documents._keyword("What's the COMPRESSOR doing?") == [2]
+    assert sorted(documents._keyword("what is it")) == [1]           # only stopwords: they are kept
+    documents.close()
+
+
+def test_a_heading_without_its_own_section_never_becomes_a_passage(tmp_path: Path) -> None:
+    """Bug (c): each document's H1 title became a tiny passage of its own (the title and its one-line lead), a
+    distractor. A heading's lead text before its first subheading now goes with that first subsection; the heading's
+    words stay in the section path. A document with no subheadings keeps its single section."""
+    path = tmp_path / "guide.md"
+    path.write_text('+++\ntitle = "Guide"\nkind = "shared"\nversion = 1\n+++\n\n# Guide\n\n'
+                    "*Derived from the model.* This guide wins.\n\n## Part A\n\nBody A.\n\n## Part B\n\nBody B.\n",
+                    encoding="utf-8")
+    passages = split_document(path, tokenizer_path=None)
+    assert [passage.section for passage in passages] == ["Guide > Part A", "Guide > Part B"]
+    assert passages[0].text == "*Derived from the model.* This guide wins.\n\nBody A."
+    bare = tmp_path / "bare.md"
+    bare.write_text('+++\ntitle = "Guide"\nkind = "shared"\nversion = 1\n+++\n# Guide\n\n## Part A\n\nBody A.\n',
+                    encoding="utf-8")
+    assert [(p.section, p.text) for p in split_document(bare, tokenizer_path=None)] == [("Guide > Part A", "Body A.")]
+    single = tmp_path / "single.md"
+    single.write_text('+++\ntitle = "Notes"\nkind = "shared"\nversion = 1\n+++\n# Notes\n\nOnly text.\n',
+                      encoding="utf-8")
+    assert [(p.section, p.text) for p in split_document(single, tokenizer_path=None)] == [("Notes", "Only text.")]
+
+
+def test_no_rom_document_with_subheadings_has_a_title_only_passage() -> None:
+    for path in sorted((ROOT / "nodes").glob("*/memory/rom/*.md")):
+        passages = split_document(path)
+        sections = {passage.section for passage in passages}
+        if any(" > " in section for section in sections):
+            assert all(" > " in section for section in sections), path
+
+
+def test_token_counter_falls_back_with_a_log_on_a_broken_tokenizer_file(tmp_path: Path,
+                                                                         caplog: pytest.LogCaptureFixture) -> None:
+    """Bug (d): every exception was swallowed silently. Now the expected load errors fall back and are logged."""
+    broken = tmp_path / "tokenizer.json"
+    broken.write_text("not json", encoding="utf-8")
+    with caplog.at_level("WARNING", logger="jarvis.documents"):
+        counter = _TokenCounter(broken)
+    assert counter.count("one two three") == 4                      # the word estimate: ceil(3 * 1.3)
+    assert any("tokenizer" in record.getMessage() and record.levelname == "WARNING" for record in caplog.records)
+
+
+def test_token_counter_logs_when_the_tokenizers_package_is_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+                                                                    caplog: pytest.LogCaptureFixture) -> None:
+    import sys
+
+    monkeypatch.setitem(sys.modules, "tokenizers", None)             # makes `from tokenizers import ...` raise
+    path = tmp_path / "tokenizer.json"
+    path.write_text("{}", encoding="utf-8")
+    with caplog.at_level("WARNING", logger="jarvis.documents"):
+        counter = _TokenCounter(path)
+    assert counter.count("one two") == 3
+    assert any("tokenizer" in record.getMessage() for record in caplog.records)
+
+
+def test_token_counter_does_not_hide_an_unexpected_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import tokenizers
+
+    def broken(path: str) -> object:
+        raise ValueError("a programming error, not a bad tokenizer file")
+
+    monkeypatch.setattr(tokenizers.Tokenizer, "from_file", staticmethod(broken))
+    path = tmp_path / "tokenizer.json"
+    path.write_text("{}", encoding="utf-8")
+    with pytest.raises(ValueError, match="programming error"):
+        _TokenCounter(path)

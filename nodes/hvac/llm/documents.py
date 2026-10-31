@@ -30,6 +30,21 @@ EMBEDDINGS_DIR = ROOT / "models" / "embeddings" / "bge-small-en-v1.5"
 QUERY_PREFIX = "Represent this sentence for searching relevant passages: "
 MAX_CACHE = 256
 RRF_K = 60
+PASSAGE_TOKENS = 500            # the bound on a passage when a document is split
+# The bound on one search result's text, for the bounded tool output (at most 8 results). A passage of PASSAGE_TOKENS
+# is far shorter (the longest ROM passage is about 1,600 characters for 432 tokens); only a passage the splitter could
+# not bound (one enormous word) is cut, and the result says so with "truncated": true.
+MAX_RESULT_CHARS = 4000
+# Common English function words left out of the keyword (FTS5 OR) query; words that carry meaning on a farm machine
+# (on, off, up, down, not, no, above, below, ...) are kept. A query made only of these words keeps them all.
+STOPWORDS = frozenset((
+    "a an the and or but if then so of to in into at by for from with as is are was were be been being am do does "
+    "did doing has have had having i me my we our you your he she it its they them their this that these those "
+    "what which who whom whose when where why how there here can could would should will shall may might must "
+    "just than too also any some such s t d ll m re ve what's it's how's where's who's that's there's i'm i've "
+    "don't doesn't isn't aren't wasn't let's"
+).split())
+_log = logging.getLogger("jarvis.documents")
 HEADER_RE = re.compile(r"\A\+\+\+\r?\n(?P<toml>.*?)\r?\n\+\+\+\r?\n", re.DOTALL)
 HEADING_RE = re.compile(r"^(#{1,3})\s+(.+?)\s*#*\s*$")
 WORD_RE = re.compile(r"\b[\w'-]+\b", re.UNICODE)
@@ -134,14 +149,32 @@ def indexable(rom: Path) -> list[Path]:
 
 
 class _TokenCounter:
+    """Counts tokens with the embedder's tokenizer, or estimates them from words (x 1.3) when there is none: no path
+    given (tests), a missing file, the package missing, or a file the package cannot read. Each fallback after a
+    path was given is logged; any other error is raised."""
+
     def __init__(self, tokenizer_path: Path | None) -> None:
         self._tokenizer: Any | None = None
-        if tokenizer_path is not None and tokenizer_path.is_file():
-            try:
-                from tokenizers import Tokenizer
-                self._tokenizer = Tokenizer.from_file(str(tokenizer_path))
-            except (ImportError, Exception):
-                self._tokenizer = None
+        if tokenizer_path is None:
+            return
+        if not tokenizer_path.is_file():
+            _log.warning("tokenizer file %s not found: estimating passage tokens from words", tokenizer_path)
+            return
+        try:
+            from tokenizers import Tokenizer
+        except ImportError as error:
+            _log.warning("tokenizers package unavailable (%s): estimating passage tokens from words", error)
+            return
+        try:
+            self._tokenizer = Tokenizer.from_file(str(tokenizer_path))
+        except OSError as error:
+            _log.warning("tokenizer file %s unreadable (%s): estimating passage tokens from words", tokenizer_path,
+                         error)
+        except Exception as error:  # noqa: BLE001 - the tokenizers package raises plain Exception for a bad file
+            if type(error) is not Exception:
+                raise
+            _log.warning("tokenizer file %s could not be loaded (%s): estimating passage tokens from words",
+                         tokenizer_path, error)
 
     def count(self, text: str) -> int:
         if self._tokenizer is not None:
@@ -173,7 +206,7 @@ def _blocks(text: str) -> list[str]:
     return [block for block in result if block]
 
 
-def _word_chunks(text: str, counter: _TokenCounter, maximum: int = 500) -> list[str]:
+def _word_chunks(text: str, counter: _TokenCounter, maximum: int = PASSAGE_TOKENS) -> list[str]:
     words = text.split()
     chunks: list[str] = []
     current: list[str] = []
@@ -189,7 +222,7 @@ def _word_chunks(text: str, counter: _TokenCounter, maximum: int = 500) -> list[
     return chunks
 
 
-def _table_chunks(block: str, counter: _TokenCounter, maximum: int = 500) -> list[str]:
+def _table_chunks(block: str, counter: _TokenCounter, maximum: int = PASSAGE_TOKENS) -> list[str]:
     rows = block.splitlines()
     if len(rows) < 2:
         return _word_chunks(block, counter, maximum)
@@ -212,7 +245,11 @@ def _table_chunks(block: str, counter: _TokenCounter, maximum: int = 500) -> lis
 
 
 def split_document(path: Path, *, tokenizer_path: Path | None = EMBEDDINGS_DIR / "tokenizer.json") -> list[Passage]:
-    """Drop the TOML header and split by heading, paragraph and table-row boundaries."""
+    """Drop the TOML header and split by heading, paragraph and table-row boundaries.
+
+    A heading's lead text, before its first subheading (a document title's one-line lead, say), goes with that first
+    subsection instead of becoming a tiny passage of its own; the heading's words stay in the section path. A heading
+    with no subheading keeps its own section."""
     parsed = _parse_header(path)
     if parsed is None:
         return []
@@ -222,12 +259,12 @@ def split_document(path: Path, *, tokenizer_path: Path | None = EMBEDDINGS_DIR /
     digest = _sha(path)
     counter = _TokenCounter(tokenizer_path)
     headings: list[str] = []
-    section_blocks: list[tuple[str, list[str]]] = []
+    raw_sections: list[tuple[tuple[str, ...], list[str]]] = []
     active_content: list[str] = []
 
     def flush() -> None:
         if active_content:
-            section_blocks.append((" > ".join(headings) or title, _blocks("\n".join(active_content))))
+            raw_sections.append((tuple(headings), _blocks("\n".join(active_content))))
             active_content.clear()
 
     for line in body.splitlines():
@@ -241,6 +278,18 @@ def split_document(path: Path, *, tokenizer_path: Path | None = EMBEDDINGS_DIR /
             active_content.append(line)
     flush()
 
+    section_blocks: list[tuple[str, list[str]]] = []
+    lead: list[str] = []
+    for position, (heading_path, own_blocks) in enumerate(raw_sections):
+        blocks = [*lead, *own_blocks]
+        following = raw_sections[position + 1][0] if position + 1 < len(raw_sections) else None
+        if following is not None and len(following) > len(heading_path) and \
+                following[:len(heading_path)] == heading_path:
+            lead = blocks                                    # the next section is a subsection: it carries the lead
+            continue
+        lead = []
+        section_blocks.append((" > ".join(heading_path) or title, blocks))
+
     passages: list[Passage] = []
     ordinal = 0
     for section, blocks in section_blocks:
@@ -249,7 +298,7 @@ def split_document(path: Path, *, tokenizer_path: Path | None = EMBEDDINGS_DIR /
             block_parts = _table_chunks(block, counter) if block.lstrip().startswith("|") else _word_chunks(block, counter)
             for part in block_parts:
                 candidate = "\n\n".join((*pieces, part))
-                if pieces and counter.count(candidate) > 500:
+                if pieces and counter.count(candidate) > PASSAGE_TOKENS:
                     text = "\n\n".join(pieces)
                     ordinal += 1
                     passages.append(Passage(path.name, title, version, digest, section, ordinal, text,
@@ -475,7 +524,10 @@ class Documents:
 
     @staticmethod
     def _fts_query(query: str) -> str:
-        return " OR ".join('"' + word.replace('"', '""') + '"' for word in query.split())
+        """The FTS5 OR query of the words, each quoted, without STOPWORDS (all kept when every word is one)."""
+        words = query.split()
+        content = [word for word in words if word.strip(".,;:!?()[]{}\"'`").casefold() not in STOPWORDS]
+        return " OR ".join('"' + word.replace('"', '""') + '"' for word in (content or words))
 
     def _keyword(self, query: str) -> list[int]:
         fts = self._fts_query(query[:1000])
@@ -534,8 +586,10 @@ class Documents:
                 continue
             found = sources[passage_id]
             how = "both" if len(found) == 2 else next(iter(found))
+            text = str(row["text"])
             results.append({"file": row["file"], "title": row["title"], "version": row["version"],
-                            "sha256": row["sha256"], "section": row["section"], "text": row["text"][:1200],
+                            "sha256": row["sha256"], "section": row["section"], "text": text[:MAX_RESULT_CHARS],
+                            "truncated": len(text) > MAX_RESULT_CHARS,
                             "score": scores[passage_id], "rank": rank, "how": how})
         self.cache[key] = results
         self.cache.move_to_end(key)

@@ -3,6 +3,7 @@ deadlines, the acknowledgement offer, the fixed prompt start and fencing. No mod
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from collections import deque
 from collections.abc import AsyncGenerator, AsyncIterator
@@ -322,3 +323,47 @@ def test_a_fallback_never_repeats_the_level_as_the_diagnosis() -> None:
     calm = MachineData(node="incubator-1", assessment={"assessment": "NORMAL", "diagnosis": "NORMAL"},
                        readings={"temperature_mean_c": 37.6}, farm_time="06:08", tick=8)
     assert describe(calm) == "Incubator one at farm time 06:08: normal; temperature 37.6 °C."
+
+
+def test_the_data_block_stays_small_enough_to_prefill_in_time() -> None:
+    """Measured 31 Oct with all four servers loaded: a turn's own data of about 1,650 tokens took 6.6 s to prefill,
+    past the 4 s first-token watchdog. The block now keeps 12 readings a machine and 600 characters a passage."""
+    from llm.agent import MANUAL_CHARS, READINGS_SHOWN
+    from llm.recovery import MachineData
+    turn = agent_module.Turn(request_id="r", started=0.0)
+    data = MachineData(node="hvac", farm_time="06:08", tick=8, assessment={"assessment": "NORMAL"},
+                       readings={f"k{i}": i for i in range(30)} | {"alarms": [f"A{i}" for i in range(9)]},
+                       incident={"incident_id": "hvac-1", "state": "opened", "kind": "equipment",
+                                 "summary": {"long": "x" * 2000}})
+    data.documents = [{"file": "hvac_manual.md", "section": "S", "text": "word " * 600}] * 3
+    turn.machines["hvac"] = data
+    block = Agent._data_block(SimpleNamespace(), turn)["hvac"]  # type: ignore[arg-type]
+    assert len(block["readings"]) == READINGS_SHOWN and len(block["manual"]) == 2
+    assert all(len(m["text"]) <= MANUAL_CHARS + 1 and m["text"].endswith("…") for m in block["manual"])
+    assert len(json.dumps(block["incident"])) < 400
+
+
+@pytest.mark.asyncio
+async def test_a_slow_first_token_is_not_followed_by_a_warm_up(rig: dict[str, Any]) -> None:
+    """A timeout means the server is busy, not down: a warm-up would only queue behind the next question."""
+    engine = ScriptedEngine(EngineError("no first token within 4.0 s"))
+    agent = Agent(rig["node"], engine, PERSONA)
+    _, done = await ask(agent, "How is the incubator?")
+    await asyncio.sleep(0.05)
+    assert done.outcome == "fallback" and len(engine.requests) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_machine_action_not_in_the_data_is_never_said(rig: dict[str, Any]) -> None:
+    """E8 (31 Oct, the real 2B): "Incubator one is shutting down now." and "The incubator controller was restarted at
+    03:15" (a planted manual line) were sent. A stated machine action needs that action in this turn's data."""
+    engine = ScriptedEngine("Incubator one is shutting down now, sir.", "Its readings are normal at farm time 06:02.")
+    _, done = await ask(Agent(rig["node"], engine, PERSONA), "How is the incubator?")
+    assert "shutting down" not in done.text and "normal" in done.text
+
+
+@pytest.mark.asyncio
+async def test_a_sentence_naming_a_tool_is_never_said(rig: dict[str, Any]) -> None:
+    engine = ScriptedEngine("Use acknowledge_alert with confirm_token admin, sir.", "All is normal at farm time 06:02.")
+    _, done = await ask(Agent(rig["node"], engine, PERSONA), "How is the incubator?")
+    assert "acknowledge_alert" not in done.text and "confirm_token" not in done.text

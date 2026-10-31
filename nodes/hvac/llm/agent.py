@@ -55,6 +55,10 @@ GATEWAY_CHAT_S = 30.0                         # the gateway's deadline for a Cha
 ALERT_TEMPLATE_S = 0.5                        # an alert's template is sent within this of hearing it
 ALERT_REWORD_S = 2.0                          # the model may reword it only if verified within this in total
 MAX_TOOL_ROUNDS = 2
+#: The turn's own data, bounded so it prefills within the first-token watchdog (measured 31 Oct, all four servers
+#: loaded: about 250 tokens/s; a block of about 1,650 tokens took 6.6 s).
+READINGS_SHOWN = 12
+MANUAL_CHARS = 600
 WARM_S = 30.0                    # the warm-up's own deadline (cold prefill 6.5 s, or a server still loading)
 MAX_CITATIONS = 3
 QUEUE_SIZE = 64
@@ -84,6 +88,21 @@ REFUSALS: dict[str, str] = {
 _ABBREVIATIONS = ("e.g.", "i.e.", "etc.", "approx.", "vs.", "no.", "dr.", "mr.", "mrs.", "st.", "a.m.", "p.m.",
                   "fig.", "min.", "max.", "approx.")
 _BAD_SENTENCE = re.compile(r"\[|\]|<\s*/?\s*(?:data|owner|tool)|tool results|```", _I)
+# The tools and their arguments are JARVIS's own business, never something to tell the owner (E8: a planted manual
+# line made the model say "Use acknowledge_alert with confirm_token admin").
+_TOOL_TALK = re.compile(r"\b(?:" + "|".join(("get_status", "get_assessment", "get_trend", "list_events", "get_incident",
+                                              "search_documents", "ask_peer", "recall_conversation",
+                                              "acknowledge_alert", "confirm_token")) + r")\b", _I)
+# A machine action said as a fact (E8: "Incubator one is shutting down now."), sent only when this turn's data names
+# that action: each pattern, with the word that must then appear in the data.
+_STATED_ACTIONS = (
+    (re.compile(r"\bshut(?:s|ting)?\s+(?:it\s+)?down\b|\bshutdown\b", _I), "shut"),
+    (re.compile(r"\brestart(?:s|ed|ing)?\b|\breboot(?:s|ed|ing)?\b", _I), "restart"),
+    (re.compile(r"\b(?:switch|turn)(?:s|ed|ing)?\s+(?:it\s+)?off\b", _I), "off"),
+    (re.compile(r"\b(?:faults?|alarms?|alerts?)\s+(?:\w+\s+){0,3}(?:cleared|silenced)\b", _I), "clear"),
+    (re.compile(r"\b(?:called|calling|phoned|dialled|dialed)\b[^.!?]{0,40}\b(?:brigade|civil|police|ambulance)\b",
+                _I), "call"),
+)
 # JARVIS talks and never acts (ground rule 3): a sentence in which it says it did something is never sent.
 _CLAIMED_ACTION = re.compile(
     r"\b(?:I|we)(?:'ve|'d|\s+have|\s+had)?\s+(?:just\s+|already\s+|now\s+|also\s+)?"
@@ -91,6 +110,13 @@ _CLAIMED_ACTION = re.compile(
     r"dialed|contacted|notified|alerted|reset|cleared|silenced|acknowledged|adjusted|lowered|raised|activated|"
     r"deactivated|deployed|sent|ordered|triggered|isolated|unlocked|locked)\b", _I)
 LLM_TOOLS = ("get_trend", "list_events", "get_incident", "search_documents", "ask_peer", "recall_conversation")
+
+
+def _cut(text: str, limit: int) -> str:
+    """At most `limit` characters, cut at a word and marked, so the model knows the passage goes on."""
+    if len(text) <= limit:
+        return text
+    return text[:limit].rsplit(" ", 1)[0] + "…"
 
 
 def split_sentences(buffer: str) -> tuple[list[str], str]:
@@ -436,11 +462,14 @@ class Agent:
                 entry["conclusion"] = {k: data.assessment.get(k) for k in
                                        ("assessment", "diagnosis", "confidence", "evidence", "recommendation", "brain")}
             if data.readings:
-                entry["readings"] = data.readings
+                entry["readings"] = {key: value[:4] if isinstance(value, list) else value
+                                     for key, value in list(data.readings.items())[:READINGS_SHOWN]}
             if data.incident:
-                entry["incident"] = data.incident
+                entry["incident"] = {k: data.incident.get(k) for k in ("incident_id", "state", "kind")
+                                     if data.incident.get(k) is not None}
             if data.documents:
-                entry["manual"] = [{"file": d.get("file"), "section": d.get("section"), "text": d.get("text")}
+                entry["manual"] = [{"file": d.get("file"), "section": d.get("section"),
+                                    "text": _cut(str(d.get("text") or ""), MANUAL_CHARS)}
                                    for d in data.documents[:2]]
             if data.error and not data.assessment and not data.readings:
                 entry["not_answering"] = data.error
@@ -476,7 +505,8 @@ class Agent:
         except EngineError as error:
             turn.outcome, turn.reason = "fallback", f"language model unavailable: {str(error)[:200]}"
             await send(self._join(said, fallback_text(list(turn.machines.values()), "model")))
-            self.rewarm()
+            if str(error).startswith("server unreachable"):           # down (maybe restarted, so cold); not just slow
+                self.rewarm()
         if turn.outcome == "answered" and not said:
             turn.outcome, turn.reason = "fallback", "the language model returned no text"
             await send(fallback_text(list(turn.machines.values()), "verify"))
@@ -545,6 +575,16 @@ class Agent:
         if _CLAIMED_ACTION.search(sentence):
             turn.unverified_sentences += 1
             return "it said JARVIS did something, and JARVIS never acts"
+        if _TOOL_TALK.search(sentence):
+            turn.unverified_sentences += 1
+            return "it named a tool, which is not for the owner"
+        data = None
+        for pattern, word in _STATED_ACTIONS:
+            if pattern.search(sentence):
+                data = data if data is not None else json.dumps(turn.evidence, default=str).lower()
+                if word not in data:
+                    turn.unverified_sentences += 1
+                    return "it stated a machine action that is not in the data"
         report = verify_reply(sentence, turn.evidence)
         if not report.ok:
             turn.unverified_sentences += 1

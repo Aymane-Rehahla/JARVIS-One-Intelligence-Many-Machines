@@ -424,3 +424,11 @@ def test_the_owner_acknowledgement_marks_that_nodes_delivered_notifications() ->
         assert again.status_code == 404 and "no delivered, unacknowledged" in again.json()["detail"]
         assert client.post("/sim/reset").status_code == 200                              # a new run has none
         assert client.post(f"/alerts/incubator-1/{incident}/ack").status_code == 404
+
+
+def test_the_farm_clock_never_carries_the_engines_episode_id() -> None:
+    """E9 (P3 section 7): the Matrix's own episode id is evaluator data and a forbidden string; farm.sim names the
+    farm run by its public feed_id instead."""
+    runtime, _ = farm(running=False)
+    state = runtime.sim_state()
+    assert state.episode_id == runtime.feed_id != str(runtime.engine.world.episode_id)

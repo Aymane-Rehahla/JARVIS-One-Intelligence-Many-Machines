@@ -97,7 +97,38 @@ the Matrix route marks it (test). Measured in process on the four demo faults (9
 | humidity sensor drift (incubator-2) | **not caught** in 900 ticks (as with the rule brains) | animal protection false alert at 14 |
 | supply overvoltage (both incubators) | both HANDLED_BY_MACHINE, SUPPLY_OVERVOLTAGE at tick 2 | animal protection ESCALATE (power outage) at 9 |
 
-Not done yet in 6D: the real run from the website with `start_all.ps1 -NoLlm`, E9, E10, the review and the tag.
+### The real run (31 Oct, about 01:35-01:50 local; `start_all.ps1 -NoLlm`, the trained feed by default)
+The Matrix answered `{"label": "live: trained brains", "feed": "trained"}`; the website showed "live: trained brains".
+Speed 10x set from the website; each fault injected from the Simulator page after a reset from the website; every
+node's conclusion recorded from NATS by a watcher (`farm.*.assessment`, `jarvis.incubator-1.alert`):
+
+| Demo fault (injected at tick) | What the faulted machine's node said, and when | Alerts |
+|---|---|---|
+| heater relay stuck (191) | incubator-1 ESCALATE_TO_USER / HEATER_FAULT, certainty 1.000, cause self (website decision log; still so at tick 499, 07:00) | yes |
+| supply fan failure (186) | hvac ESCALATE_TO_USER / SUPPLY_FAN_FAULT at tick 328 (142 farm s), 06:57; then flips between SUPPLY_FAN_FAULT and EXTERNAL_HAZARD at confidence 0.40-0.53, twice back to NORMAL; incubators WATCHING (external hazard, communication loss) | one owner alert per flip (about 15 in 4 farm minutes) |
+| supply overvoltage (215) | incubator-1 left NORMAL at 224 (9 s); both incubators ESCALATE_TO_USER / SUPPLY_OVERVOLTAGE at 258 (43 s) | yes |
+| humidity sensor drift (179) | **not caught**: incubator-2 WATCHING / UNKNOWN_ANOMALY only at 1048 (14.5 farm min), when incubator-1 (not faulted) did the same | n/a |
+
+In every run animal protection raised false ESCALATE alerts in the first 15 farm seconds (water supply loss, power
+outage; the release's known issue) and returned to NORMAL at about tick 195. Everything was stopped with
+`stop_all.ps1`; the ports were free and no program was left.
+
+Seen, not changed (do not tune the brains): the hvac brain's flipping makes the alert desk send a new owner alert at
+each flip (the alert key is node + incident + level, and its incident id changes with the diagnosis). Whether to
+calm alerts per node is an owner decision; noted for the summary.
+
+### E9, the epistemic wall (`tests/llm/eval/e9_epistemic_wall.py`, `logs/eval/E9.json`): passed, 0 leaks
+The trained feed on a private nats-server, the four nodes (no language model), a recorder on every subject; 300
+ticks per demo fault: 1,256 / 1,252 / 963 / 1,557 messages on farm.<node>.status/assessment/events/incident,
+farm.sim, farm.links, jarvis.<node>.heartbeat/capabilities/notice/alert. Forbidden: the scenario id, the family, the
+fault's spec strings (mode, channel), the engine's episode id, every string of its hidden truth and fault log.
+- **Found and fixed (test first):** `farm.sim` carried the engine's own episode id (the same for every fault, but
+  evaluator data and on P3's forbidden list); it now carries the farm run's public `feed_id`.
+- Judged, not leaks: `farm.incubator-<n>.status /readings/power_status = "overvoltage"` (70 each: the machines' own
+  telemetry, as in 6W) and 4 owner alerts saying "supply overvoltage" (the incubators' own published conclusion
+  SUPPLY_OVERVOLTAGE in words).
+- Not covered: `mentor.llm_failures` (no gateway in this run, so nothing was published on it).
+
 
 ## Step 6W, part 2 (first piece): the website's chat, acknowledgement, alerts and LLM switches (31 Oct 2026)
 

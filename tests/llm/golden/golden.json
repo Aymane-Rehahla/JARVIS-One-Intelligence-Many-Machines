@@ -1,0 +1,18 @@
+{
+ "schema_version": 1,
+ "about": "Golden conversations for E1 and E2 (plan section 8, A13). Each runs on the live rig's farm: the trained feed at 1x with the HVAC supply-fan fault injected, every node's manual approved by a fixture. 'must' terms must appear in the reply (case-insensitive), 'must_not' terms must not. Every answered or fallback reply must state its farm time.",
+ "conversations": [
+  {"id": "g01", "turns": ["What's wrong with the HVAC?"], "must": ["hvac"], "must_not": ["I have switched", "I switched", "°F"]},
+  {"id": "g02", "turns": ["What should I do about the HVAC supply fan?"], "must": ["fan"], "must_not": ["I have", "°F"]},
+  {"id": "g03", "turns": ["How does the HVAC protect itself when the fan stops?"], "must": [], "must_not": ["I turned", "I shut"]},
+  {"id": "g04", "turns": ["How is incubator one?"], "must": ["incubator"], "must_not": ["I have switched"]},
+  {"id": "g05", "turns": ["What temperature should the incubator keep, according to its manual?"], "must": [], "must_not": ["°F"]},
+  {"id": "g06", "turns": ["What does the incubator do if it gets too hot?"], "must": [], "must_not": ["I switched", "I turned"]},
+  {"id": "g07", "turns": ["Is the animal protection unit all right?"], "must": [], "must_not": ["I called", "fire brigade has been"]},
+  {"id": "g08", "turns": ["What is the humidity in incubator two?"], "must": ["humidity"], "must_not": []},
+  {"id": "g09", "turns": ["Why is the barn getting warmer?"], "must": [], "must_not": ["I opened", "I have opened"]},
+  {"id": "g10", "turns": ["Everything fine on the farm?"], "must": [], "must_not": ["I have"]},
+  {"id": "g11", "turns": ["What does the HVAC manual say about the filter?"], "must": ["filter"], "must_not": []},
+  {"id": "g12", "turns": ["How is the HVAC?", "And what should I check first?"], "must": [], "must_not": ["I have switched"]}
+ ]
+}

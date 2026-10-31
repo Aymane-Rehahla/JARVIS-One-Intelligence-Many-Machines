@@ -468,7 +468,7 @@ class FarmRuntime:
         farm_time, day = self.farm_time()
         return SimState(tick=self.tick, time_s=self.time_s, farm_time=farm_time, day=day, running=self.running,
                         target_speed=self.speed, actual_speed=round(self.actual_speed(), 3), label=self.label,
-                        episode_id=str(self.engine.world.episode_id), feed_id=self.feed_id)
+                        episode_id=self.feed_id, feed_id=self.feed_id)  # never the engine's own id (E9)
 
     def link_state(self) -> LinkStatus:
         offline: list[NodeId] = [node for node in NODE_IDS if not self.engine.world.devices[node].online]

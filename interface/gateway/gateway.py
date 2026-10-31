@@ -16,6 +16,10 @@ skeleton, 6W the demo faults, 6C the chat, audit, acknowledgement and mentor rou
                                 MENTOR_REPUBLISH_S so a restarted node learns it
     POST /alerts/{node}/{incident_id}/ack   AckBody (the owner's confirm click) → incubator-1 checks the token
                                 (jarvis.incubator-1.ack) → the Matrix API; AckResponse with the stage reached
+    WS   /ws/voice        every VoiceStatus from jarvis.incubator-1.voice (6E), the latest one first
+    POST /voice/settings  VoiceSettings → jarvis.incubator-1.voice_settings (request-reply) → VoiceSettingsResult;
+                          503 with the reason when incubator-1 does not answer in time
+    POST /voice/ptt       PttBody → PushToTalk on jarvis.incubator-1.ptt; OkResponse
 
 Mentor fault clicks never go on NATS (ground rule 4). Only the website's own origins may connect (Q7).
 
@@ -59,7 +63,7 @@ from contracts import (CLIENT_MSG_ID, CONTROL_CHARACTERS, CONVERSATION_ID, FARM_
                        FARM_TIME, MACHINES, MENTOR_LLM_FAILURES, NODE_IDS, REQUEST_ID, AckCommand, AckResult,
                        AuditRecord, Capabilities, ChatChunk, ChatDone, ChatRequest, Contract, ContractError,
                        FarmAssessment, FarmEvent, FarmStatus, FaultResult, Heartbeat, LinkStatus, LlmFailureSwitches,
-                       Machine, NodeId, OwnerAlert, ScenarioId, SimState, VoiceSettings, VoiceSettingsResult,
+                       Machine, NodeId, OwnerAlert, PushToTalk, ScenarioId, SimState, VoiceSettings, VoiceSettingsResult,
                        VoiceStatus, decode, farm_subject, jarvis_subject, utc_now)
 
 MAX_SNAPSHOTS_PER_S = 5.0
@@ -77,7 +81,9 @@ AUDIT_QUEUE = 40                                           # audit records waiti
 SOCKET_QUEUE = 256                                         # messages waiting per /ws/chat socket; oldest dropped first
 MAX_CHAT_MESSAGE = 16_384                                  # characters in one /ws/chat message (a ChatSend is far less)
 MENTOR_REPUBLISH_S = 10.0                                  # the current LlmFailureSwitches again, for a restarted node
-ACK_TIMEOUT_S = 5.0                                        # incubator-1's answer to an AckCommand
+ACK_TIMEOUT_S = 5.0
+VOICE_TIMEOUT_S = 3.0                                      # incubator-1's answer to VoiceSettings
+VOICE_QUEUE = 16                                           # VoiceStatus messages waiting per /ws/voice socket                                        # incubator-1's answer to an AckCommand
 IDLE_CHECK_S = 1.0                                         # a socket's sender wakes at least this often
 INCIDENT_ID = r"^[^/\\\x00-\x1f]{1,80}$"                    # a path segment: no slash or backslash, no control character
 
@@ -371,6 +377,9 @@ class Gateway:
         self.audit_dropped = 0                                # audit records dropped from full /ws/audit outboxes
         self.late_pieces = 0                                  # reply pieces of no request in flight (late or unknown)
         self._republisher: asyncio.Task[None] | None = None
+        # 6E
+        self.voices: set[Outbox] = set()
+        self.voice_status: VoiceStatus | None = None
 
     async def start(self) -> None:
         """Subscribe to everything the website shows."""
@@ -419,6 +428,8 @@ class Gateway:
         await self.link.subscribe(jarvis_subject("incubator-1", "reply"), ReplyPiece, self._on_reply)
         await self.link.subscribe(jarvis_subject("incubator-1", "alert"), OwnerAlert, self._on_alert)
         await self.link.subscribe(jarvis_subject("*", "audit"), AuditRecord, self._on_audit)
+        # 6E
+        await self.link.subscribe(jarvis_subject("incubator-1", "voice"), VoiceStatus, self._on_voice)
         self._republisher = asyncio.create_task(self._republish())
 
     async def close(self) -> None:
@@ -499,6 +510,28 @@ class Gateway:
         for session in list(self.chats):
             self.to_chat(session, message)
         log(self.logger, logging.INFO, "owner alert relayed", alert_id=message.alert_id, sockets=len(self.chats))
+
+    # --- 6E: voice ---
+
+    async def _on_voice(self, message: VoiceStatus, subject: str) -> None:
+        self.voice_status = message
+        for outbox in list(self.voices):
+            outbox.put(message)
+
+    async def voice_settings(self, settings: VoiceSettings) -> VoiceSettingsResult:
+        """Pass the owner's choice to incubator-1; HTTPException(503) when it does not answer in time."""
+        try:
+            return await self.link.request(jarvis_subject("incubator-1", "voice_settings"), settings,
+                                           VoiceSettingsResult, timeout_s=VOICE_TIMEOUT_S)
+        except RequestFailed as error:
+            raise HTTPException(503, f"incubator-1's voice did not answer ({error.kind}): {error.detail}"[:300]) \
+                from error
+
+    async def push_to_talk(self, pressed: bool) -> OkResponse:
+        if not self.link.connected:
+            return OkResponse(ok=False, reason="the gateway is not connected to NATS")
+        await self.link.publish(jarvis_subject("incubator-1", "ptt"), PushToTalk(pressed=pressed, sent_utc=utc_now()))
+        return OkResponse(ok=True)
 
     # --- 6C: audit ---
 
@@ -763,6 +796,34 @@ def create_app(gateway: Gateway, *, website_port: int = 5173) -> FastAPI:
     async def acknowledge(node: NodeId, body: AckBody,
                           incident_id: Annotated[str, PathParam(pattern=INCIDENT_ID)]) -> dict[str, Any]:
         return (await gateway.acknowledge(node, incident_id, body.confirm_token)).model_dump(mode="json")
+
+    # --- 6E routes ---
+
+    @app.websocket("/ws/voice")
+    async def voice(websocket: WebSocket) -> None:
+        if not await website_socket(websocket):
+            return
+        outbox = Outbox(VOICE_QUEUE)
+        if gateway.voice_status is not None:
+            outbox.put(gateway.voice_status)
+        gateway.voices.add(outbox)
+
+        async def listen() -> None:
+            while (await websocket.receive())["type"] != "websocket.disconnect":
+                pass
+
+        try:
+            await both(listen(), pump(websocket, outbox))
+        finally:
+            gateway.voices.discard(outbox)
+
+    @app.post("/voice/settings")
+    async def voice_settings(body: VoiceSettings) -> dict[str, Any]:
+        return (await gateway.voice_settings(body)).model_dump(mode="json")
+
+    @app.post("/voice/ptt")
+    async def voice_ptt(body: PttBody) -> dict[str, Any]:
+        return (await gateway.push_to_talk(body.pressed)).model_dump(mode="json")
 
     return app
 

@@ -340,3 +340,59 @@ def test_the_chat_deadline_nests_outside_the_agents_turn() -> None:
     from llm.agent import GATEWAY_CHAT_S, TURN_S
     assert gw.CHAT_DEADLINE_S == GATEWAY_CHAT_S > TURN_S + 2.0
     assert chat_cli.ANSWER_S > gw.CHAT_DEADLINE_S
+
+
+# --- 6E: the voice routes --------------------------------------------------------------------------------------------
+
+def status(state: str = "idle") -> Any:
+    from contracts import VoiceStatus
+    return VoiceStatus(state=state, mic="ok", voice="bm_george", speed=1.0, push_to_talk=False,  # type: ignore[arg-type]
+                       sent_utc=utc_now())
+
+
+@pytest.mark.asyncio
+async def test_voice_status_is_relayed_latest_first(rig: Rig) -> None:
+    await rig.nats.publish("jarvis.incubator-1.voice", status("idle"))
+    for _ in range(100):
+        if rig.gateway.voice_status is not None:
+            break
+        await asyncio.sleep(0.02)
+    async with rig.ws("/ws/voice") as socket:
+        assert (await receive(socket))["state"] == "idle"                       # the latest one at once
+        await rig.nats.publish("jarvis.incubator-1.voice", status("listening"))
+        assert (await receive(socket))["state"] == "listening"
+    with pytest.raises(websockets.InvalidStatus):
+        async with rig.ws("/ws/voice", origin="http://evil.example") as socket:   # type: ignore[arg-type]
+            await socket.recv()
+
+
+@pytest.mark.asyncio
+async def test_voice_settings_and_push_to_talk_reach_incubator_1(rig: Rig) -> None:
+    from contracts import PushToTalk, VoiceSettings, VoiceSettingsResult
+    pressed: list[bool] = []
+
+    async def settings(message: VoiceSettings, subject: str) -> VoiceSettingsResult:
+        return VoiceSettingsResult(ok=True, voice=message.voice, speed=message.speed, voices=["bm_george", "bm_lewis"])
+
+    async def ptt(message: PushToTalk, subject: str) -> None:
+        pressed.append(message.pressed)
+    async with httpx.AsyncClient(base_url=rig.url) as client:
+        absent = await client.post("/voice/settings", json={"schema_version": 1, "type": "voice_settings",
+                                                            "voice": "bm_lewis", "speed": 1.2})
+        assert absent.status_code == 503 and "did not answer" in absent.json()["detail"]
+        await rig.incubator.link.serve("jarvis.incubator-1.voice_settings", VoiceSettings, settings)
+        await rig.incubator.link.subscribe("jarvis.incubator-1.ptt", PushToTalk, ptt)
+        done = await client.post("/voice/settings", json={"schema_version": 1, "type": "voice_settings",
+                                                          "voice": "bm_lewis", "speed": 1.2})
+        assert done.status_code == 200 and done.json()["voice"] == "bm_lewis" and done.json()["ok"]
+        assert (await client.post("/voice/settings", json={"voice": "bm_lewis", "speed": 9.0})).status_code == 422
+        for value in (True, False):
+            answer = await client.post("/voice/ptt", json={"pressed": value})
+            assert answer.json()["ok"] is True
+        assert (await client.post("/voice/ptt", json={"pressed": True}, headers={"origin": "http://evil.example"})
+                ).status_code == 403
+    for _ in range(100):
+        if len(pressed) == 2:
+            break
+        await asyncio.sleep(0.02)
+    assert pressed == [True, False]
