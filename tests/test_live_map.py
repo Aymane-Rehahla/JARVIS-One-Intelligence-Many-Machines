@@ -23,7 +23,8 @@ from comms.nats_link import NatsLink
 LOG = logging.getLogger("test-live-map")
 ROOT = Path(__file__).resolve().parents[1]
 WEB = ROOT / "interface" / "web"
-NODE = Path(os.environ.get("JARVIS_NODE", r"C:\Users\Aymane\node\node-v24.22.1-win-x64\node.exe"))
+NODE = Path(os.environ.get("JARVIS_NODE", Path(__file__).resolve().parents[1] / "third_party" / "node"
+                          / "node-v24.22.1-win-x64" / "node.exe"))
 METRICS = {"incubator-1": 6, "incubator-2": 6, "hvac": 6, "animal-protection": 6}
 pytestmark = pytest.mark.skipif(not (ROOT / "_dev" / "farm_poc_snapshot").is_dir(), reason="the farm snapshot is not here")
 

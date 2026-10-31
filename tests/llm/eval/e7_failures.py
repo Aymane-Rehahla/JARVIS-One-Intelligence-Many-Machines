@@ -12,7 +12,7 @@ gateway). Each case sets one failure, asks one question through `/ws/chat`, and 
 answered, its reason, and no invented number: every reply as sent, whatever its outcome, is verified again against its
 own turn's evidence (the rig keeps it). The outcomes are counted apart (an "error" outcome with a reason is graceful,
 and reported as such).
-The brains-keep-working part of E7 (the safety path without any language model) is P3's real run in WORKLOG.md.
+The brains-keep-working part of E7 (the safety path without any language model) is the 6D real run with start_all.ps1 -NoLlm.
 Out: `logs/eval/E7.json`.
 
 Run (loads the models): `.venv\\Scripts\\python tests\\llm\\eval\\e7_failures.py`
@@ -124,7 +124,7 @@ def main() -> int:
         command=".venv\\Scripts\\python tests\\llm\\eval\\e7_failures.py", commit=git_commit(), seeds=[7], models=rig_models(),
         started_utc=started_utc, duration_s=round(time.monotonic() - started, 1),
         notes="Language-model side. The brains part (faults caught and the safety gate acting with no language model "
-              "at all) is the 6D real run with start_all.ps1 -NoLlm, in WORKLOG.md."))
+              "at all) is the 6D real run with start_all.ps1 -NoLlm."))
     print(f"E7 {graceful}/{len(rows)} graceful -> {path}")
     return 0
 

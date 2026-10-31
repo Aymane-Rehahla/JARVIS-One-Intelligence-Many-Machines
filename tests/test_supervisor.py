@@ -221,3 +221,12 @@ def test_only_one_supervisor_and_stop_without_one(tmp_path: Path, capsys: pytest
     assert sv._claim_single_instance(pid_file)
     pid_file.unlink()
     assert sv.request_stop(tmp_path) == 0 and "no supervisor" in capsys.readouterr().out
+
+
+def test_the_website_uses_the_projects_own_node_then_the_one_on_path(tmp_path: Path) -> None:
+    import supervisor
+    bundled = tmp_path / "third_party" / "node" / "node-v24.22.1-win-x64"
+    assert supervisor.find_node_js(tmp_path, which=lambda _: r"C:\tools\node\npm.cmd") == Path(r"C:\tools\node")
+    bundled.mkdir(parents=True)
+    (bundled / "npm.cmd").write_text("")
+    assert supervisor.find_node_js(tmp_path, which=lambda _: None) == bundled

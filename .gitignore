@@ -14,6 +14,7 @@ third_party/llama.cpp/*
 third_party/nats-server/*
 !third_party/nats-server/README.md
 !third_party/nats-server/nats.conf
+third_party/node/
 interface/web/node_modules/
 interface/web/dist/
 .cache/

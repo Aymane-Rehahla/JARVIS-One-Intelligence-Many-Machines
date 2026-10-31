@@ -20,7 +20,7 @@ FOLDER_READMES = (  # every planned folder that holds tracked files, by its READ
     "tests/README.md", "tests/llm/README.md", "tests/llm/golden/README.md", "tests/llm/retrieval/README.md",
     "tests/llm/integration/README.md", "tests/llm/failures/README.md", "tests/llm/safety/README.md",
     "tests/llm/eval/README.md", "tests/voice/README.md", "tools/README.md", "_dev/README.md", "docs/README.md",
-    "docs/decisions/README.md",
+    
 )
 SHARED_NODE_READMES = ("reasoning/README.md", "memory/README.md", "llm/README.md", "llm/persona/README.md",
                        "voice/README.md", "safety/README.md", "comms/README.md")
@@ -34,7 +34,8 @@ IDENTITY = {  # plan section 1.3
                               model="models/llm/Qwen3-0.6B-Q8_0.gguf"),
 }
 NOT_OURS = (".venv", "interface/web/node_modules", "interface/web/dist", "_dev", ".git", ".cache", ".pytest_cache",
-            ".hypothesis", "logs", "models", "third_party/llama.cpp/bin", "third_party/nats-server/bin")
+            ".hypothesis", "logs", "models", "third_party/llama.cpp/bin", "third_party/nats-server/bin",
+            "third_party/node")
 MODELS_PRESENT = (ROOT / "models" / "llm" / "Qwen3-0.6B-Q8_0.gguf").is_file()
 needs_models = pytest.mark.skipif(not MODELS_PRESENT, reason="models not installed on this machine (see models/README.md)")
 
@@ -126,7 +127,7 @@ def test_memory_holds_no_code_until_6d() -> None:
 
 
 @pytest.mark.parametrize("path", ("models/llm/Qwen3-0.6B-Q8_0.gguf", ".venv/pyvenv.cfg", "logs/x.jsonl",
-                                  "nodes/incubator-1/data/cmm.sqlite", "third_party/llama.cpp/bin/llama-server.exe",
+                                  "nodes/incubator-1/data/cmm.sqlite", "third_party/llama.cpp/bin/llama-server.exe", "third_party/node/x",
                                   "interface/web/node_modules/x", ".cache/old_name_scan.json", ".hypothesis/x"))
 def test_big_or_generated_files_stay_out_of_git(path: str) -> None:
     result = subprocess.run(["git", "check-ignore", "-q", path], cwd=ROOT, check=False)

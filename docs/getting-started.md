@@ -1,35 +1,47 @@
-# Getting started: set up, run, and try JARVIS
+# Getting started
 
-Windows 10 or 11, PowerShell, from the project folder. About 5 GB of disk for the models.
+Windows 10 or 11, about 8 GB of free disk, an internet connection for the first setup. A GPU with Vulkan drivers
+(8 GB) runs the language models; the brains, search and voice run on the CPU. A microphone and speakers for voice.
 
-## 1. Set up once
+## 1. Set up (once)
 
-```powershell
-py -3.12 -m venv .venv
-.venv\Scripts\python -m pip install --require-hashes -r requirements.lock
-cd interface\web; npm ci; cd ..\..
-```
-
-The model weights (`models/`) and the native programs (`third_party/`: llama.cpp and the NATS server) are too large
-for git. Where each one comes from, and its SHA-256, is listed in `models/README.md`, `models/MANIFEST.json` and
-`third_party/README.md`. Check them with:
+From the project folder, in PowerShell:
 
 ```powershell
-.venv\Scripts\python tools\hash_models.py check
+powershell -ExecutionPolicy Bypass -File .\setup.ps1
 ```
 
-The 3D farm models come as a separate archive (the GitHub release); unpack it with `.venv\Scripts\python tools\farm_assets.py unpack <zip>`.
+It does everything, and can be run again to resume:
+
+1. finds Python 3.12 (installs it with winget if missing);
+2. creates `.venv` and installs the exact, hash-checked Python packages (`requirements.lock`);
+3. downloads, with `tools/download.py`, every file git does not carry, each checked against its SHA-256:
+   the language models (Qwen 3.5 2B, Qwen3-0.6B), bge-small, the voice models (Silero VAD, Parakeet, Kokoro,
+   openWakeWord), llama.cpp (Vulkan build b11829), the NATS server (v2.15.1) and a portable Node.js (v24.22.1);
+4. installs the website's packages.
+
+**The 3D farm models** (277 MB, too large for git) come as `JARVIS-farm-assets.zip`, attached to the GitHub release.
+Put the zip in the project folder before running setup, or add it later:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\setup.ps1 -Assets <path to JARVIS-farm-assets.zip, or its URL>
+```
+
+Without them everything works, but the 3D farm view stays empty.
 
 ## 2. Run
 
 ```powershell
-launcher\start_all.ps1 -NoMonitor     # everything, in order, each one health-checked and restarted if it falls over
-launcher\stop_all.ps1                 # everything off
+powershell -ExecutionPolicy Bypass -File .\launcher\start_all.ps1 -NoMonitor   # starts everything, opens the website
+powershell -ExecutionPolicy Bypass -File .\launcher\stop_all.ps1               # stops everything
 ```
 
-Then open <http://127.0.0.1:5173>. Every port is in `launcher/ports.toml`; all of them listen on 127.0.0.1 only.
+The first start takes a minute or two while the models load. The website is <http://127.0.0.1:5173>. Every port is
+in `launcher/ports.toml`; everything listens on 127.0.0.1 only.
 
 ## 3. Use it
+
+Create an account (two seats; a mentor key gives your questions priority). A short tour shows the pages once.
 
 | Page | What to do there |
 |---|---|
@@ -39,17 +51,18 @@ Then open <http://127.0.0.1:5173>. Every port is in `launcher/ports.toml`; all o
 | JARVIS | each node's CTM brain and memory, and the language-model settings |
 | Events & alarms | every assessment and alert, in order |
 
-The farm is deliberately calm: it raises nothing until you inject a fault. A trained brain takes from a few seconds
-(fire, overvoltage) to about three farm minutes (a fan failure) to be sure; speed the farm up to 30× to wait less,
-then return to 1× to ask about it.
+The farm is calm until you inject a fault. A trained brain takes from seconds (fire, overvoltage) to about three
+farm minutes (a fan failure) to be sure: set the speed to 30× to wait less, then back to 1× to ask about it.
 
-Faults can also be injected without the website, through the gateway:
-`POST http://127.0.0.1:8010/faults/supply_fan_failure`, and `POST http://127.0.0.1:8010/sim/reset` for a fresh farm.
-The 20 fault names are `ScenarioId` in `interface/contracts/`.
+Faults can also be injected without the website: `POST http://127.0.0.1:8010/faults/supply_fan_failure`, and
+`POST http://127.0.0.1:8010/sim/reset` for a fresh farm. The 20 fault names are `ScenarioId` in
+`interface/contracts/`.
 
 ## 4. Test
 
 ```powershell
-.venv\Scripts\python -m pytest            # about 1 000 tests; heavy model tests are listed in tests/DEFERRED.md
-cd interface\web; npm run build
+.venv\Scripts\python -m pytest            # about 1 000 tests, a few minutes; heavy model tests are in tests/DEFERRED.md
+cd interface\web; ..\..\third_party\node\node-v24.22.1-win-x64\npm.cmd run build
 ```
+
+The evaluation behind `docs/results.md` is in `tests/llm/eval/` (`run_all.py` writes `tests/llm/eval/report.md`).

@@ -36,7 +36,8 @@ NESTED_ONLY = {"NodeView", "GateDecision", "Citation", "ToolUse", "ReplyTimings"
 
 ROOT = Path(__file__).resolve().parents[1]
 WEB = ROOT / "interface" / "web"
-NODE = Path(os.environ.get("JARVIS_NODE", r"C:\Users\Aymane\node\node-v24.22.1-win-x64\node.exe"))
+NODE = Path(os.environ.get("JARVIS_NODE", Path(__file__).resolve().parents[1] / "third_party" / "node"
+                          / "node-v24.22.1-win-x64" / "node.exe"))
 
 
 def snapshot() -> gw.FarmSnapshot:

@@ -17,6 +17,7 @@ from pathlib import Path
 
 import pytest
 
+from download import PROGRAM_FILES
 from name_guard import NEEDLES, OLD, contains, history_offenders, identity_offenders, staged_offenders
 from name_guard import main as name_guard_main
 
@@ -136,6 +137,9 @@ def test_big_files_are_only_manifest_checked_model_weights() -> None:
             continue
         if rel in assets:
             assert hashlib.sha256(path.read_bytes()).hexdigest() == assets[rel], f"{rel} differs from its manifest"
+            continue
+        if rel in PROGRAM_FILES:                                     # the bundled Node.js (tools/download.py)
+            assert hashlib.sha256(path.read_bytes()).hexdigest() == PROGRAM_FILES[rel], f"{rel} differs from its hash"
             continue
         assert rel.startswith("models/") and rel.removeprefix("models/") in manifest, f"{rel} is big but not a model"
 

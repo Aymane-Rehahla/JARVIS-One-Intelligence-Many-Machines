@@ -19,7 +19,8 @@ import gateway as gw
 
 ROOT = Path(__file__).resolve().parents[1]
 WEB = ROOT / "interface" / "web"
-NODE = Path(os.environ.get("JARVIS_NODE", r"C:\Users\Aymane\node\node-v24.22.1-win-x64\node.exe"))
+NODE = Path(os.environ.get("JARVIS_NODE", Path(__file__).resolve().parents[1] / "third_party" / "node"
+                          / "node-v24.22.1-win-x64" / "node.exe"))
 pytestmark = pytest.mark.skipif(not NODE.is_file(), reason=f"Node 24 is not at {NODE} (set JARVIS_NODE)")
 TEXT = "The supply fan has failed, sir. That is as of farm time 06:08."
 PIECES = ["The supply fan has failed, sir. ", "That is as of farm time 06:08."]

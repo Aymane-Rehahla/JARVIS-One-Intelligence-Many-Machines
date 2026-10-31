@@ -32,10 +32,13 @@ import contextlib
 import json
 import logging
 import os
+import shutil
+import shutil
 import socket
 import sys
 import time
 import tomllib
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import IO, Any, Literal
@@ -57,7 +60,7 @@ from winjob import Job, start_in_job  # noqa: E402
 PYTHON = ROOT / ".venv" / "Scripts" / "python.exe"
 NATS_SERVER = ROOT / "third_party" / "nats-server" / "bin" / "nats-server.exe"
 NATS_CONF = ROOT / "third_party" / "nats-server" / "nats.conf"
-NODE_JS = Path(r"C:\Users\Aymane\node\node-v24.22.1-win-x64")
+NODE_VERSION = "node-v24.22.1-win-x64"                 # tools/download.py puts it in third_party/node/
 MAX_RESTARTS = 5
 RESTART_WINDOW_S = 600.0
 BACKOFF_S = (1.0, 2.0, 4.0, 8.0, 16.0, 30.0)
@@ -119,6 +122,16 @@ def read_ports(path: Path) -> dict[str, Any]:
     return tomllib.loads(path.read_text(encoding="utf-8"))
 
 
+
+def find_node_js(root: Path = ROOT, which: Callable[[str], str | None] = shutil.which) -> Path | None:
+    """The folder holding npm.cmd: the project's own Node.js first, then the one on PATH."""
+    bundled = root / "third_party" / "node" / NODE_VERSION
+    if (bundled / "npm.cmd").is_file():
+        return bundled
+    found = which("npm.cmd") or which("npm")
+    return Path(found).parent if found else None
+
+
 def build_programs(ports: dict[str, Any], *, llm: bool, website: bool, nodes: tuple[NodeId, ...] = NODE_IDS,
                    ports_file: Path = ROOT / "launcher" / "ports.toml", feed: str = "trained",
                    voice_wav: Path | None = None) -> list[Program]:
@@ -152,11 +165,12 @@ def build_programs(ports: dict[str, Any], *, llm: bool, website: bool, nodes: tu
                             Health("http", url=f"http://{host}:{gateway_port}/health"), depends_on=("nats", "farm"),
                             ready_timeout_s=60.0))
     if website:
-        npm = NODE_JS / "npm.cmd"
+        node_js = find_node_js() or ROOT / "third_party" / "node" / NODE_VERSION      # missing: run setup.ps1
+        npm = node_js / "npm.cmd"
         programs.append(Program("website", (str(npm), "run", "dev", "--", "--host", host, "--port",
                                             str(ports["website"]), "--strictPort"), ROOT / "interface" / "web",
                                 Health("http", url=f"http://{host}:{ports['website']}/"), depends_on=("gateway",),
-                                ready_timeout_s=90.0, env=(("PATH", f"{NODE_JS};{os.environ.get('PATH', '')}"),)))
+                                ready_timeout_s=90.0, env=(("PATH", f"{node_js};{os.environ.get('PATH', '')}"),)))
     return programs
 
 

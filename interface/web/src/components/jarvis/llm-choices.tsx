@@ -2,7 +2,7 @@ import { cn } from "@/lib/utils"
 
 /**
  * The language side of JARVIS, one design choice per card: what was chosen, why, and what it measured
- * (docs/results-phase6.md, docs/decisions/). The numbers are copied from the evaluation report, misses included.
+ * (docs/results.md, docs/decisions.md). The numbers are copied from the evaluation report, misses included.
  */
 type Choice = { id: string; title: string; chose: string; why: string; measured?: string; decision?: string; star?: boolean }
 

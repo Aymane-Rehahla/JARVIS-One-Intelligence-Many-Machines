@@ -25,9 +25,14 @@ is wrong.
 
 ## Try it (Windows)
 
+You need Windows 10 or 11, about 8 GB of free disk, and ideally a GPU with Vulkan drivers and 8 GB of memory.
+
 ```powershell
-launcher\start_all.ps1 -NoMonitor      # starts everything: the farm, the four nodes, the models, the gateway, the website
+powershell -ExecutionPolicy Bypass -File .\setup.ps1                        # once: packages, models (3.8 GB), programs
+powershell -ExecutionPolicy Bypass -File .\launcher\start_all.ps1 -NoMonitor  # starts everything, opens the website
 ```
+
+Setup can be run again at any time: it resumes and skips what is already in place.
 
 Open <http://127.0.0.1:5173>, create an account (two people can use JARVIS at once; a mentor key gives priority),
 and follow the short tour that appears on first sign-in. Then:
@@ -37,7 +42,7 @@ and follow the short tour that appears on first sign-in. Then:
 - **JARVIS** page: watch each machine's brain think, and see which language models do the talking.
 - **Events & alarms**: the timeline of every assessment and alert.
 
-`launcher\stop_all.ps1` stops everything. Setup from scratch is in [docs/getting-started.md](docs/getting-started.md).
+`launcher\stop_all.ps1` stops everything. More detail, and how to add the 3D farm models, in [docs/getting-started.md](docs/getting-started.md).
 
 ## What was measured
 
@@ -49,7 +54,7 @@ and follow the short tour that appears on first sign-in. Then:
 | Time from a fault alert to JARVIS speaking it | 1.44 s |
 | Not solved yet | a slow humidity-sensor drift (0 of 5, rules miss it too); spoken replies take about 8 s |
 
-Every number, with how it was measured, is in [docs/results-phase6.md](docs/results-phase6.md).
+Every check, target and number is in [docs/results.md](docs/results.md).
 
 ## Built with
 
@@ -69,14 +74,14 @@ Hardware it was built on: AMD Ryzen 5 5600G, 16 GB RAM, AMD Radeon RX 580 (8 GB)
 | `launcher/` | start and stop everything; every port is in `ports.toml` |
 | `tools/` | model checks, knowledge approval, small maintenance scripts |
 | `tests/` | `pytest` runs every test |
-| `docs/` | the details: architecture, decisions, results, the story ([docs/README.md](docs/README.md)) |
+| `docs/` | the details: how it works, results, decisions, setup |
 | `_dev/` | the farm code the brains were trained with, kept read-only for reference |
 
 ## Learn more
 
-- [docs/architecture.md](docs/architecture.md): the programs and how a fault becomes an alert
-- [docs/story.md](docs/story.md): why it was built this way, and what is still open
-- [docs/decisions/](docs/decisions/): one short record per big decision
-- [docs/results-phase6.md](docs/results-phase6.md): every measurement
+- [docs/getting-started.md](docs/getting-started.md): set up, run, use and test it
+- [docs/how-it-works.md](docs/how-it-works.md): the parts, the programs, how a fault becomes an alert
+- [docs/results.md](docs/results.md): what was measured, what met its target and what did not
+- [docs/decisions.md](docs/decisions.md): the big choices, one line each
 
 Built by Aymane Rehahla.

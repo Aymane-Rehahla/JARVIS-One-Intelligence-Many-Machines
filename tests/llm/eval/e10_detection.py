@@ -137,7 +137,7 @@ def main(argv: list[str] | None = None) -> int:
                 for m, e in sorted(fr.ENGINE_FILES.items())}, started_utc=started_utc,
         duration_s=round(time.monotonic() - started, 1),
         notes="Detection part only: the explanation part (machine, cause, verified numbers in the agent's words) is "
-              "not measured by any script (the rehearsals in WORKLOG.md show replies by hand). The fault variants are "
+              "not measured by any script (the rehearsals of 31 Oct showed replies by hand). The fault variants are "
               "the scenario library's own; only the engine's noise seeds are new (checked unused in training). "
               "Trained feed with renamed random seeds (decision 0021). A fault ending before detection counts as "
               "not caught. Not tuned."))

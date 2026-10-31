@@ -1,4 +1,4 @@
-"""The evaluation report (plan section 8): reads every result in logs/eval/ and writes docs/results-phase6.md.
+"""The evaluation report (plan section 8): reads every result in logs/eval/ and writes tests/llm/eval/report.md.
 
     .venv\\Scripts\\python tests\\llm\\eval\\run_all.py [--results DIR] [--out FILE]
 
@@ -24,7 +24,7 @@ from pydantic import JsonValue  # noqa: E402
 
 from eval_results import OUT, EvalResult, git_commit, read_results, utc_now  # noqa: E402
 
-DEFAULT_OUT = ROOT / "docs" / "results-phase6.md"
+DEFAULT_OUT = ROOT / "tests" / "llm" / "eval" / "report.md"
 SCRIPT = "tests/llm/eval/run_all.py"
 CUT_ID = "E11"
 CUT_TEXT = "cut (decision 0016)"
@@ -32,7 +32,7 @@ LONG_LIST_CHARS = 160            # a list longer than this (as JSON) is named by
 NOT_RUN = "not run yet"
 SHORT_HASH = 12
 
-# The metrics and targets of plan section 8 (docs/phase6-llm-plan.md), copied word for word.
+# The metrics and targets of plan section 8 (the Phase 6 plan), copied word for word.
 PLAN: dict[str, tuple[str, str]] = {
     "E1": ("Grounded numbers", "100 % after verify (the before figure shows why verify exists)"),
     "E2": ("Correct citations", "≥ 95 %"),

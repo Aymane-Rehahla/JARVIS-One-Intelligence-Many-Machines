@@ -1,7 +1,7 @@
 # models/: model weights, stored once
 
 Each node loads its own instance from here. These files are not in git (too big); only this README and
-`MANIFEST.json` are.
+`MANIFEST.json` are. `setup.ps1` (through `tools/download.py`) downloads every one and checks its SHA-256.
 
 | Folder | Files | Size | Used by | Source |
 |---|---|---|---|---|
