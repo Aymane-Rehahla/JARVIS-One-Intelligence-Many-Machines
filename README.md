@@ -89,4 +89,4 @@ Built by Aymane Rehahla.
 ##Note: due to a power outage i missed the deadline by few minutes, if you are curious to try it, the video i GitHub has the missing test video and here is the demo link: 
 the video : https://drive.google.com/file/d/1CJqo7Z9tVlQ80B3htKrrFPWZJKh5vgV0/view?usp=sharing
 old link expired because of a machine restart
-the demo : https://andrea-soundtrack-happens-curious.trycloudflare.com/
+the demo : https://ingredients-temple-mode-pillow.trycloudflare.com/
