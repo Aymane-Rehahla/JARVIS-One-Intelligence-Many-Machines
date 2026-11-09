@@ -88,5 +88,6 @@ Built by Aymane Rehahla.
 
 ##Note: due to a power outage i missed the deadline by few minutes, if you are curious to try it, the video i GitHub has the missing test video and here is the demo link: 
 the video : https://drive.google.com/file/d/1CJqo7Z9tVlQ80B3htKrrFPWZJKh5vgV0/view?usp=sharing
-old link expired because of a machine restart
-the demo : https://rays-followed-chapel-liverpool.trycloudflare.com/
+The live demo is offline: in its first 9 days online the site got no visits, and I can't keep my PC running 24/7.
+
+If you are a mentor, or anyone curious to see JARVIS running, email me at rehahlaaymane@gmail.com and I'll do my best to put it back online for you.
